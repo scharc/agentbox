@@ -20,38 +20,14 @@ def _default_socket_path() -> Path:
     return Path(f"/run/user/{os.getuid()}/agentbox-notify.sock")
 
 
-def _config_path() -> Path:
-    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "agentbox" / "proxy.json"
-
-
-def _load_config() -> Dict[str, Any]:
-    path = _config_path()
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text())
-    except Exception:
-        return {}
-
-
 class AgentboxProxy:
-    def __init__(self, socket_path: Path, config: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, socket_path: Path) -> None:
         self.socket_path = socket_path
-        self.config = config or {}
         self.handlers = {
             "notify": self._handle_notify,
         }
 
-    def _notify_enabled(self) -> bool:
-        cfg = self.config.get("notify", {})
-        if isinstance(cfg, dict):
-            return cfg.get("enabled", True)
-        return True
-
     def _handle_notify(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        if not self._notify_enabled():
-            return {"ok": False, "error": "notify_disabled"}
-
         title = str(payload.get("title", "Agentbox"))
         message = str(payload.get("message", "Notification"))
         urgency = str(payload.get("urgency", "normal"))
@@ -133,5 +109,5 @@ class AgentboxProxy:
 
 def run_proxy(socket_path: Optional[str] = None) -> None:
     path = Path(socket_path) if socket_path else _default_socket_path()
-    proxy = AgentboxProxy(path, _load_config())
+    proxy = AgentboxProxy(path)
     proxy.serve_forever()

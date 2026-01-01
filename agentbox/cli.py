@@ -26,6 +26,17 @@ from agentbox.library import LibraryManager
 
 console = Console()
 
+BANNER = (
+    " ______   ______  ________ __    __ ________ __                         \n"
+    " /      \\ /      \\|        \\  \\  |  \\        \\  \\                        \n"
+    "|  ▓▓▓▓▓▓\\  ▓▓▓▓▓▓\\ ▓▓▓▓▓▓▓▓ ▓▓\\ | ▓▓\\▓▓▓▓▓▓▓▓ ▓▓____   ______  __    __ \n"
+    "| ▓▓__| ▓▓ ▓▓ __\\▓▓ ▓▓__   | ▓▓▓\\| ▓▓  | ▓▓  | ▓▓    \\ /      \\|  \\  /  \\\n"
+    "| ▓▓    ▓▓ ▓▓|    \\ ▓▓  \\  | ▓▓▓▓\\ ▓▓  | ▓▓  | ▓▓▓▓▓▓▓\\  ▓▓▓▓▓▓\\\\▓▓\\/  ▓▓\n"
+    "| ▓▓▓▓▓▓▓▓ ▓▓ \\▓▓▓▓ ▓▓▓▓▓  | ▓▓\\▓▓ ▓▓  | ▓▓  | ▓▓  | ▓▓ ▓▓  | ▓▓ >▓▓  ▓▓ \n"
+    "| ▓▓  | ▓▓ ▓▓__| ▓▓ ▓▓_____| ▓▓ \\▓▓▓▓  | ▓▓  | ▓▓__/ ▓▓ ▓▓__/ ▓▓/  ▓▓▓▓\\ \n"
+    "| ▓▓  | ▓▓\\▓▓    ▓▓ ▓▓     \\ ▓▓  \\▓▓▓  | ▓▓  | ▓▓    ▓▓\\▓▓    ▓▓  ▓▓ \\▓▓\\\n"
+    " \\▓▓   \\▓▓ \\▓▓▓▓▓▓ \\▓▓▓▓▓▓▓▓\\▓▓   \\▓▓   \\▓▓   \\▓▓▓▓▓▓▓  \\▓▓▓▓▓▓ \\▓▓   \\▓▓\n"
+)
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover
@@ -85,6 +96,43 @@ def _resolve_container_and_args(
     return container_name, args
 
 
+def _ensure_container_running(manager: ContainerManager, container_name: str) -> bool:
+    """Ensure the container exists and is running, auto-starting if needed.
+
+    Args:
+        manager: ContainerManager instance
+        container_name: Full container name
+
+    Returns:
+        True if container is running (or was started), False otherwise
+    """
+    if manager.is_running(container_name):
+        return True
+
+    # Container exists but not running - start it
+    if manager.container_exists(container_name):
+        console.print(f"[blue]Container {container_name} is not running. Starting...[/blue]")
+        manager.start_container(container_name)
+        return True
+
+    # Container doesn't exist - create it
+    console.print(f"[blue]Container {container_name} doesn't exist. Creating and starting...[/blue]")
+    env_project_dir = os.getenv("AGENTBOX_PROJECT_DIR")
+    project_dir = Path(env_project_dir) if env_project_dir else Path.cwd()
+    project_name = manager.get_project_name(project_dir)
+
+    try:
+        manager.create_container(
+            project_name=project_name,
+            project_dir=project_dir,
+        )
+        console.print(f"[green]Container {container_name} created and started[/green]")
+        return True
+    except Exception as e:
+        console.print(f"[red]Failed to create container: {e}[/red]")
+        return False
+
+
 def _run_agent_command(
     manager: ContainerManager,
     project: Optional[str],
@@ -97,9 +145,8 @@ def _run_agent_command(
 ) -> None:
     container_name, args = _resolve_container_and_args(manager, project, args)
 
-    if not manager.is_running(container_name):
-        console.print(f"[red]Container {container_name} is not running[/red]")
-        console.print(f"[blue]Start it with: agentbox start[/blue]")
+    if not _ensure_container_running(manager, container_name):
+        console.print(f"[red]Failed to start container {container_name}[/red]")
         sys.exit(1)
 
     cmd = [command]
@@ -171,8 +218,6 @@ def _run_agent_command(
         "HOME=/home/abox",
         "-e",
         "USER=abox",
-        "-e",
-        "AGENTBOX_NOTIFY_SOCKET=/home/abox/.agentbox/notify.sock",
         container_name,
         "/bin/bash",
         "-lc",
@@ -535,7 +580,7 @@ def _dump_codex_toml(data):
 
 
 @click.group(invoke_without_command=True)
-@click.version_option(version="0.1.0")
+@click.version_option(version="0.1.1")
 def cli():
     """Agentbox - Secure, isolated Docker environment for Claude Code."""
     ctx = click.get_current_context()
@@ -575,7 +620,6 @@ def cli():
             ]),
             ("Other", [
             ("hosts", "Manage /etc/hosts (add/remove/list)"),
-            ("notify", "Send a host notification (beep optional)"),
             ("proxy", "Host proxy daemon (install/serve)"),
             ("volume", "Manage extra mounts (list/add/remove)"),
         ]),
@@ -586,50 +630,6 @@ def cli():
             _print_table(title, rows, width)
         click.echo("Use --help for full command details.")
         return
-
-
-@cli.command()
-@click.argument("message", nargs=-1)
-@click.option("--title", "-t", default="Agentbox", help="Notification title")
-@click.option("--urgency", "-u", default="normal", type=click.Choice(["low", "normal", "critical"]))
-def notify(message: tuple, title: str, urgency: str):
-    """Send a host notification (beep on critical)."""
-    text = " ".join(message).strip()
-    if not text:
-        console.print("[red]Message required[/red]")
-        sys.exit(1)
-
-    try:
-        manager = ContainerManager()
-        container_name, _ = _resolve_container_and_args(manager, None, tuple())
-
-        if not manager.is_running(container_name):
-            console.print(f"[red]Container {container_name} is not running[/red]")
-            console.print(f"[blue]Start it with: agentbox start[/blue]")
-            sys.exit(1)
-
-        cmd = [
-            "docker",
-            "exec",
-            "-it",
-            "-u",
-            "abox",
-            "-e",
-            "HOME=/home/abox",
-            "-e",
-            "USER=abox",
-            "-e",
-            f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{os.getuid()}/bus",
-            container_name,
-            "/usr/local/bin/notify",
-            title,
-            text,
-            urgency,
-        ]
-        os.execvp("docker", cmd)
-    except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
-        sys.exit(1)
 
 
 @cli.group()
@@ -1830,6 +1830,7 @@ def rebuild():
 def init():
     """Initialize .agentbox/ directory structure for the project."""
     try:
+        console.print(BANNER, highlight=False, markup=False)
         # Get project directory
         env_project_dir = os.getenv("AGENTBOX_PROJECT_DIR")
         project_dir = Path(env_project_dir) if env_project_dir else Path.cwd()
@@ -1920,10 +1921,35 @@ state/
 def update():
     """Update the Agentbox base image."""
     try:
-        console.print("[blue]Pulling latest base image updates...[/blue]")
-        console.print("[yellow]Note: You need to rebuild the base image manually:[/yellow]")
-        console.print("  cd /x/coding/agentbox")
-        console.print("  docker build -f Dockerfile.base -t agentbox-base:latest .")
+        repo_root = None
+        for candidate in [Path.cwd(), *Path.cwd().parents]:
+            if (candidate / "Dockerfile.base").is_file():
+                repo_root = candidate
+                break
+
+        if repo_root is None:
+            console.print("[red]Dockerfile.base not found in current or parent directories.[/red]")
+            console.print("[yellow]Run this from the Agentbox repo or build manually:[/yellow]")
+            console.print("  docker build -f Dockerfile.base -t agentbox-base:latest .")
+            sys.exit(1)
+
+        console.print(f"[blue]Rebuilding base image from {repo_root}...[/blue]")
+        result = subprocess.run(
+            [
+                "docker",
+                "build",
+                "-f",
+                str(repo_root / "Dockerfile.base"),
+                "-t",
+                "agentbox-base:latest",
+                str(repo_root),
+            ],
+            check=False,
+        )
+        if result.returncode != 0:
+            console.print("[red]Docker build failed.[/red]")
+            sys.exit(result.returncode)
+        console.print("[green]✓ Base image rebuilt[/green]")
 
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")

@@ -256,7 +256,6 @@ class ContainerManager:
             "USER": username,  # Pass username for container scripts
             "HOST_UID": str(host_uid),
             "HOST_GID": str(host_gid),
-            "AGENTBOX_NOTIFY_SOCKET": "/home/abox/.agentbox/notify.sock",
             "GIT_AUTHOR_NAME": git_author_name,
             "GIT_AUTHOR_EMAIL": git_author_email,
             "GIT_COMMITTER_NAME": git_author_name,

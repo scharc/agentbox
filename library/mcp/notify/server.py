@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional, Tuple
 
 SOCKET_PATH = "/home/abox/.agentbox/notify.sock"
 SERVER_NAME = "agentbox-notify"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.1.1"
 DEFAULT_PROTOCOL_VERSION = "2024-11-05"
 
 
@@ -180,8 +180,6 @@ def _handle_tools_call(params: Dict[str, Any]) -> Dict[str, Any]:
     title = str(arguments.get("title", "Agentbox"))
     message = arguments.get("message")
     urgency = str(arguments.get("urgency", "normal"))
-    if urgency == "high":
-        urgency = "critical"
 
     if not message:
         return {"content": [{"type": "text", "text": "Missing message"}], "isError": True}
