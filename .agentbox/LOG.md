@@ -1,0 +1,48 @@
+# Agentbox Log
+
+- Reused tmux sessions for container shell attach/detach behavior.
+- Enabled tmux session reuse for agent commands and added tmux session listing.
+- [2025-12-31 07:53:19] TMUX Reconnect Behavior: Do you want reconnectable tmux sessions for: (1) shell only, (2) shell+claude, (3) shell+claude+superclaude? If option 2 or 3, should each be a single reused session per container, or per project+command? (urgency: normal)
+- [2025-12-31 07:54:10] Clarify AGENT: When you say 'abox AGENT', do you mean: claude, codex, superclaude, or all agent commands? Also should a session keep the agent running persistently (e.g., leave it open even after you detach), or should it recreate if the process exits? (urgency: normal)
+- [2025-12-31 09:42:39] Added nested tmux prefix override (C-a by default when running inside tmux) so container detach doesn't drop host tmux.
+- [2025-12-31 09:59:40] Fixed tmux prefix option string interpolation bug in cli.
+- [2025-12-31 10:25:48] Prevented container exit when inner tmux session closes by keeping entrypoint alive.
+- [2025-12-31 10:47:27] Added tmux/session commands to list sessions with attach hints and remove sessions.
+- [2025-12-31 10:48:27] Silenced tmux list errors when no server is running.
+- [2025-12-31 10:53:53] Simplified tmux session names and limited session commands to the project container.
+- [2025-12-31 11:21:33] Run tmux session list/remove as abox user so sessions show up.
+- [2025-12-31 11:25:10] Run tmux list/remove via login shell to match tmux socket env.
+- [2025-12-31 11:29:17] Run tmux list/remove directly with TMUX_TMPDIR to avoid shell init errors.
+- [2025-12-31 11:58:28] Resolve tmux socket path and pass -S for list/attach/remove.
+- [2025-12-31 12:02:52] Use absolute tmux/id paths for session commands to avoid PATH issues.
+- [2025-12-31 12:06:03] Fix tmux session parsing for trailing tabs and remove attach column.
+- [2025-12-31 12:09:20] Simplified session list columns and added reconnect hints.
+- [2025-12-31 12:14:34] Added shell completion for session remove names.
+- [2025-12-31 12:15:14] Added session attach command with completion.
+- [2025-12-31 12:18:04] Dropped project args for session commands (project inferred from cwd).
+- [2025-12-31 12:26:26] Added MIT LICENSE and SPDX headers to source files.
+- [2025-12-31 12:27:32] Added .agentbox and local agent docs to .gitignore.
+- [2025-12-31 12:30:01] Rewrote README for publication without emojis or em dashes.
+- [2025-12-31 12:42:26] Expanded README with features, proxy service, and session management.
+- [2025-12-31 12:44:21] Added WIP, Linux scope, and contribution notes to README.
+- [2025-12-31 12:46:01] Rewrote README in a more narrative style with detailed feature descriptions.
+- [2025-12-31 12:47:45] Documented autonomous agents and notify-send based prompts.
+- [2025-12-31 12:50:09] Clarified per-project commands and credential bootstrap in README.
+- [2025-12-31 12:51:26] Documented AGENTS.md sync, config polling, and notify socket details in README.
+- [2025-12-31 12:53:39] Expanded README with beginner context, diagram, and MCP details.
+- [2025-12-31 12:54:54] Added clone instructions and shell completion notes to README.
+- [2025-12-31 12:57:32] Added bash completion and documented default agent context notes.
+- [2025-12-31 12:59:13] Documented credential bootstrap sources and Gemini note.
+- [2025-12-31 13:02:11] Emphasized autonomous mode and super commands in README.
+- [2025-12-31 13:04:20] Expanded autonomous mode section with examples and anecdotes.
+- [2025-12-31 13:06:38] Created release branches and moved v0.1.0 tag to squashed release commit.
+- [2025-12-31 12:34:12] Removed obsolete test scripts and tightened ignored local files.
+- [2025-01-01 09:15:00] Implemented `agentbox update` to rebuild the base Docker image from the repo root.
+- [2026-01-01 07:27:53] Bumped project version to 0.1.1.
+- [2026-01-01 07:45:00] Added auto-start functionality: containers now auto-start when running shell/claude/codex/notify commands.
+- [2026-01-01 08:30:00] Cleaned up notification system: removed `agentbox notify` CLI command (redundant), removed AGENTBOX_NOTIFY_SOCKET env var (hard-coded paths instead), removed urgency mapping duplication from MCP server (only in proxy now), removed unused config feature from proxy. Added comprehensive NOTIFICATION_ARCHITECTURE.md documentation.
+- [2026-01-01 09:00:00] Restructured README with improved onboarding: rewrote intro emphasizing safety+power (autonomous agents with blast radius control), added "Why Agentbox?" section explaining the IoT hacking origin story and Docker abstraction benefits, added "Real Workflow Support" section covering multi-directory mounts and library system, added concrete "Autonomous Workflow Example" walkthrough, added comparison table (host vs container risk levels), expanded "How it Works" with architecture diagrams, container lifecycle, config split/merge system explanation, and notification flow.
+- [2026-01-01 09:30:00] Expanded README for new user onboarding: added detailed prerequisites section with installation instructions for Docker, Python 3.12, and Poetry; added comprehensive "First Run: Step-by-Step Walkthrough" with 6 steps from init to autonomous mode; added "What Gets Created" section showing project directory structure, Docker paths, and system-wide files; added extensive troubleshooting section covering container startup, credentials, config sync, notifications, tmux, file access, performance, and debugging; added comprehensive FAQ with 25+ questions covering general usage, autonomous mode, configuration, workflow, and advanced topics.- [2026-01-01 10:00:00] Restructured documentation with human voice: rewrote README as brief, welcoming overview with IoT hacking origin story and quick example; emphasized auto-reattach workflow (type same command again to reconnect); split detailed content into focused docs directory: getting-started.md (first run walkthrough), configuration.md (MCP/skills/volumes and config sync system), workflows.md (common usage patterns and examples), architecture.md (how it works under the hood); removed AI-generated sounding technical documentation.
+- [2026-01-01 10:15:00] Moved notification documentation to docs/notifications.md and rewrote in human voice to match other docs; removed technical AI-generated NOTIFICATION_ARCHITECTURE.md.
+- [2026-01-01 10:20:00] Added link to notifications doc in README.
+- [2026-01-01 10:25:00] Cleaned up version numbers for v0.1.1 release.
