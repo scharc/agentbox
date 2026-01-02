@@ -235,7 +235,8 @@ tmux new-session -d -s ${SESSION_NAME} /bin/bash; \
 tmux set-option -t ${SESSION_NAME} status on; \
 tmux set-option -t ${SESSION_NAME} status-position top; \
 tmux set-option -t ${SESSION_NAME} status-style 'bg=colour226,fg=colour232'; \
-tmux set-option -t ${SESSION_NAME} mouse off; \
+tmux set-option -t ${SESSION_NAME} mouse on; \
+tmux set-option -t ${SESSION_NAME} set-clipboard on; \
 tmux set-option -t ${SESSION_NAME} history-limit 50000; \
 tmux set-option -t ${SESSION_NAME} status-left ' AGENTBOX SHELL '; \
 tmux set-option -t ${SESSION_NAME} status-right ''; \
