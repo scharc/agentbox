@@ -67,8 +67,6 @@ class LibraryManager:
         servers = []
         for server_path in self.mcp_dir.iterdir():
             if server_path.is_dir():
-                if server_path.name == "notify":
-                    continue
                 package_json = server_path / "package.json"
                 readme_file = server_path / "README.md"
 

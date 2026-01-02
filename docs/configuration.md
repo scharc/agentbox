@@ -8,12 +8,15 @@ When you run `agentbox init`, you get:
 
 ```
 .agentbox/
-├── config.json    # Claude settings and MCP servers
-├── codex.toml     # Codex settings and MCP servers
+├── agentbox.config.json  # Unified config (source of truth)
+├── config.json           # Generated Claude config
+├── codex.toml            # Generated Codex config
 └── volumes.json   # Extra directory mounts
 ```
 
-These files sync with the runtime config inside the container. Edit on host, agent sees changes. Agent edits inside container, you see changes on host.
+The unified file is the source of truth. Per-agent files are generated from it and sync with the runtime config inside the container. Edit on host, agent sees changes. Agent edits inside container, you see changes on host.
+
+Tip: `agentbox init --onboard` seeds the unified config from your local Claude and Codex configs.
 
 ## MCP Servers
 
@@ -34,7 +37,13 @@ agentbox mcp add github
 agentbox mcp add filesystem
 ```
 
-This updates `.agentbox/config.json` and `.agentbox/codex.toml`. The config watcher inside the container picks up changes within 2 seconds.
+This updates `.agentbox/agentbox.config.json` and regenerates `.agentbox/config.json` + `.agentbox/codex.toml`. The config watcher inside the container picks up changes within 2 seconds.
+
+If you want Agentbox to install MCP dependencies inside a running container, use:
+
+```bash
+agentbox mcp install github
+```
 
 ### Remove
 
@@ -44,7 +53,8 @@ agentbox mcp remove github
 
 ### Default MCPs
 
-The `notify` MCP is enabled by default for all new projects. It lets agents send desktop notifications to your host.
+The `notify` MCP ships with Agentbox but is only active when a session enables it
+(super* sessions enable it automatically, normal sessions can use `--notify`).
 
 ### Add Your Own
 
@@ -102,28 +112,28 @@ Each agent has its own config format:
 - Codex uses TOML
 
 Agentbox needs to:
-1. Store project-specific MCPs and settings
-2. Merge with global defaults
+1. Store project-specific MCPs and settings in a unified file
+2. Generate per-agent configs
 3. Sync changes bidirectionally
 
 ### The Flow
 
-**Merge (Host → Container)**:
+**Generate + Merge (Host → Container)**:
 ```
-Global baseline config
-    +
-Project config (.agentbox/config.json)
+Unified config (.agentbox/agentbox.config.json)
+    ↓
+Generated config (.agentbox/config.json)
     ↓
 Runtime config (~/.claude/config.json)
 ```
 
-**Split (Container → Agent)**:
+**Split + Refold (Container → Host)**:
 ```
 Runtime config (edited by agent)
-    -
-Global baseline
     ↓
-Project config (only differences)
+Project config (.agentbox/config.json)
+    ↓
+Unified config (.agentbox/agentbox.config.json)
 ```
 
 A watcher inside the container polls every 2 seconds and syncs in both directions.
@@ -134,7 +144,7 @@ Works across all filesystem types (NFS, bind mounts, etc.) without relying on in
 
 ### What Gets Preserved
 
-MCP servers and skills are always kept in project config, even if they match the global baseline. This makes it clear which MCPs are enabled for each project.
+MCP servers and skills are always kept in the unified config. This makes it clear which MCPs are enabled for each project.
 
 ## AGENTS.md Auto-Generation
 
@@ -171,15 +181,17 @@ Everything outside that section is yours to edit.
 
 ## Direct Editing
 
-You can also edit `.agentbox/config.json` or `.agentbox/codex.toml` directly. The changes sync to the container automatically.
+You can also edit `.agentbox/agentbox.config.json` directly. The changes regenerate per-agent configs and sync to the container automatically.
 
-Example (`.agentbox/config.json`):
+Example (`.agentbox/agentbox.config.json`):
 ```json
 {
-  "mcpServers": {
-    "github": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"]
+  "superset": {
+    "mcpServers": {
+      "github": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"]
+      }
     }
   }
 }

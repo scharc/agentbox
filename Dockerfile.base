@@ -109,6 +109,11 @@ RUN npm install -g \
 RUN curl -sSL https://install.python-poetry.org | python3 - \
     && ln -s /root/.local/bin/poetry /usr/local/bin/poetry
 
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && ln -s /root/.local/bin/uv /usr/local/bin/uv \
+    && ln -s /root/.local/bin/uvx /usr/local/bin/uvx
+
 # Install common Python packages
 RUN pip3 install --no-cache-dir --break-system-packages \
     pipenv \
@@ -133,11 +138,16 @@ COPY bin/merge-config.py /usr/local/bin/merge-config.py
 COPY bin/split-config.py /usr/local/bin/split-config.py
 COPY bin/merge-codex-config.py /usr/local/bin/merge-codex-config.py
 COPY bin/split-codex-config.py /usr/local/bin/split-codex-config.py
+COPY bin/unified-config.py /usr/local/bin/unified-config.py
 COPY bin/config-watcher.sh /usr/local/bin/config-watcher.sh
 RUN chmod +x /usr/local/bin/container-init.sh /usr/local/bin/notify \
     /usr/local/bin/merge-config.py /usr/local/bin/split-config.py \
     /usr/local/bin/merge-codex-config.py /usr/local/bin/split-codex-config.py \
+    /usr/local/bin/unified-config.py \
     /usr/local/bin/config-watcher.sh
+
+# Install bash completions for agentbox and bundled CLIs
+COPY completions/*.bash /etc/bash_completion.d/
 
 # Working directory
 WORKDIR /workspace

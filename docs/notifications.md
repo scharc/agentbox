@@ -26,26 +26,28 @@ Install the notification proxy as a systemd user service:
 agentbox proxy install --enable
 ```
 
-This creates `~/.config/systemd/user/agentbox-notify.service` and starts it.
+This creates `~/.config/systemd/user/agentbox-proxy.service` and starts it.
 
 Check if it's running:
 
 ```bash
-systemctl --user status agentbox-notify
+systemctl --user status agentbox-proxy
 ```
 
-That's it. New projects get the notify MCP by default.
+That's it. Notifications are available, but only enabled when a session opts in.
 
 ## Using It
 
-From inside a container, agents can call the notify MCP:
+Notifications are enabled automatically for `super*` sessions. For normal sessions,
+opt in with `--notify`:
 
 ```bash
-agentbox shell
-/usr/local/bin/notify "Title" "Message here" "normal"
+agentbox superclaude
+agentbox claude --notify
 ```
 
-You should see a desktop notification appear.
+If an agent sends a notification, it should also include the same message in the
+chat context so it isn't lost when the notification expires.
 
 Urgency levels: `low`, `normal`, `high`, `critical`
 
@@ -53,7 +55,8 @@ Critical notifications play an audio alert.
 
 ## The Flow
 
-When you run `agentbox init`, the notify MCP is enabled by default in `.agentbox/config.json`.
+The notify MCP server ships with Agentbox but only exposes tools when the session
+sets `AGENTBOX_NOTIFY=1` (super* does this automatically).
 
 The notify MCP server lives at `library/mcp/notify/server.py`. It connects to a Unix socket at `/home/abox/.agentbox/notify.sock` inside the container.
 
@@ -81,12 +84,12 @@ Your desktop notification daemon (dunst, mako, or whatever you use) shows the no
 
 Check if the proxy is running:
 ```bash
-systemctl --user status agentbox-notify
+systemctl --user status agentbox-proxy
 ```
 
 If not, start it:
 ```bash
-systemctl --user start agentbox-notify
+systemctl --user start agentbox-proxy
 ```
 
 Check if the socket exists:
@@ -94,17 +97,16 @@ Check if the socket exists:
 ls -la /run/user/$(id -u)/agentbox-notify.sock
 ```
 
-Test from inside a container:
+Test with a notify-enabled session:
 ```bash
-agentbox shell
-/usr/local/bin/notify "Test" "Hello" "normal"
+agentbox claude --notify "send a test notification"
 ```
 
 **Proxy won't start**
 
 Check logs:
 ```bash
-journalctl --user -u agentbox-notify -n 50
+journalctl --user -u agentbox-proxy -n 50
 ```
 
 Common issues:
@@ -131,17 +133,17 @@ sudo apt install pulseaudio-utils
 
 View logs in real-time:
 ```bash
-journalctl --user -u agentbox-notify -f
+journalctl --user -u agentbox-proxy -f
 ```
 
 Restart:
 ```bash
-systemctl --user restart agentbox-notify
+systemctl --user restart agentbox-proxy
 ```
 
 Stop:
 ```bash
-systemctl --user stop agentbox-notify
+systemctl --user stop agentbox-proxy
 ```
 
 Disable and uninstall:
@@ -163,13 +165,9 @@ No authentication. Any process inside the container can send notifications. But 
 
 Stop the proxy service:
 ```bash
-systemctl --user stop agentbox-notify
-systemctl --user disable agentbox-notify
+systemctl --user stop agentbox-proxy
+systemctl --user disable agentbox-proxy
 ```
 
-Or remove the notify MCP from your project:
-```bash
-agentbox mcp remove notify
-```
-
-Without the proxy running, agents can still try to send notifications, but they'll fail silently.
+Notifications are off by default for normal sessions. If you started a `super*`
+session, pass `--no-notify` to keep notifications disabled.

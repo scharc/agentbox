@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "superset": {
+    "mcpServers": {
+      "postgres": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-postgres"
+        ],
+        "env": {
+          "POSTGRES_CONNECTION_STRING": "postgresql://user:password@host.docker.internal:5432/dbname"
+        }
+      },
+      "homeassistant": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@homeassistant/mcp"
+        ],
+        "env": {
+          "HA_URL": "http://host.docker.internal:8123",
+          "HA_TOKEN": "${HA_TOKEN}"
+        }
+      }
+    }
+  },
+  "agents": {
+    "claude": {
+      "settings": {
+        "model": "sonnet",
+        "display": {
+          "show_tool_results": true,
+          "show_thinking": false
+        },
+        "auto_approve": {
+          "Bash": "always",
+          "Read": "always",
+          "Write": "always",
+          "Edit": "always",
+          "Glob": "always",
+          "Grep": "always",
+          "NotebookEdit": "always",
+          "Task": "always",
+          "WebFetch": "always",
+          "WebSearch": "always",
+          "LSP": "always",
+          "TodoWrite": "always",
+          "AskUserQuestion": "never",
+          "EnterPlanMode": "never",
+          "ExitPlanMode": "always"
+        }
+      },
+      "mcpServers": {}
+    },
+    "codex": {
+      "projects": {},
+      "mcpServers": {}
+    }
+  }
+}

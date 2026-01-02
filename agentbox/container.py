@@ -78,6 +78,24 @@ class ContainerManager:
         return f"{self.CONTAINER_PREFIX}{project_name}"
 
     def _project_uses_docker_mcp(self, project_dir: Path) -> bool:
+        unified_path = project_dir / ".agentbox" / "agentbox.config.json"
+        if unified_path.exists():
+            try:
+                data = json.loads(unified_path.read_text())
+            except Exception:
+                data = {}
+            superset = data.get("superset", {})
+            agents = data.get("agents", {})
+            mcp_servers = {}
+            for source in (
+                superset.get("mcpServers", {}),
+                agents.get("claude", {}).get("mcpServers", {}),
+                agents.get("codex", {}).get("mcpServers", {}),
+            ):
+                if isinstance(source, dict):
+                    mcp_servers.update(source)
+            return "docker" in mcp_servers
+
         config_path = project_dir / ".agentbox" / "config.json"
         if not config_path.exists():
             return False

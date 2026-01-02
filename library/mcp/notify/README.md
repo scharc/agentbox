@@ -9,13 +9,8 @@ Send host notifications from inside the container using the Agentbox notify sock
 
 ## Usage
 
-Add to your project:
-
-```bash
-abox mcp add notify
-```
-
-Then call the tool:
+Enable notifications for the session (super* commands do this automatically, or
+use `--notify` / `AGENTBOX_NOTIFY=1`), then call the tool:
 
 ```
 notify({ "title": "Agentbox", "message": "Hello", "urgency": "normal" })

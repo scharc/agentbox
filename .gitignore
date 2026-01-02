@@ -6,6 +6,9 @@ runtime/
 .claude/
 AGENT.md
 CLAUDE.md
+AGENTS.md
+DEVLOG.md
+PLAN.md
 
 # Python
 __pycache__/

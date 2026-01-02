@@ -100,7 +100,7 @@ Best practice:
 
 ```bash
 abox mcp add homeassistant
-# Configure in .agentbox/config.json
+# Configure in .agentbox/agentbox.config.json
 # Claude can now control your smart home!
 ```
 
