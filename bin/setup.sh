@@ -118,6 +118,19 @@ if [[ -n "$shell" && "$shell" != "skip" ]]; then
     echo "$completion_line" >> "$rc_file"
     echo "Added shell completion to $rc_file"
   fi
+
+  alias_marker="# Agentbox alias"
+  alias_line='alias abox="agentbox"'
+  if [[ -f "$rc_file" ]] && grep -Fqx "$alias_line" "$rc_file"; then
+    echo "Alias already set in $rc_file"
+  else
+    {
+      echo ""
+      echo "$alias_marker"
+      echo "$alias_line"
+    } >> "$rc_file"
+    echo "Added abox alias to $rc_file"
+  fi
 fi
 
 echo "Setup complete."

@@ -19,7 +19,7 @@ If you don't have these, see the [Installation section](#installation) below.
 ```bash
 git clone git@github.com:scharc/agentbox.git
 cd agentbox
-bash bin/setup.sh --shell zsh
+bash bin/setup.sh --shell zsh   # or --shell bash
 ```
 
 This takes a few minutes the first time - it builds a Docker image with all the tools.
@@ -39,6 +39,7 @@ agentbox init
 ```
 
 Creates `.agentbox/` with config files and `AGENTS.md` with agent context.
+Use `agentbox init --onboard` to seed the unified config from your local Claude/Codex configs.
 
 ### 4. Run an Agent
 

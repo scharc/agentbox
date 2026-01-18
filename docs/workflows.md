@@ -34,7 +34,8 @@ Refactor the API handlers and add comprehensive tests
 
 The agent runs with auto-approve enabled. It can make changes without asking permission each time.
 
-Detach with `Ctrl-a d`. The agent keeps working. You get a desktop notification when it needs input.
+Detach with `Ctrl-a d`. The agent keeps working. You get a desktop notification when it needs
+input (super* sessions enable this by default).
 
 Check on it later:
 ```bash
@@ -93,7 +94,7 @@ agentbox mcp add docker
 agentbox mcp add github
 ```
 
-Each project has its own MCP configuration in `.agentbox/config.json`.
+Each project has its own MCP configuration in `.agentbox/agentbox.config.json`.
 
 ## Session Management
 
@@ -213,11 +214,11 @@ agentbox proxy install --enable
 
 This creates a systemd user service that listens for notifications from containers.
 
-Now when an autonomous agent needs input, you get a desktop notification via `notify-send`.
+Super* sessions enable notifications automatically. Normal sessions can opt in with `--notify`.
 
 Check if it's running:
 ```bash
-systemctl --user status agentbox-notify
+systemctl --user status agentbox-proxy
 ```
 
 ## Adding Custom MCPs

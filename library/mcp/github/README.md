@@ -23,7 +23,7 @@ Requires a GitHub Personal Access Token.
 
 ### Add to Project
 
-Edit `.agentbox/config.json`:
+Edit `.agentbox/agentbox.config.json`:
 
 ```json
 {

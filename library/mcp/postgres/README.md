@@ -69,7 +69,7 @@ Options:
 # Add to project
 abox mcp add postgres
 
-# Edit .agentbox/config.json
+# Edit .agentbox/agentbox.config.json
 # Set your connection string
 
 # Claude can now query your database!

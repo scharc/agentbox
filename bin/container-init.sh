@@ -217,11 +217,11 @@ if [[ -d "/${USER}/codex" && ! -d "${ABOX_HOME}/.codex" ]]; then
 fi
 
 # Start config watcher in background (bidirectional sync)
-if [[ -f /workspace/.agentbox/config.json ]]; then
+if [[ -f /workspace/.agentbox/agentbox.config.json ]]; then
     echo "Starting config watcher for live sync..."
     su -s /bin/bash abox -c "nohup /usr/local/bin/config-watcher.sh >/tmp/agentbox-config-watcher.log 2>&1 &"
 else
-    echo "No project config found at /workspace/.agentbox/config.json"
+    echo "No unified config found at /workspace/.agentbox/agentbox.config.json"
     echo "Run 'agentbox init' to create project structure"
 fi
 

@@ -21,6 +21,11 @@ SERVER_VERSION = "0.1.1"
 DEFAULT_PROTOCOL_VERSION = "2024-11-05"
 
 
+def _notify_enabled() -> bool:
+    value = os.getenv("AGENTBOX_NOTIFY", "").strip().lower()
+    return value in {"1", "true", "yes", "on", "super", "session"}
+
+
 class MessageIO:
     def __init__(self) -> None:
         self._use_content_length: Optional[bool] = None
@@ -162,6 +167,8 @@ def _handle_initialize(params: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _handle_tools_list() -> Dict[str, Any]:
+    if not _notify_enabled():
+        return {"tools": []}
     return {"tools": [_tool_spec()]}
 
 
@@ -176,6 +183,10 @@ def _handle_tools_call(params: Dict[str, Any]) -> Dict[str, Any]:
 
     if not isinstance(arguments, dict):
         return {"content": [{"type": "text", "text": "Invalid tool arguments"}], "isError": True}
+
+    if not _notify_enabled():
+        text = "Notifications are disabled for this session. Run a super* command or set AGENTBOX_NOTIFY=1."
+        return {"content": [{"type": "text", "text": text}], "isError": True}
 
     title = str(arguments.get("title", "Agentbox"))
     message = arguments.get("message")

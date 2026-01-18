@@ -33,6 +33,8 @@ abox superclaude
 abox superclaude  # Auto-reattaches to same session
 ```
 
+Tip: `agentbox init --onboard` copies your local Claude/Codex settings into the project config so you start with what you already use.
+
 The agent runs at full speed but can only touch this one project. Your other repos, your SSH keys, your host system - all safe.
 
 ## What You Get
@@ -78,7 +80,11 @@ agentbox ps                # List containers
 agentbox update            # Rebuild base image
 ```
 
-Short alias: `abox` = `agentbox`
+Short alias: `abox` = `agentbox` (added by `bin/setup.sh`)
+
+## How Config Works (Short Version)
+
+Each project gets a `.agentbox/agentbox.config.json` file. That file is the source of truth for agent settings and MCPs. Agentbox generates per‑agent config files from it and keeps them in sync with what runs inside the container. You can edit the unified file directly, or use `agentbox mcp add/remove` to manage MCPs.
 
 ## Documentation
 

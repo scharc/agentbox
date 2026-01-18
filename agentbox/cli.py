@@ -23,6 +23,14 @@ from agentbox.container import ContainerManager
 from agentbox.config import ProjectConfig
 from agentbox.network import NetworkManager
 from agentbox.library import LibraryManager
+from agentbox.unified_config import (
+    build_claude_config,
+    build_codex_config,
+    normalize_unified,
+    read_json,
+    read_toml,
+    refold_unified_config,
+)
 
 console = Console()
 
@@ -133,6 +141,34 @@ def _ensure_container_running(manager: ContainerManager, container_name: str) ->
         return False
 
 
+def _infer_npx_package(args: list) -> Optional[str]:
+    if not isinstance(args, list):
+        return None
+    for arg in reversed(args):
+        if isinstance(arg, str) and not arg.startswith("-"):
+            return arg
+    return None
+
+
+def _resolve_mcp_install_command(template: dict) -> Optional[list[str]]:
+    install_entry = template.get("install")
+    if isinstance(install_entry, dict):
+        command = install_entry.get("command")
+        args = install_entry.get("args", [])
+        if isinstance(command, str) and command:
+            if isinstance(args, list):
+                return [command, *(str(arg) for arg in args)]
+            return [command]
+
+    config = template.get("config")
+    if isinstance(config, dict) and config.get("command") == "npx":
+        package = _infer_npx_package(config.get("args", []))
+        if package:
+            return ["npm", "install", "-g", package]
+
+    return None
+
+
 def _run_agent_command(
     manager: ContainerManager,
     project: Optional[str],
@@ -142,6 +178,7 @@ def _run_agent_command(
     label: Optional[str] = None,
     reuse_tmux_session: bool = False,
     session_key: Optional[str] = None,
+    notify: bool = False,
 ) -> None:
     container_name, args = _resolve_container_and_args(manager, project, args)
 
@@ -218,11 +255,15 @@ def _run_agent_command(
         "HOME=/home/abox",
         "-e",
         "USER=abox",
+    ]
+    if notify:
+        agent_cmd.extend(["-e", "AGENTBOX_NOTIFY=1"])
+    agent_cmd.extend([
         container_name,
         "/bin/bash",
         "-lc",
         tmux_setup,
-    ]
+    ])
     banner_title = f"AGENTBOX CONTAINER: {container_name}"
     banner_action = f"RUNNING: {display}"
     width = max(len(banner_title), len(banner_action))
@@ -347,14 +388,169 @@ def _save_volumes_config(agentbox_dir: Path, volumes: list[dict]) -> None:
     config_path.write_text(json.dumps({"volumes": volumes}, indent=2))
 
 
-def _load_project_config(project_dir: Path) -> dict:
-    config_path = project_dir / ".agentbox" / "config.json"
+def _load_unified_config(agentbox_dir: Path) -> dict:
+    config_path = agentbox_dir / "agentbox.config.json"
     if not config_path.exists():
         return {}
     try:
-        return json.loads(config_path.read_text())
+        return normalize_unified(json.loads(config_path.read_text()))
     except Exception:
         return {}
+
+
+def _write_unified_config(agentbox_dir: Path, data: dict) -> None:
+    config_path = agentbox_dir / "agentbox.config.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps(normalize_unified(data), indent=2))
+
+
+def _load_default_unified_config() -> dict:
+    lib_manager = LibraryManager()
+    default_path = lib_manager.config_dir / "default" / "agentbox.config.json"
+    if default_path.exists():
+        return normalize_unified(read_json(default_path))
+    return normalize_unified({
+        "version": 1,
+        "superset": {
+            "mcpServers": {
+                "postgres": {
+                    "command": "npx",
+                    "args": ["-y", "@modelcontextprotocol/server-postgres"],
+                    "env": {
+                        "POSTGRES_CONNECTION_STRING": "postgresql://user:password@host.docker.internal:5432/dbname",
+                    },
+                },
+                "homeassistant": {
+                    "command": "npx",
+                    "args": ["-y", "@homeassistant/mcp"],
+                    "env": {
+                        "HA_URL": "http://host.docker.internal:8123",
+                        "HA_TOKEN": "${HA_TOKEN}",
+                    },
+                },
+            }
+        },
+        "agents": {
+            "claude": {
+                "settings": {
+                    "model": "sonnet",
+                    "display": {
+                        "show_tool_results": True,
+                        "show_thinking": False,
+                    },
+                    "auto_approve": {
+                        "Bash": "always",
+                        "Read": "always",
+                        "Write": "always",
+                        "Edit": "always",
+                        "Glob": "always",
+                        "Grep": "always",
+                        "NotebookEdit": "always",
+                        "Task": "always",
+                        "WebFetch": "always",
+                        "WebSearch": "always",
+                        "LSP": "always",
+                        "TodoWrite": "always",
+                        "AskUserQuestion": "never",
+                        "EnterPlanMode": "never",
+                        "ExitPlanMode": "always",
+                    },
+                },
+                "mcpServers": {},
+            },
+            "codex": {
+                "projects": {
+                },
+                "mcpServers": {},
+            },
+        },
+    })
+
+
+def _onboard_unified_config(claude_path: Path, codex_path: Path) -> dict:
+    claude_config = read_json(claude_path)
+    codex_config = read_toml(codex_path)
+    if not claude_config and not codex_config:
+        return {}
+
+    settings: dict = {}
+    for key in ("auto_approve", "model", "display"):
+        if key in claude_config:
+            settings[key] = claude_config[key]
+
+    mcp_servers: dict = {}
+    claude_mcp = claude_config.get("mcpServers")
+    if isinstance(claude_mcp, dict):
+        mcp_servers.update(claude_mcp)
+
+    codex_mcp = codex_config.get("mcp_servers")
+    if isinstance(codex_mcp, dict):
+        mcp_servers.update(codex_mcp)
+
+    projects = codex_config.get("projects")
+    if not isinstance(projects, dict):
+        projects = {}
+
+    unified = {
+        "version": 1,
+        "superset": {"mcpServers": mcp_servers},
+        "agents": {
+            "claude": {"settings": settings, "mcpServers": {}},
+            "codex": {"projects": projects, "mcpServers": {}},
+        },
+    }
+    return normalize_unified(unified)
+                },
+                "mcpServers": {},
+            },
+        },
+    })
+
+
+def _generate_agent_configs(agentbox_dir: Path) -> None:
+    unified = _load_unified_config(agentbox_dir)
+    if not unified:
+        return
+
+    claude_config = build_claude_config(unified, {})
+    codex_config = build_codex_config(unified, {})
+
+    claude_path = agentbox_dir / "config.json"
+    claude_path.write_text(json.dumps(claude_config, indent=2))
+
+    codex_path = agentbox_dir / "codex.toml"
+    codex_path.write_text(_dump_codex_toml(codex_config))
+
+
+def _build_project_context_config(agentbox_dir: Path) -> dict:
+    unified = _load_unified_config(agentbox_dir)
+    if not unified:
+        config_path = agentbox_dir / "config.json"
+        if not config_path.exists():
+            return {}
+        try:
+            return json.loads(config_path.read_text())
+        except Exception:
+            return {}
+
+    superset = unified.get("superset", {}).get("mcpServers", {})
+    claude_mcp = unified.get("agents", {}).get("claude", {}).get("mcpServers", {})
+    codex_mcp = unified.get("agents", {}).get("codex", {}).get("mcpServers", {})
+    mcp_servers = {}
+    for source in (superset, claude_mcp, codex_mcp):
+        if isinstance(source, dict):
+            mcp_servers.update(source)
+
+    skills = unified.get("agents", {}).get("claude", {}).get("skills", [])
+    if not isinstance(skills, list):
+        skills = []
+
+    return {"mcpServers": mcp_servers, "skills": skills}
+
+
+def _load_project_config(project_dir: Path) -> dict:
+    agentbox_dir = project_dir / ".agentbox"
+    return _build_project_context_config(agentbox_dir)
 
 
 AGENT_MANAGED_START = "<!-- AGENTBOX:BEGIN -->"
@@ -387,13 +583,12 @@ def _render_managed_section(volumes: list[dict], project_config: dict) -> str:
     lines += [
         "",
         "### Human Interaction",
-        "- You are allowed to use `/usr/local/bin/notify`.",
-        "- Use it to request human input or confirmation instead of blocking on questions.",
-        "- Always send a notification if you have a question for the human.",
+        "- Use the notify MCP server only in super* sessions or when notifications are enabled for the session.",
+        "- If you send a notification, also include the same information in the normal chat context.",
         "- Include a concise title and a clear next action for the human.",
         "",
-        "### Allowed Commands",
-        "- `/usr/local/bin/notify`",
+        "### Disallowed Commands",
+        "- `/usr/local/bin/notify` (use the notify MCP only)",
         "",
         "### Context Files",
         "- `PLAN.md` (if present).",
@@ -504,23 +699,22 @@ def _load_codex_config(path: Path) -> dict:
 
 
 def _update_codex_context_mount(agentbox_dir: Path, mount_name: str, present: bool) -> None:
-    if tomllib is None:
-        return
-    codex_path = agentbox_dir / "codex.toml"
-    codex_config = _load_codex_config(codex_path)
-    projects = codex_config.get("projects")
+    unified_config = _load_unified_config(agentbox_dir)
+    if not unified_config:
+        unified_config = _load_default_unified_config()
+
+    projects = unified_config.get("agents", {}).get("codex", {}).get("projects")
     if not isinstance(projects, dict):
         projects = {}
-        codex_config["projects"] = projects
-
     mount_path = f"{VOLUMES_MOUNT_ROOT}/{mount_name}"
     if present:
         projects[mount_path] = {"trust_level": CODEX_CONTEXT_TRUST}
     else:
-        if mount_path in projects:
-            del projects[mount_path]
+        projects.pop(mount_path, None)
 
-    codex_path.write_text(_dump_codex_toml(codex_config))
+    unified_config["agents"]["codex"]["projects"] = projects
+    _write_unified_config(agentbox_dir, unified_config)
+    _generate_agent_configs(agentbox_dir)
 
 
 def _toml_escape(value: str) -> str:
@@ -580,7 +774,7 @@ def _dump_codex_toml(data):
 
 
 @click.group(invoke_without_command=True)
-@click.version_option(version="0.1.1")
+@click.version_option(version="0.1.2")
 def cli():
     """Agentbox - Secure, isolated Docker environment for Claude Code."""
     ctx = click.get_current_context()
@@ -615,7 +809,7 @@ def cli():
                 ("update", "Update base image"),
             ]),
             ("Libraries", [
-                ("mcp", "Manage MCP servers (list/show/add/remove)"),
+                ("mcp", "Manage MCP servers (list/show/add/install/remove)"),
                 ("skill", "Manage skills (list/show/add/remove)"),
             ]),
             ("Other", [
@@ -918,7 +1112,8 @@ def session_attach(session_name: str):
 @cli.command()
 @click.argument("project", required=False)
 @click.argument("args", nargs=-1)
-def claude(project: Optional[str], args: tuple):
+@click.option("--notify/--no-notify", default=False, help="Enable host notifications for this session")
+def claude(project: Optional[str], args: tuple, notify: bool):
     """Run Claude Code in an Agentbox container.
 
     If no project name is provided, runs in the current project's container.
@@ -938,6 +1133,7 @@ def claude(project: Optional[str], args: tuple):
             label="Claude Code",
             reuse_tmux_session=True,
             session_key="claude",
+            notify=notify,
         )
 
     except Exception as e:
@@ -947,7 +1143,8 @@ def claude(project: Optional[str], args: tuple):
 @cli.command()
 @click.argument("project", required=False)
 @click.argument("args", nargs=-1)
-def superclaude(project: Optional[str], args: tuple):
+@click.option("--notify/--no-notify", default=True, help="Enable host notifications for this session")
+def superclaude(project: Optional[str], args: tuple, notify: bool):
     """Run Claude Code with auto-approve permissions enabled.
 
     If no project name is provided, runs in the current project's container.
@@ -963,6 +1160,7 @@ def superclaude(project: Optional[str], args: tuple):
             label="Claude Code (auto-approve)",
             reuse_tmux_session=True,
             session_key="superclaude",
+            notify=notify,
         )
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -972,7 +1170,8 @@ def superclaude(project: Optional[str], args: tuple):
 @cli.command()
 @click.argument("project", required=False)
 @click.argument("args", nargs=-1)
-def codex(project: Optional[str], args: tuple):
+@click.option("--notify/--no-notify", default=False, help="Enable host notifications for this session")
+def codex(project: Optional[str], args: tuple, notify: bool):
     """Run Codex in an Agentbox container.
 
     If no project name is provided, runs in the current project's container.
@@ -987,6 +1186,7 @@ def codex(project: Optional[str], args: tuple):
             label="Codex",
             reuse_tmux_session=True,
             session_key="codex",
+            notify=notify,
         )
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -996,7 +1196,8 @@ def codex(project: Optional[str], args: tuple):
 @cli.command()
 @click.argument("project", required=False)
 @click.argument("args", nargs=-1)
-def supercodex(project: Optional[str], args: tuple):
+@click.option("--notify/--no-notify", default=True, help="Enable host notifications for this session")
+def supercodex(project: Optional[str], args: tuple, notify: bool):
     """Run Codex with auto-approve permissions enabled.
 
     If no project name is provided, runs in the current project's container.
@@ -1012,6 +1213,7 @@ def supercodex(project: Optional[str], args: tuple):
             label="Codex (auto-approve)",
             reuse_tmux_session=True,
             session_key="supercodex",
+            notify=notify,
         )
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -1020,7 +1222,8 @@ def supercodex(project: Optional[str], args: tuple):
 @cli.command()
 @click.argument("project", required=False)
 @click.argument("args", nargs=-1)
-def gemini(project: Optional[str], args: tuple):
+@click.option("--notify/--no-notify", default=False, help="Enable host notifications for this session")
+def gemini(project: Optional[str], args: tuple, notify: bool):
     """Run Gemini in an Agentbox container.
 
     If no project name is provided, runs in the current project's container.
@@ -1035,6 +1238,7 @@ def gemini(project: Optional[str], args: tuple):
             label="Gemini",
             reuse_tmux_session=True,
             session_key="gemini",
+            notify=notify,
         )
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -1044,7 +1248,8 @@ def gemini(project: Optional[str], args: tuple):
 @cli.command()
 @click.argument("project", required=False)
 @click.argument("args", nargs=-1)
-def supergemini(project: Optional[str], args: tuple):
+@click.option("--notify/--no-notify", default=True, help="Enable host notifications for this session")
+def supergemini(project: Optional[str], args: tuple, notify: bool):
     """Run Gemini with auto-approve permissions enabled."""
     try:
         manager = ContainerManager()
@@ -1057,6 +1262,7 @@ def supergemini(project: Optional[str], args: tuple):
             label="Gemini (auto-approve)",
             reuse_tmux_session=True,
             session_key="supergemini",
+            notify=notify,
         )
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -1208,9 +1414,6 @@ def mcp_list():
 def mcp_show(name: str):
     """Show details of an MCP server."""
     try:
-        if name == "notify":
-            console.print("[yellow]MCP server 'notify' is managed by Agentbox and hidden from the library[/yellow]")
-            return
         lib_manager = LibraryManager()
         lib_manager.show_mcp(name)
     except Exception as e:
@@ -1223,9 +1426,6 @@ def mcp_show(name: str):
 def mcp_add(name: str):
     """Add an MCP server from library to current project."""
     try:
-        if name == "notify":
-            console.print("[yellow]MCP server 'notify' is managed by Agentbox and cannot be added or removed[/yellow]")
-            return
         # Get project directory
         env_project_dir = os.getenv("AGENTBOX_PROJECT_DIR")
         project_dir = Path(env_project_dir) if env_project_dir else Path.cwd()
@@ -1237,8 +1437,7 @@ def mcp_add(name: str):
             console.print(f"[blue]Run: agentbox init[/blue]")
             sys.exit(1)
 
-        config_path = agentbox_dir / "config.json"
-        codex_config_path = agentbox_dir / "codex.toml"
+        unified_config_path = agentbox_dir / "agentbox.config.json"
 
         # Load template from library
         lib_manager = LibraryManager()
@@ -1253,46 +1452,24 @@ def mcp_add(name: str):
         with open(template_path, 'r') as f:
             template = json.load(f)
 
-        # Read current project config
-        with open(config_path, 'r') as f:
-            project_config = json.load(f)
+        unified_config = _load_unified_config(agentbox_dir)
+        if not unified_config:
+            unified_config = _load_default_unified_config()
 
-        # Ensure mcpServers exists
-        if "mcpServers" not in project_config:
-            project_config["mcpServers"] = {}
-
-        # Check if already exists
-        if name in project_config["mcpServers"]:
+        superset_mcp = unified_config.get("superset", {}).get("mcpServers", {})
+        claude_mcp = unified_config.get("agents", {}).get("claude", {}).get("mcpServers", {})
+        codex_mcp = unified_config.get("agents", {}).get("codex", {}).get("mcpServers", {})
+        if name in superset_mcp or name in claude_mcp or name in codex_mcp:
             console.print(f"[yellow]MCP server '{name}' already exists in project config[/yellow]")
-            console.print(f"[blue]Edit {config_path} to modify it[/blue]")
+            console.print(f"[blue]Edit {unified_config_path} to modify it[/blue]")
             return
 
-        # Add to config
-        project_config["mcpServers"][name] = template["config"]
+        superset_mcp[name] = template["config"]
+        unified_config["superset"]["mcpServers"] = superset_mcp
+        _write_unified_config(agentbox_dir, unified_config)
+        _generate_agent_configs(agentbox_dir)
 
-        # Update Codex config (if available)
-        if tomllib is None:
-            console.print("[yellow]tomllib not available, skipping Codex config update[/yellow]")
-        else:
-            codex_config = {}
-            if codex_config_path.exists():
-                try:
-                    codex_config = tomllib.loads(codex_config_path.read_text())
-                except Exception as e:
-                    console.print(f"[yellow]Warning: Failed to read codex.toml: {e}[/yellow]")
-                    codex_config = {}
-
-            if "mcp_servers" not in codex_config or not isinstance(codex_config.get("mcp_servers"), dict):
-                codex_config["mcp_servers"] = {}
-
-            codex_config["mcp_servers"][name] = template["config"]
-            codex_config_path.write_text(_dump_codex_toml(codex_config))
-
-        # Write updated config
-        with open(config_path, 'w') as f:
-            json.dump(project_config, f, indent=2)
-
-        console.print(f"[green]✓ Added '{name}' MCP server to project config[/green]")
+        console.print(f"[green]✓ Added '{name}' MCP server to unified config[/green]")
         _update_agent_context(project_dir, _load_volumes_config(agentbox_dir))
 
         # Show environment variables if needed
@@ -1300,7 +1477,7 @@ def mcp_add(name: str):
             console.print(f"\n[yellow]⚠ Configure environment variables:[/yellow]")
             for key, value in template["env_template"].items():
                 console.print(f"  {key}={value}")
-            console.print(f"\n[blue]Edit {config_path} or set in your shell environment[/blue]")
+            console.print(f"\n[blue]Edit {unified_config_path} or set in your shell environment[/blue]")
 
         # Show notes if present
         if "notes" in template:
@@ -1350,59 +1527,187 @@ def mcp_add(name: str):
         sys.exit(1)
 
 
+@mcp.command(name="install")
+@click.argument("name")
+def mcp_install(name: str):
+    """Install an MCP server from library and enable for current project."""
+    try:
+        # Get project directory
+        env_project_dir = os.getenv("AGENTBOX_PROJECT_DIR")
+        project_dir = Path(env_project_dir) if env_project_dir else Path.cwd()
+
+        # Check if .agentbox exists
+        agentbox_dir = project_dir / ".agentbox"
+        if not agentbox_dir.exists():
+            console.print(f"[red].agentbox/ not found in {project_dir}[/red]")
+            console.print(f"[blue]Run: agentbox init[/blue]")
+            sys.exit(1)
+
+        unified_config_path = agentbox_dir / "agentbox.config.json"
+
+        # Load template from library
+        lib_manager = LibraryManager()
+        template_path = lib_manager.mcp_dir / name / "config.json"
+
+        if not template_path.exists():
+            console.print(f"[red]MCP server '{name}' not found in library[/red]")
+            console.print(f"[blue]Run: agentbox mcp list[/blue]")
+            sys.exit(1)
+
+        # Read template
+        with open(template_path, 'r') as f:
+            template = json.load(f)
+
+        if "config" not in template:
+            console.print(f"[red]MCP server '{name}' missing config in library[/red]")
+            sys.exit(1)
+
+        unified_config = _load_unified_config(agentbox_dir)
+        if not unified_config:
+            unified_config = _load_default_unified_config()
+
+        superset_mcp = unified_config.get("superset", {}).get("mcpServers", {})
+        claude_mcp = unified_config.get("agents", {}).get("claude", {}).get("mcpServers", {})
+        codex_mcp = unified_config.get("agents", {}).get("codex", {}).get("mcpServers", {})
+
+        added_config = False
+        if name in superset_mcp or name in claude_mcp or name in codex_mcp:
+            console.print(f"[yellow]MCP server '{name}' already exists in project config[/yellow]")
+        else:
+            superset_mcp[name] = template["config"]
+            unified_config["superset"]["mcpServers"] = superset_mcp
+            _write_unified_config(agentbox_dir, unified_config)
+            _generate_agent_configs(agentbox_dir)
+            added_config = True
+
+        if added_config:
+            console.print(f"[green]✓ Added '{name}' MCP server to unified config[/green]")
+            _update_agent_context(project_dir, _load_volumes_config(agentbox_dir))
+
+        # Show environment variables if needed
+        if "env_template" in template:
+            console.print(f"\n[yellow]⚠ Configure environment variables:[/yellow]")
+            for key, value in template["env_template"].items():
+                console.print(f"  {key}={value}")
+            console.print(f"\n[blue]Edit {unified_config_path} or set in your shell environment[/blue]")
+
+        # Show notes if present
+        if "notes" in template:
+            console.print(f"\n[blue]Notes:[/blue]")
+            for line in template["notes"].split("\n"):
+                console.print(f"  {line}")
+
+        # Trigger config merge in running container
+        manager = ContainerManager()
+        project_name = manager.get_project_name(project_dir)
+        container_name = manager.get_container_name(project_name)
+
+        if name == "docker":
+            if not Path("/var/run/docker.sock").exists():
+                console.print("[yellow]Warning: /var/run/docker.sock not found on host[/yellow]")
+            console.print(f"\n[blue]Rebuilding container to apply Docker socket mount...[/blue]")
+            if manager.container_exists(container_name):
+                manager.remove_container(container_name, force=True)
+            manager.create_container(project_name=project_name, project_dir=project_dir)
+            console.print(f"[green]✓ Container rebuilt[/green]")
+
+        if manager.is_running(container_name):
+            console.print(f"\n[blue]Syncing config to running container...[/blue]")
+            claude_result = subprocess.run(
+                ["docker", "exec", container_name, "python3", "/usr/local/bin/merge-config.py"],
+                capture_output=True,
+                text=True
+            )
+            codex_result = subprocess.run(
+                ["docker", "exec", container_name, "python3", "/usr/local/bin/merge-codex-config.py"],
+                capture_output=True,
+                text=True
+            )
+            if claude_result.returncode == 0 and codex_result.returncode == 0:
+                console.print(f"[green]✓ Configs synced to container[/green]")
+            else:
+                console.print(f"[yellow]Container not running or sync failed[/yellow]")
+        else:
+            console.print(f"\n[yellow]Container not running. Config will sync on next start.[/yellow]")
+
+        install_cmd = _resolve_mcp_install_command(template)
+        if not install_cmd:
+            console.print("[yellow]No install command available for this MCP[/yellow]")
+            return
+
+        if not manager.is_running(container_name):
+            console.print("[yellow]Container not running. Start it and re-run install.[/yellow]")
+            return
+
+        console.print(f"\n[blue]Installing MCP server '{name}'...[/blue]")
+        install_result = subprocess.run(
+            ["docker", "exec", container_name, *install_cmd],
+            capture_output=True,
+            text=True,
+        )
+        if install_result.returncode == 0:
+            console.print(f"[green]✓ MCP server '{name}' installed[/green]")
+        else:
+            console.print(f"[red]MCP server install failed[/red]")
+            if install_result.stdout.strip():
+                console.print(install_result.stdout.strip())
+            if install_result.stderr.strip():
+                console.print(install_result.stderr.strip())
+
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
 @mcp.command(name="remove")
 @click.argument("name")
 def mcp_remove(name: str):
     """Remove an MCP server from current project."""
     try:
-        if name == "notify":
-            console.print("[yellow]MCP server 'notify' is managed by Agentbox and cannot be added or removed[/yellow]")
-            return
         # Get project directory
         env_project_dir = os.getenv("AGENTBOX_PROJECT_DIR")
         project_dir = Path(env_project_dir) if env_project_dir else Path.cwd()
 
-        config_path = project_dir / ".agentbox" / "config.json"
-        codex_config_path = project_dir / ".agentbox" / "codex.toml"
+        agentbox_dir = project_dir / ".agentbox"
+        unified_config_path = agentbox_dir / "agentbox.config.json"
 
-        if not config_path.exists():
-            console.print(f"[red]No project config found[/red]")
+        if not unified_config_path.exists():
+            console.print(f"[red]No unified config found[/red]")
             sys.exit(1)
 
-        # Read current config
-        with open(config_path, 'r') as f:
-            project_config = json.load(f)
+        unified_config = _load_unified_config(agentbox_dir)
+        if not unified_config:
+            console.print(f"[red]Failed to read unified config[/red]")
+            sys.exit(1)
 
-        # Check if exists
-        if "mcpServers" not in project_config or name not in project_config["mcpServers"]:
+        superset_mcp = unified_config.get("superset", {}).get("mcpServers", {})
+        claude_mcp = unified_config.get("agents", {}).get("claude", {}).get("mcpServers", {})
+        codex_mcp = unified_config.get("agents", {}).get("codex", {}).get("mcpServers", {})
+
+        removed = False
+        if name in superset_mcp:
+            del superset_mcp[name]
+            removed = True
+        if name in claude_mcp:
+            del claude_mcp[name]
+            removed = True
+        if name in codex_mcp:
+            del codex_mcp[name]
+            removed = True
+
+        if not removed:
             console.print(f"[yellow]MCP server '{name}' not found in project config[/yellow]")
             return
 
-        # Remove
-        del project_config["mcpServers"][name]
+        unified_config["superset"]["mcpServers"] = superset_mcp
+        unified_config["agents"]["claude"]["mcpServers"] = claude_mcp
+        unified_config["agents"]["codex"]["mcpServers"] = codex_mcp
+        _write_unified_config(agentbox_dir, unified_config)
+        _generate_agent_configs(agentbox_dir)
 
-        # Update Codex config (if available)
-        if tomllib is None:
-            console.print("[yellow]tomllib not available, skipping Codex config update[/yellow]")
-        else:
-            if codex_config_path.exists():
-                try:
-                    codex_config = tomllib.loads(codex_config_path.read_text())
-                except Exception as e:
-                    console.print(f"[yellow]Warning: Failed to read codex.toml: {e}[/yellow]")
-                    codex_config = {}
-
-                mcp_servers = codex_config.get("mcp_servers")
-                if isinstance(mcp_servers, dict) and name in mcp_servers:
-                    del mcp_servers[name]
-                    codex_config_path.write_text(_dump_codex_toml(codex_config))
-
-        # Write updated config
-        with open(config_path, 'w') as f:
-            json.dump(project_config, f, indent=2)
-
-        console.print(f"[green]✓ Removed '{name}' MCP server from project config[/green]")
-        agentbox_dir = project_dir / ".agentbox"
+        console.print(f"[green]✓ Removed '{name}' MCP server from unified config[/green]")
         _update_agent_context(project_dir, _load_volumes_config(agentbox_dir))
 
         # Trigger config merge in running container
@@ -1512,12 +1817,47 @@ def volume_add(path: str, mode: Optional[str], name: Optional[str]):
             sys.exit(1)
 
         volumes = _load_volumes_config(agentbox_dir)
+        existing_entry = None
+        for entry in volumes:
+            if entry.get("path") == str(host_path):
+                existing_entry = entry
+                break
+
+        if existing_entry:
+            if existing_entry.get("mode") == mode_final:
+                console.print(f"[yellow]Path already mounted: {host_path}[/yellow]")
+                return
+            existing_mount = existing_entry.get("mount") or mount_name
+            if name:
+                if existing_mount != mount_name:
+                    console.print(
+                        f"[yellow]Path already mounted as '{existing_mount}'. Keeping existing mount name.[/yellow]"
+                    )
+            existing_entry["mode"] = mode_final
+            _save_volumes_config(agentbox_dir, volumes)
+
+            _update_agent_context(project_dir, volumes)
+            _cleanup_default_docs(project_dir, agentbox_dir)
+            _update_codex_context_mount(agentbox_dir, existing_mount, True)
+
+            container_path = f"{VOLUMES_MOUNT_ROOT}/{existing_mount}"
+            console.print(f"[green]✓ Updated mount mode[/green]")
+            console.print(f"  Host: {host_path}")
+            console.print(f"  Container: {container_path} ({mode_final})")
+
+            manager = ContainerManager()
+            project_name = manager.get_project_name(project_dir)
+            container_name = manager.get_container_name(project_name)
+            console.print(f"[blue]Rebuilding container to apply mounts...[/blue]")
+            if manager.container_exists(container_name):
+                manager.remove_container(container_name, force=True)
+            manager.create_container(project_name=project_name, project_dir=project_dir)
+            console.print(f"[green]✓ Container rebuilt[/green]")
+            return
+
         for entry in volumes:
             if entry.get("mount") == mount_name:
                 console.print(f"[yellow]Mount name already exists: {mount_name}[/yellow]")
-                return
-            if entry.get("path") == str(host_path):
-                console.print(f"[yellow]Path already mounted: {host_path}[/yellow]")
                 return
 
         volumes.append({"path": str(host_path), "mode": mode_final, "mount": mount_name})
@@ -1673,20 +2013,19 @@ def skill_add(name: str):
         if readme_source.exists():
             shutil.copy2(readme_source, skills_dir / readme_source.name)
 
-        config_path = agentbox_dir / "config.json"
-        project_config = {}
-        if config_path.exists():
-            try:
-                project_config = json.loads(config_path.read_text())
-            except Exception:
-                project_config = {}
-        skills_list = project_config.get("skills")
+        unified_config = _load_unified_config(agentbox_dir)
+        if not unified_config:
+            unified_config = _load_default_unified_config()
+        claude_config = unified_config.get("agents", {}).get("claude", {})
+        skills_list = claude_config.get("skills")
         if not isinstance(skills_list, list):
             skills_list = []
         if source_path.name not in skills_list:
             skills_list.append(source_path.name)
-        project_config["skills"] = skills_list
-        config_path.write_text(json.dumps(project_config, indent=2))
+        claude_config["skills"] = skills_list
+        unified_config["agents"]["claude"] = claude_config
+        _write_unified_config(agentbox_dir, unified_config)
+        _generate_agent_configs(agentbox_dir)
         _update_agent_context(project_dir, _load_volumes_config(agentbox_dir))
 
         console.print(f"[green]✓ Added '{source_path.name}' skill to project[/green]")
@@ -1704,20 +2043,17 @@ def skill_remove(name: str):
         env_project_dir = os.getenv("AGENTBOX_PROJECT_DIR")
         project_dir = Path(env_project_dir) if env_project_dir else Path.cwd()
         agentbox_dir = project_dir / ".agentbox"
-        config_path = agentbox_dir / "config.json"
         skills_dir = agentbox_dir / "skills"
 
-        if not config_path.exists():
-            console.print(f"[red]No project config found[/red]")
+        unified_config_path = agentbox_dir / "agentbox.config.json"
+        if not unified_config_path.exists():
+            console.print(f"[red]No unified config found[/red]")
             sys.exit(1)
 
-        project_config = {}
-        try:
-            project_config = json.loads(config_path.read_text())
-        except Exception:
-            project_config = {}
-
-        skills_list = project_config.get("skills")
+        unified_config = _load_unified_config(agentbox_dir)
+        if not unified_config:
+            unified_config = _load_default_unified_config()
+        skills_list = unified_config.get("agents", {}).get("claude", {}).get("skills")
         if not isinstance(skills_list, list):
             skills_list = []
 
@@ -1726,9 +2062,9 @@ def skill_remove(name: str):
             skills_list.remove(name)
             removed = True
         if skills_list:
-            project_config["skills"] = skills_list
-        elif "skills" in project_config:
-            del project_config["skills"]
+            unified_config["agents"]["claude"]["skills"] = skills_list
+        else:
+            unified_config["agents"]["claude"].pop("skills", None)
 
         target_path = skills_dir / name
         if target_path.exists():
@@ -1742,7 +2078,8 @@ def skill_remove(name: str):
             console.print(f"[yellow]Skill '{name}' not found in project[/yellow]")
             return
 
-        config_path.write_text(json.dumps(project_config, indent=2))
+        _write_unified_config(agentbox_dir, unified_config)
+        _generate_agent_configs(agentbox_dir)
         _update_agent_context(project_dir, _load_volumes_config(agentbox_dir))
         console.print(f"[green]✓ Removed '{name}' skill from project[/green]")
     except Exception as e:
@@ -1827,7 +2164,24 @@ def rebuild():
 
 
 @cli.command()
-def init():
+@click.option(
+    "--onboard/--no-onboard",
+    default=False,
+    help="Seed unified config from local Claude/Codex configs",
+)
+@click.option(
+    "--claude-config",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Path to local Claude config for onboarding",
+)
+@click.option(
+    "--codex-config",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Path to local Codex config for onboarding",
+)
+def init(onboard: bool, claude_config: Optional[Path], codex_config: Optional[Path]):
     """Initialize .agentbox/ directory structure for the project."""
     try:
         console.print(BANNER, highlight=False, markup=False)
@@ -1838,7 +2192,8 @@ def init():
         agentbox_dir = project_dir / ".agentbox"
 
         # Check if already initialized
-        config_path = agentbox_dir / "config.json"
+        unified_config_path = agentbox_dir / "agentbox.config.json"
+        claude_config_path = agentbox_dir / "config.json"
         codex_config_path = agentbox_dir / "codex.toml"
         if agentbox_dir.exists():
             console.print(f"[yellow].agentbox/ already initialized in {project_dir}[/yellow]")
@@ -1850,30 +2205,25 @@ def init():
         (agentbox_dir / "state").mkdir(exist_ok=True)
         (agentbox_dir / "skills").mkdir(exist_ok=True)
 
-        # Create config.json with defaults
-        if not config_path.exists():
-            default_config = {
-                "mcpServers": {
-                    "notify": {
-                        "command": "python3",
-                        "args": ["/agentbox/library/mcp/notify/server.py"]
-                    }
-                }
-            }
-            with open(config_path, 'w') as f:
-                json.dump(default_config, f, indent=2)
+        # Create unified config with defaults
+        if not unified_config_path.exists():
+            if onboard:
+                claude_path = claude_config or (Path.home() / ".claude" / "config.json")
+                codex_path = codex_config or (Path.home() / ".codex" / "config.toml")
+                onboarded = _onboard_unified_config(claude_path, codex_path)
+                if onboarded:
+                    _write_unified_config(agentbox_dir, onboarded)
+                    console.print(f"[green]✓ Onboarded local configs[/green]")
+                else:
+                    console.print("[yellow]No local configs found; using defaults[/yellow]")
+                    default_unified = _load_default_unified_config()
+                    _write_unified_config(agentbox_dir, default_unified)
+            else:
+                default_unified = _load_default_unified_config()
+                _write_unified_config(agentbox_dir, default_unified)
 
-        # Create codex.toml with defaults
-        if not codex_config_path.exists():
-            codex_config_content = """[projects."/workspace"]
-trust_level = "trusted"
-
-[mcp_servers."notify"]
-command = "python3"
-args = ["/agentbox/library/mcp/notify/server.py"]
-"""
-            with open(codex_config_path, 'w') as f:
-                f.write(codex_config_content)
+        # Generate per-agent configs
+        _generate_agent_configs(agentbox_dir)
 
         # Create volumes.json with defaults
         volumes_path = agentbox_dir / VOLUMES_CONFIG_NAME
@@ -1903,7 +2253,9 @@ state/
 
         console.print(f"\n[green]✓ Initialized .agentbox/[/green]")
         console.print(f"\n[blue]Created:[/blue]")
+        console.print(f"  .agentbox/agentbox.config.json")
         console.print(f"  .agentbox/config.json")
+        console.print(f"  .agentbox/codex.toml")
         console.print(f"  .agentbox/.gitignore")
         console.print(f"  .agentbox/LOG.md")
         console.print(f"  .agentbox/skills/")

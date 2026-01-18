@@ -3,14 +3,13 @@
 # SPDX-License-Identifier: MIT
 # See LICENSE file in the project root for full license information.
 
-"""Split runtime Codex config into project overrides.
+"""Sync runtime Codex config into project config.
 
 Reads:
-  - /agentbox/library/config/default/codex.toml (global baseline)
-  - /root/.codex/config.toml (runtime config)
+  - /home/abox/.codex/config.toml (runtime config)
 
 Writes:
-  - /workspace/.agentbox/codex.toml (project overrides)
+  - /workspace/.agentbox/codex.toml (project config)
 """
 
 from __future__ import annotations
@@ -99,49 +98,12 @@ def dump_toml(data: Dict[str, Any]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def diff_overrides(base: Dict[str, Any], runtime: Dict[str, Any]) -> Dict[str, Any]:
-    overrides: Dict[str, Any] = {}
-
-    base_projects = base.get("projects", {}) if isinstance(base.get("projects"), dict) else {}
-    runtime_projects = (
-        runtime.get("projects", {}) if isinstance(runtime.get("projects"), dict) else {}
-    )
-
-    project_overrides: Dict[str, Any] = {}
-    for project_path, runtime_entry in runtime_projects.items():
-        base_entry = base_projects.get(project_path)
-        if runtime_entry != base_entry:
-            project_overrides[project_path] = runtime_entry
-
-    if project_overrides:
-        overrides["projects"] = project_overrides
-
-    base_mcp = base.get("mcp_servers", {}) if isinstance(base.get("mcp_servers"), dict) else {}
-    runtime_mcp = (
-        runtime.get("mcp_servers", {}) if isinstance(runtime.get("mcp_servers"), dict) else {}
-    )
-    mcp_overrides: Dict[str, Any] = {}
-    for server_name, runtime_entry in runtime_mcp.items():
-        base_entry = base_mcp.get(server_name)
-        if runtime_entry != base_entry:
-            mcp_overrides[server_name] = runtime_entry
-
-    if mcp_overrides:
-        overrides["mcp_servers"] = mcp_overrides
-
-    return overrides
-
-
 def _env_path(var_name: str, default: Path) -> Path:
     value = os.getenv(var_name)
     return Path(value) if value else default
 
 
 def split_config() -> bool:
-    global_config_path = _env_path(
-        "AGENTBOX_CODEX_GLOBAL_CONFIG",
-        Path("/agentbox/library/config/default/codex.toml"),
-    )
     runtime_config_path = _env_path(
         "AGENTBOX_CODEX_RUNTIME_CONFIG",
         Path("/home/abox/.codex/config.toml"),
@@ -151,14 +113,11 @@ def split_config() -> bool:
         Path("/workspace/.agentbox/codex.toml"),
     )
 
-    base_config = read_toml(global_config_path)
     runtime_config = read_toml(runtime_config_path)
-
-    overrides = diff_overrides(base_config, runtime_config)
 
     project_config_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        project_config_path.write_text(dump_toml(overrides))
+        project_config_path.write_text(dump_toml(runtime_config))
         return True
     except Exception as e:
         print(f"Error: Failed to write project config: {e}", file=sys.stderr)

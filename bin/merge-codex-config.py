@@ -3,17 +3,13 @@
 # SPDX-License-Identifier: MIT
 # See LICENSE file in the project root for full license information.
 
-"""Merge global and project Codex configs into runtime config.
+"""Sync project Codex config into runtime config.
 
 Reads:
-  - /agentbox/library/config/default/codex.toml (global baseline)
-  - /workspace/.agentbox/codex.toml (project overrides)
+  - /workspace/.agentbox/codex.toml (project config, generated)
 
 Writes:
-  - /root/.codex/config.toml (merged runtime config)
-
-Project config takes precedence for overlapping keys.
-Currently supports the "projects" table structure used by Codex CLI.
+  - /home/abox/.codex/config.toml (runtime config)
 """
 
 from __future__ import annotations
@@ -31,17 +27,6 @@ except ModuleNotFoundError:  # pragma: no cover
         import tomli as tomllib  # type: ignore[assignment]
     except ModuleNotFoundError:  # pragma: no cover
         tomllib = None
-
-
-def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-    """Deep merge two dictionaries, override takes precedence."""
-    result = dict(base)
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(result.get(key), dict):
-            result[key] = deep_merge(result[key], value)
-        else:
-            result[key] = value
-    return result
 
 
 def _toml_escape(value: str) -> str:
@@ -120,10 +105,6 @@ def _env_path(var_name: str, default: Path) -> Path:
 
 
 def merge_configs() -> bool:
-    global_config_path = _env_path(
-        "AGENTBOX_CODEX_GLOBAL_CONFIG",
-        Path("/agentbox/library/config/default/codex.toml"),
-    )
     project_config_path = _env_path(
         "AGENTBOX_CODEX_PROJECT_CONFIG",
         Path("/workspace/.agentbox/codex.toml"),
@@ -133,14 +114,15 @@ def merge_configs() -> bool:
         Path("/home/abox/.codex/config.toml"),
     )
 
-    global_config = read_toml(global_config_path)
-    project_config = read_toml(project_config_path)
+    if not project_config_path.exists():
+        print("Warning: Project config doesn't exist yet", file=sys.stderr)
+        return False
 
-    merged = deep_merge(global_config, project_config)
+    project_config = read_toml(project_config_path)
 
     runtime_config_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        runtime_config_path.write_text(dump_toml(merged))
+        runtime_config_path.write_text(dump_toml(project_config))
         return True
     except Exception as e:
         print(f"Error: Failed to write runtime config: {e}", file=sys.stderr)

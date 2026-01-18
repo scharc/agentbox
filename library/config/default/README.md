@@ -1,6 +1,6 @@
 # Default Config Preset
 
-This is the default Claude Code configuration for Agentbox containers.
+This preset defines the unified Agentbox defaults in `agentbox.config.json`.
 
 ## Philosophy
 
@@ -43,14 +43,9 @@ These require human input:
 
 ## Usage
 
-This config is automatically mounted to containers in `/agentbox/library/config/default/`.
-
-To use it in a project, you would copy it to your container's `.claude/` directory:
-
-```bash
-# Inside container
-cp /agentbox/library/config/default/config.json ~/.claude/config.json
-```
+The default unified config lives at `library/config/default/agentbox.config.json`.
+`agentbox init` uses it to seed `.agentbox/agentbox.config.json`, and the runtime
+configs are generated from that unified file.
 
 ## Security
 
@@ -68,6 +63,6 @@ The worst case is Claude makes mistakes in your project code, which can be rever
 To create a custom config:
 
 1. Copy this directory to `config/your-preset/`
-2. Modify `config.json` as needed
+2. Modify `agentbox.config.json` as needed
 3. Update README.md to document your changes
-4. Copy into your project `.agentbox/config.json` or container `~/.claude/config.json`
+4. Copy into your project `.agentbox/agentbox.config.json`
