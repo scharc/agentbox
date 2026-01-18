@@ -214,7 +214,8 @@ def _run_agent_command(
         f"{tmux_prefix_option}tmux set-option -t {shlex.quote(session_name)} status on; "
         f"tmux set-option -t {shlex.quote(session_name)} status-position top; "
         f"tmux set-option -t {shlex.quote(session_name)} status-style 'bg=colour226,fg=colour232'; "
-        f"tmux set-option -t {shlex.quote(session_name)} mouse off; "
+        f"tmux set-option -t {shlex.quote(session_name)} mouse on; "
+        f"tmux set-option -t {shlex.quote(session_name)} set-clipboard on; "
         f"tmux set-option -t {shlex.quote(session_name)} history-limit 50000; "
         f"tmux set-option -t {shlex.quote(session_name)} status-left "
         f"{shlex.quote(' AGENTBOX ' + container_name + ' | ' + display + ' ')}; "
@@ -500,11 +501,6 @@ def _onboard_unified_config(claude_path: Path, codex_path: Path) -> dict:
         },
     }
     return normalize_unified(unified)
-                },
-                "mcpServers": {},
-            },
-        },
-    })
 
 
 def _generate_agent_configs(agentbox_dir: Path) -> None:
@@ -774,7 +770,7 @@ def _dump_codex_toml(data):
 
 
 @click.group(invoke_without_command=True)
-@click.version_option(version="0.1.2")
+@click.version_option(version="0.1.3")
 def cli():
     """Agentbox - Secure, isolated Docker environment for Claude Code."""
     ctx = click.get_current_context()
