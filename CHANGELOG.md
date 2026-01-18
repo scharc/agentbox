@@ -1,0 +1,490 @@
+# Changelog
+
+All notable changes to Agentbox are documented here.
+
+## [0.2.0] - 2026-01-18
+
+Major release with new architecture, MCP servers, and mobile-friendly CLI.
+
+### Added
+- **agentctl MCP** - Worktree and session management from within agents
+- **agentbox-analyst MCP** - Cross-agent review and analysis
+- **agentbox-notify MCP** - Desktop notifications from container
+- **Worktree support** - Run multiple agents on different branches in parallel
+- **Session management** - Multiple agent sessions per container
+- **Quick menu** (`abox q`) - Mobile-friendly single-keypress navigation
+- **Port forwarding** - Expose container ports without restart
+- **Container networking** - Connect to other Docker containers
+- **Device passthrough** - GPU, audio, serial port access
+- **Docker socket access** - Give agents Docker control
+- **Stall detection** - Automatic notifications when agents appear stuck
+- **Automatic credential sharing** - Claude, Codex, OpenAI, Gemini credentials auto-mount
+- **SSH agent forwarding** - Support for hardware keys and passphrase-protected keys
+- **Web UI** - PWA-ready status dashboard
+
+### Changed
+- **All CLI flags removed** - Positional arguments only (mobile-friendly)
+- **Packages moved to `.agentbox.yml`** - Single config file
+- **MCP library reorganized** - `agentbox-notify`, `agentbox-analyst`, `agentctl`
+- **Documentation rewritten** - Story-driven guides, comprehensive reference
+
+### Fixed
+- OAuth token refresh in containers (directory mounts instead of file mounts)
+- Terminal corruption after Docker/tmux operations
+- Container init performance (removed slow chown operations)
+- Session reattachment reliability
+
+---
+
+## Recent Improvements (January 2026)
+
+### CLI Reorganization (Jan 9, 2026)
+
+**Breaking Change: All Flags Removed**
+- Converted ALL `--flags` to positional arguments for mobile-friendly CLI
+- Examples:
+  - `abox ps --all` → `abox list all`
+  - `abox remove --force` → `abox remove force`
+  - `abox service logs --lines 100` → `abox service logs 100`
+
+**New Command Structure**
+- Created logical command groups: `project`, `network`, `base`, `session`, `service`
+- Added top-level shortcuts: `start`, `stop`, `list`, `ps`, `info`, `shell`, etc.
+- Created dedicated `sessions.py` module for clean session management
+- Removed duplicate `container.py` with old flagged commands
+
+**Test Coverage**
+- All CLI tests passing (13/13 session warning tests)
+- Help text updated to reflect positional arguments
+- See `COMPLETED_WORK_SUMMARY.md` for full details
+
+### Codebase Refactoring - Phases 0-5 (Jan 8-9, 2026)
+
+**Phase 0: Critical Bug Fixes**
+- Fixed `AGENTBOX_DIR` hard-coded path (now auto-detects)
+- Fixed notification socket path (uses proper runtime directory)
+
+**Phase 1: Foundation**
+- Created `agentbox/utils/` package:
+  - `exceptions.py`: 12 custom exception classes
+  - `logging.py`: AgentboxLogger with Rich console
+  - `tmux.py`: 4 utility functions
+  - `config_io.py`: JSON config I/O helpers
+- Created `host_config.py`: Centralized HostConfig singleton
+
+**Phase 2: Config Consolidation**
+- **Breaking**: Moved packages from `packages.json` → `.agentbox.yml`
+- Updated ProjectConfig with `packages` property
+- Migration: Merge packages.json content into .agentbox.yml
+
+**Phase 3: Remove Hard-coded Constants**
+- Eliminated all hard-coded paths, ports, timeouts
+- Everything now configurable via host config
+- 30+ occurrences of hard-coded values removed
+
+**Phase 4: Code Organization**
+- Split `helpers.py` into 6 modular files:
+  - `tmux_ops.py`, `agent_commands.py`, `completions.py`
+  - `config_ops.py`, `context.py`, `utils.py`
+- Removed duplicate functions
+- Cleaned up imports
+
+**Phase 5: Error Handling**
+- Added logging framework
+- Improved error messages
+- Added exception hierarchy
+
+**Results**
+- 27 refactoring commits
+- 149 unit tests passing
+- No circular dependencies
+- Zero duplicated functions
+- See `REFACTORING_COMPLETE_PHASES_0-5.md` for full report
+
+### Testing Infrastructure (Jan 8-9, 2026)
+
+**Docker-in-Docker Integration Tests**
+- Comprehensive DinD test suite for full workflow coverage
+- 24+ tests covering:
+  - Container lifecycle (24 tests)
+  - Networking (9 tests)
+  - Workspaces (11 tests)
+  - Session management (6 tests)
+  - MCP integration (7 tests)
+  - Proxy service (5 tests)
+- Path translation helpers for DinD scenarios
+- Documentation: `tests/dind/README.md`, `tests/dind/STATUS.md`
+
+### Session Monitoring (Jan 8, 2026)
+
+**Stall Detection**
+- Automatic session idle notifications
+- 30-second idle threshold detection
+- Background monitoring thread in proxy
+- Session state tracking: IDLE → ACTIVE → STALE → NOTIFIED
+- Task agent enhancement for better stall summaries
+- Notification deduplication
+
+### Research & Documentation (Jan 9, 2026)
+
+**Comprehensive Feature Research**
+- Consolidated all feature notes into `NOTES.md`
+- Researched 14 major topics:
+  - PWA best practices for terminal apps
+  - Service Worker & WebSocket strategies
+  - MCP server patterns and specifications
+  - Mobile UI optimization (touch targets, thumb zones)
+  - Push notification APIs
+  - Git worktree patterns for parallel development
+  - Session monitoring and observability
+  - Tmux buffer capture techniques
+  - Context compression strategies
+  - Agent task handoff and orchestration
+  - IndexedDB vs LocalStorage
+  - Cache versioning and updates
+  - Workbox library patterns
+  - Autonomous agent workflows
+
+**Documentation Improvements**
+- Added 40+ authoritative references
+- Created 10+ code examples
+- Defined 6-phase implementation roadmap
+- 935 lines of research added to NOTES.md
+- File grew from 106 to 1,041 lines
+
+### Documentation & Positioning
+
+**Emphasizing Autonomous Agents**
+- Repositioned Agentbox as a tool for autonomous background work
+- Super modes (`superclaude`, `supercodex`, `supergemini`) now highlighted as primary workflow
+- Updated all examples to show autonomous usage patterns
+- Added comprehensive autonomous mode safety section
+- Quick start now demonstrates super agent workflow
+
+**Terminology Updates**
+- Changed "volume" commands to "workspace" for consistency
+- `agentbox workspace add/list/remove` now documented correctly
+
+### Reliability Improvements
+
+**Terminal Corruption Fix**
+- Fixed terminal corruption after Docker and tmux operations
+- Proper terminal reset after agent commands exit
+- Cleaner exit handling for long-running sessions
+
+**Container Init Performance**
+- Optimized container startup time
+- Removed slow `chown` operations for `/context` directory
+- Faster initialization on first run
+
+**Credential Bootstrapping**
+- Fixed credential bootstrapping order to prevent conflicts
+- Credentials copied in correct sequence (Claude → Codex → SSH → Git)
+- SSH and Git configs remain read-only for security
+
+### MCP Server Enhancements
+
+**Expanded MCP Library**
+- Added 5 commonly used MCP servers to library
+- Total of 16 pre-configured MCPs available
+- New servers: Brave Search, Google Maps, Slack, Redis, Playwright
+
+**MCP Auto-Install**
+- MCP dependencies now auto-install when added to project
+- Support for npm packages (e.g., `@modelcontextprotocol/server-postgres`)
+- Support for pip packages (e.g., MySQL connector)
+- `agentbox mcp install <name>` for manual installation in running containers
+
+**MCP Post-Install Support**
+- Added `mcp-meta.json` to track MCP installation requirements
+- Automatic dependency resolution
+- Better error messages when dependencies missing
+
+**MySQL MCP with Pip Support**
+- Added MySQL MCP server configuration
+- Auto-installs Python MySQL connector via pip
+- Works with MySQL and MariaDB
+
+### Configuration System
+
+**Improved Config Sync**
+- More reliable bidirectional config synchronization
+- Better handling of concurrent config changes
+- Config watcher stability improvements
+
+**Environment Variable Support**
+- `.agentbox/.env` files now auto-loaded on container start
+- Reload detection (polled every 5 seconds)
+- `.agentbox/.env.local` support for local overrides
+- Variable substitution in MCP configs: `${VAR_NAME}`
+
+**Workspace Mount Collision Prevention**
+- Added validation to prevent mounting over `/workspace`
+- Better error messages for mount path conflicts
+- Safer volume management
+
+### Testing & Quality
+
+**Integration Test Suite**
+- Comprehensive integration tests for CLI commands
+- Tests for container lifecycle, MCP management, and config sync
+- Automated test runs on changes
+- Better reliability and fewer regressions
+
+**Test Coverage**
+- Fixed test suite issues
+- All core functionality covered by tests
+- CI/CD ready
+
+### Documentation
+
+**Comprehensive Guides**
+- New [README.md](README.md) with complete feature overview
+- New [MCP Server Catalog](docs/mcp-servers.md)
+- Updated [Getting Started](docs/getting-started.md)
+- Updated [Workflows](docs/workflows.md)
+- Updated [Configuration Guide](docs/configuration.md)
+- Updated [Architecture](docs/architecture.md)
+
+**Detailed MCP Documentation**
+- Individual README files for each MCP server
+- Setup instructions and examples
+- Security best practices
+- Troubleshooting guides
+
+### Agent Support
+
+**Multi-Agent Parity**
+- All agents (Claude, Codex, Gemini) now have IDE integration
+- Consistent command structure across agents
+- Same isolation and safety model
+- Autonomous mode (super*) for all agents
+
+**Agent Commands**
+- `abox claude` - Standard Claude Code
+- `abox superclaude` - Autonomous Claude with auto-approve
+- `abox codex` - Standard Codex
+- `abox supercodex` - Autonomous Codex
+- `abox gemini` - Standard Gemini
+- `abox supergemini` - Autonomous Gemini
+
+### Developer Experience
+
+**Session Management**
+- Improved auto-reattach for agent sessions
+- Session names now consistent and predictable
+- Better handling of orphaned sessions
+
+**Error Messages**
+- Clearer error messages for common issues
+- Better troubleshooting guidance
+- Helpful suggestions when things go wrong
+
+**Command Simplifications**
+- Shorter command aliases still work (e.g., `abox` for `agentbox`)
+- More intuitive command names
+- Better help text
+
+## Architecture Changes
+
+### Base Image
+
+**Added Tools**
+- VSCode CLI (10MB standalone binary)
+- Poetry and uv for Python package management
+- Latest npm, yarn, and pnpm
+- Up-to-date Claude Code, Codex, and Gemini CLIs
+
+**Optimizations**
+- Reduced layer count for faster builds
+- Better caching of dependencies
+- Smaller final image size
+
+### Container Runtime
+
+**Improved Lifecycle**
+- Better container state management
+- Cleaner shutdown and restart
+- Preserved tmux sessions across rebuilds
+
+**Performance**
+- Faster container creation
+- Quicker credential bootstrapping
+- Optimized config sync polling
+
+## Breaking Changes
+
+### CLI Commands (Jan 9, 2026)
+
+**All `--flags` removed** - Commands now use positional arguments only:
+
+| Old Command (with flags) | New Command (positional) |
+|--------------------------|--------------------------|
+| `abox ps --all` | `abox list all` |
+| `abox remove --force` | `abox remove force` |
+| `abox service logs --lines 100` | `abox service logs 100` |
+| `abox service logs --follow` | `abox service follow` |
+| `abox start --name mycontainer` | `abox start` (auto-detects from directory) |
+
+**Command structure reorganized**:
+- `container` group → split into `project` and `network` groups
+- `session list-all` → `session listall` (no hyphen)
+
+### Configuration (Jan 8, 2026)
+
+**Package configuration moved**:
+- `packages.json` → `.agentbox.yml` (packages section)
+- Migration required: Copy your packages.json content into .agentbox.yml
+
+Other changes remain backward compatible with existing projects.
+
+## Migration Guide
+
+### Upgrading from Previous Versions
+
+1. Pull latest changes:
+   ```bash
+   cd /path/to/agentbox
+   git pull
+   ```
+
+2. Rebuild base image:
+   ```bash
+   abox update
+   ```
+
+3. (Optional) Rebuild project containers:
+   ```bash
+   cd ~/projects/my-app
+   abox rebuild
+   ```
+
+### Migrating CLI Commands
+
+**Update scripts and workflows** to use positional arguments instead of flags:
+
+```bash
+# Old (with flags)
+abox ps --all
+abox service logs --lines 100 --follow
+abox remove --force
+
+# New (positional)
+abox list all
+abox service logs 100
+abox service follow
+abox remove force
+```
+
+**Update command group references**:
+- Replace `container` commands → use `project` or `network` groups
+- Replace `session list-all` → use `session listall`
+
+### Migrating Package Configuration
+
+If you have a `packages.json` file in your `.agentbox/` directory:
+
+1. Open `.agentbox.yml` in your editor
+2. Add a `packages:` section:
+   ```yaml
+   packages:
+     - package1
+     - package2
+   ```
+3. Copy your packages from `packages.json` into the new section
+4. Remove the old `packages.json` file
+
+Example migration:
+
+```json
+// Old: .agentbox/packages.json
+["ripgrep", "fd-find", "bat"]
+```
+
+```yaml
+# New: .agentbox.yml
+packages:
+  - ripgrep
+  - fd-find
+  - bat
+```
+
+Other `.agentbox/` configurations work without changes.
+
+### New Features to Try
+
+After upgrading, try these new features:
+
+**IDE Integration**:
+```bash
+# Install VSCode Dev Containers extension
+code --install-extension ms-vscode-remote.remote-containers
+
+# Attach to container
+# VSCode Command Palette → "Dev Containers: Attach to Running Container"
+
+# Now /ide commands work!
+```
+
+**MCP Auto-Install**:
+```bash
+agentbox mcp add postgres  # Auto-installs npm package
+agentbox mcp add mysql     # Auto-installs pip package
+```
+
+**Environment Variables**:
+```bash
+# Create .agentbox/.env
+echo "GITHUB_TOKEN=ghp_xxx" >> .agentbox/.env
+
+# Use in configs with ${GITHUB_TOKEN}
+# Auto-reloads when .env changes!
+```
+
+## Future Plans
+
+### In Progress
+
+- VSCode workspace trust configuration
+- Additional MCP servers (AWS, GCP, Azure)
+- Improved notification system
+- Better multi-project dashboards
+
+### Planned
+
+- Support for more IDEs (JetBrains, Neovim remote)
+- Web UI for container management
+- Built-in MCP server for Kubernetes
+- Agent collaboration (multiple agents on same task)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+### Areas We'd Love Help With
+
+- **Documentation**: More examples, tutorials, and guides
+- **MCP Servers**: Pre-configured setups for popular tools
+- **Testing**: Additional test coverage and scenarios
+- **Bug Fixes**: See [Issues](https://github.com/scharc/agentbox/issues)
+
+## Acknowledgments
+
+Agentbox is built on top of amazing open source projects:
+
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) by Anthropic
+- [OpenAI Codex](https://github.com/openai/codex)
+- [Google Gemini CLI](https://github.com/google/gemini-cli)
+- [Model Context Protocol](https://modelcontextprotocol.io) specification
+- [Docker](https://docker.com) for containerization
+- [tmux](https://github.com/tmux/tmux) for session management
+
+## Support
+
+- **Issues**: https://github.com/scharc/agentbox/issues
+- **Discussions**: https://github.com/scharc/agentbox/discussions
+- **Documentation**: https://github.com/scharc/agentbox/tree/main/docs
+
+---
+
+**Thank you for using Agentbox!** 🚀

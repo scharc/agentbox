@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Agentbox wrapper script - preserves current working directory
 
-# Capture the user's current working directory
-export AGENTBOX_PROJECT_DIR="$PWD"
+# Capture the user's current working directory (only if not already set)
+export AGENTBOX_PROJECT_DIR="${AGENTBOX_PROJECT_DIR:-$PWD}"
 
 # Get the real path of this script (resolve symlinks)
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"

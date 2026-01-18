@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Agentbox Sessions</title>
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#4a90e2">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Agentbox">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    <link rel="stylesheet" href="/static/css/style.css?v=CACHE_BUST">
+</head>
+<body>
+    <header>
+        <nav class="header-nav">
+            <a href="/" class="nav-btn active" aria-label="Sessions">Sessions</a>
+            <a href="/status" class="nav-btn" aria-label="Status">Status</a>
+        </nav>
+        <button id="refresh-btn" class="refresh-btn" aria-label="Refresh sessions">&#128260;</button>
+    </header>
+
+    <main id="sessions-container" aria-live="polite">
+        <div class="loading">Loading sessions...</div>
+    </main>
+
+    <button id="new-session-btn" class="fab" aria-label="Create new session">＋</button>
+
+    <div id="new-session-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title">Create New Session</h2>
+                <button class="close-modal" aria-label="Close modal">&times;</button>
+            </div>
+            <form id="new-session-form">
+                <div class="form-group">
+                    <label for="container-select">Container:</label>
+                    <select id="container-select" required>
+                        <option value="">Select container...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="agent-type-select">Agent Type:</label>
+                    <select id="agent-type-select" required>
+                        <option value="">Select agent type...</option>
+                        <option value="claude">Claude</option>
+                        <option value="superclaude">SuperClaude (auto-approve)</option>
+                        <option value="codex">Codex</option>
+                        <option value="supercodex">SuperCodex (auto-approve)</option>
+                        <option value="gemini">Gemini</option>
+                        <option value="supergemini">SuperGemini (auto-approve)</option>
+                        <option value="shell">Shell</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="identifier-input">Identifier (optional):</label>
+                    <input
+                        type="text"
+                        id="identifier-input"
+                        placeholder="Leave empty for auto-numbering"
+                    />
+                    <small>Examples: "feature-1", "debug", "test"</small>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary cancel-btn">Cancel</button>
+                    <button type="submit" class="btn-primary">Create Session</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <footer>
+        <p>
+            <a href="/" class="active">Sessions</a> &bull;
+            <a href="/status">Status</a> &bull;
+            <a href="/decisions">Decisions</a>
+        </p>
+    </footer>
+
+    <script src="/static/js/pwa-init.js?v=CACHE_BUST"></script>
+    <script src="/static/js/session-list.js?v=CACHE_BUST"></script>
+</body>
+</html>

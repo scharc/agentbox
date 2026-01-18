@@ -1,0 +1,5 @@
+#!/bin/bash
+# Run Gemini with super agent settings
+exec gemini \
+    --non-interactive \
+    "$@"

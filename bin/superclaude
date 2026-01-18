@@ -1,0 +1,7 @@
+#!/bin/bash
+# Run Claude Code with super agent settings
+exec claude \
+    --dangerously-skip-permissions \
+    --settings /home/abox/.claude/config-super.json \
+    --mcp-config /workspace/.agentbox/claude/mcp.json \
+    "$@"

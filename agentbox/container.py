@@ -7,15 +7,38 @@
 import json
 import os
 import re
+import time
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any, Callable
 
 import docker
 from docker.models.containers import Container
 from rich.console import Console
 from rich.table import Table
 
+from agentbox.config import ProjectConfig
+from agentbox.utils.terminal import reset_terminal
+from agentbox.utils.exceptions import ConfigError
+
 console = Console()
+
+
+def get_abox_environment(include_tmux: bool = False, container_name: str = None) -> dict:
+    """Get standard environment dict for abox user container operations.
+
+    Args:
+        include_tmux: If True, includes TMUX_TMPDIR for tmux operations
+        container_name: If provided, includes AGENTBOX_CONTAINER_NAME for MCP servers
+
+    Returns:
+        Dict with standard environment variables
+    """
+    env = {"HOME": "/home/abox", "USER": "abox"}
+    if include_tmux:
+        env["TMUX_TMPDIR"] = "/tmp"
+    if container_name:
+        env["AGENTBOX_CONTAINER_NAME"] = container_name
+    return env
 
 
 class ContainerManager:
@@ -23,15 +46,22 @@ class ContainerManager:
 
     BASE_IMAGE = "agentbox-base:latest"
     CONTAINER_PREFIX = "agentbox-"
-    AGENTBOX_DIR = Path("/x/coding/agentbox")
 
     def __init__(self):
         """Initialize Docker client."""
         try:
             self.client = docker.from_env()
+            from agentbox.host_config import get_config
+
+            self.config = get_config()
         except docker.errors.DockerException as e:
             console.print(f"[red]Error: Could not connect to Docker: {e}[/red]")
             raise
+
+    @property
+    def AGENTBOX_DIR(self) -> Path:
+        """Get agentbox installation directory (auto-detected)."""
+        return self.config.agentbox_dir
 
     def sanitize_project_name(self, name: str) -> str:
         """Sanitize project name for Docker container naming.
@@ -77,34 +107,31 @@ class ContainerManager:
         """
         return f"{self.CONTAINER_PREFIX}{project_name}"
 
-    def _project_uses_docker_mcp(self, project_dir: Path) -> bool:
-        unified_path = project_dir / ".agentbox" / "agentbox.config.json"
-        if unified_path.exists():
-            try:
-                data = json.loads(unified_path.read_text())
-            except Exception:
-                data = {}
-            superset = data.get("superset", {})
-            agents = data.get("agents", {})
-            mcp_servers = {}
-            for source in (
-                superset.get("mcpServers", {}),
-                agents.get("claude", {}).get("mcpServers", {}),
-                agents.get("codex", {}).get("mcpServers", {}),
-            ):
-                if isinstance(source, dict):
-                    mcp_servers.update(source)
-            return "docker" in mcp_servers
+    def _get_mcp_mounts(self, project_dir: Path) -> list:
+        """Get extra mounts from MCP metadata."""
+        meta_path = project_dir / ".agentbox" / "mcp-meta.json"
+        if not meta_path.exists():
+            return []
 
-        config_path = project_dir / ".agentbox" / "config.json"
-        if not config_path.exists():
-            return False
         try:
-            data = json.loads(config_path.read_text())
+            data = json.loads(meta_path.read_text())
         except Exception:
-            return False
-        mcp_servers = data.get("mcpServers", {})
-        return isinstance(mcp_servers, dict) and "docker" in mcp_servers
+            return []
+
+        mounts = []
+        for server_name, server_meta in data.get("servers", {}).items():
+            for mount in server_meta.get("mounts", []):
+                host = mount.get("host")
+                container = mount.get("container")
+                mode = mount.get("mode", "ro")
+                if host and container:
+                    # Resolve relative paths against project_dir
+                    host_path = Path(host)
+                    if not host_path.is_absolute():
+                        host_path = project_dir / host_path
+                    if host_path.exists():
+                        mounts.append({"host": str(host_path), "container": container, "mode": mode})
+        return mounts
 
     def get_runtime_dir(self, project_name: str) -> Path:
         """Get runtime directory for project.
@@ -158,6 +185,37 @@ class ContainerManager:
         container = self.get_container(container_name)
         return container is not None and container.status == "running"
 
+    def is_base_image_outdated(self, container_name: str) -> bool:
+        """Check if container was created from an older base image.
+
+        Compares the container's image ID with the current agentbox-base:latest image.
+
+        Args:
+            container_name: Full container name
+
+        Returns:
+            True if container's base image differs from current base image
+        """
+        try:
+            container = self.client.containers.get(container_name)
+        except docker.errors.NotFound:
+            return False
+
+        # Get container's image ID from attrs (works even if image was deleted)
+        container_image_id = container.attrs.get("Image", "")
+
+        try:
+            # Get current base image ID
+            base_image = self.client.images.get(self.BASE_IMAGE)
+            base_image_id = base_image.id
+        except docker.errors.ImageNotFound:
+            # Base image doesn't exist yet - can't compare
+            return False
+        except Exception:
+            return False
+
+        return container_image_id != base_image_id
+
     def create_container(
         self,
         project_name: str,
@@ -181,7 +239,13 @@ class ContainerManager:
 
         # Check if container already exists
         if self.container_exists(container_name):
-            console.print(f"[yellow]Container {container_name} already exists[/yellow]")
+            # Lazy import to avoid circular dependency
+            from agentbox.cli.helpers.tmux_ops import _show_warning_panel
+            _show_warning_panel(
+                "Config changes won't apply to existing container.\n"
+                "Run 'agentbox rebase' to recreate with new settings.",
+                "Existing Container"
+            )
             container = self.get_container(container_name)
             if not self.is_running(container_name):
                 console.print(f"[blue]Starting existing container...[/blue]")
@@ -194,14 +258,19 @@ class ContainerManager:
         state_dir = agentbox_dir / "state"
         state_dir.mkdir(parents=True, exist_ok=True)
 
+        # Load project configuration
+        config = ProjectConfig(project_dir)
+
         # Get user environment variables
         username = os.getenv("USER", "user")
         host_uid = os.getuid()
         host_gid = os.getgid()
-        git_author_name = os.getenv("GIT_AUTHOR_NAME", "Marc")
-        git_author_email = os.getenv("GIT_AUTHOR_EMAIL", "marc@schuetze.io")
+        # Git author defaults to username if not set (avoid hardcoded personal info)
+        git_author_name = os.getenv("GIT_AUTHOR_NAME", username)
+        git_author_email = os.getenv("GIT_AUTHOR_EMAIL", "")
         display = os.getenv("DISPLAY", ":0")
         runtime_dir = f"/run/user/{os.getuid()}"
+        agentboxd_dir = f"{runtime_dir}/agentboxd"
         dbus_address = f"unix:path={runtime_dir}/bus"
 
         # Prepare volume mounts
@@ -210,64 +279,148 @@ class ContainerManager:
         host_openai_config_dir = Path.home() / ".config" / "openai"
         host_codex_dir = Path.home() / ".codex"
         host_gemini_config_dir = Path.home() / ".config" / "gemini"
-        docker_enabled = self._project_uses_docker_mcp(project_dir)
+        mcp_mounts = self._get_mcp_mounts(project_dir)
+
+        # Use project-local Claude state for session isolation
+        # Each container gets its own history, cache, etc.
+        project_claude_dir = agentbox_dir / "claude"
+        project_claude_dir.mkdir(parents=True, exist_ok=True)
+
+        # Use project-local Codex state for session isolation (like Claude)
+        project_codex_dir = agentbox_dir / "codex"
+        project_codex_dir.mkdir(parents=True, exist_ok=True)
+
+        # Mount host config directories for credential access
+        # We mount directories (not individual files) to avoid stale inode issues
+        # when credential files are replaced during OAuth token refresh.
+        # Individual file mounts capture the inode at mount time; directory mounts
+        # allow seeing updated files even after replacement.
 
         volumes = {
             # Project workspace (read/write)
             str(project_dir.absolute()): {"bind": "/workspace", "mode": "rw"},
-            # User's SSH keys for git operations (read-only)
-            str(Path.home() / ".ssh"): {"bind": f"/{username}/ssh", "mode": "ro"},
-            # Host Claude directory for bootstrap (read-only)
-            str(host_claude_dir): {"bind": f"/{username}/claude", "mode": "ro"},
-            # Agentbox global library (templates, read-only)
+            # Project-local Claude state for session isolation
+            str(project_claude_dir): {"bind": f"/{username}/claude", "mode": "rw"},
+            # Project-local Codex state for session isolation
+            str(project_codex_dir): {"bind": f"/{username}/codex", "mode": "rw"},
+            # Agentbox global library (read-only)
             str(self.AGENTBOX_DIR / "library" / "config"): {"bind": "/agentbox/library/config", "mode": "ro"},
             str(self.AGENTBOX_DIR / "library" / "mcp"): {"bind": "/agentbox/library/mcp", "mode": "ro"},
             str(self.AGENTBOX_DIR / "library" / "skills"): {"bind": "/agentbox/library/skills", "mode": "ro"},
-            # Runtime directory for notifications (read-only)
-            runtime_dir: {"bind": runtime_dir, "mode": "ro"},
         }
-        if docker_enabled and Path("/var/run/docker.sock").exists():
-            volumes["/var/run/docker.sock"] = {"bind": "/var/run/docker.sock", "mode": "rw"}
-        # Optional host Claude client state file
+
+        # Mount agentboxd socket directory (for streaming/notifications)
+        # Create dir if needed - socket will appear when service starts
+        Path(agentboxd_dir).mkdir(parents=True, exist_ok=True)
+        volumes[agentboxd_dir] = {"bind": agentboxd_dir, "mode": "ro"}
+
+        # Mount container-init.sh from workspace to override baked-in version
+        # Note: File mounts have stale inode issues, but container-init.sh rarely changes
+        # after container creation, so this is acceptable. Rebuild image for production.
+        local_init_script = self.AGENTBOX_DIR / "bin" / "container-init.sh"
+        if local_init_script.exists():
+            volumes[str(local_init_script)] = {"bind": "/usr/local/bin/container-init.sh", "mode": "ro"}
+
+        # Mount host credential directories (not individual files) to avoid stale inode issues
+        # When OAuth tokens refresh, the credential file is replaced (new inode).
+        # File mounts would still show the old content; directory mounts see updates.
+        # Must be read-write so container can update credentials during OAuth token refresh.
+        if host_claude_dir.exists():
+            volumes[str(host_claude_dir)] = {"bind": f"/{username}/host-claude", "mode": "rw"}
+        if host_codex_dir.exists():
+            volumes[str(host_codex_dir)] = {"bind": f"/{username}/host-codex", "mode": "rw"}
+
+        # SSH configuration based on mode
+        ssh_home = Path.home() / ".ssh"
+        ssh_mode = config.ssh_mode
+
+        if config.ssh_enabled and ssh_mode != "none":
+            if ssh_mode == "keys":
+                # Keys mode: Mount to /host-ssh for copying during init
+                if ssh_home.exists():
+                    volumes[str(ssh_home)] = {"bind": "/host-ssh", "mode": "ro"}
+
+            elif ssh_mode == "mount":
+                # Mount mode: Bind mount read-write directly to .ssh
+                if ssh_home.exists():
+                    volumes[str(ssh_home)] = {"bind": "/home/abox/.ssh", "mode": "rw"}
+
+            elif ssh_mode == "config":
+                # Config mode: Mount only config/known_hosts for copying (no keys)
+                if ssh_home.exists():
+                    volumes[str(ssh_home)] = {"bind": "/host-ssh", "mode": "ro"}
+
+        # SSH agent socket forwarding (works with all modes when enabled)
+        ssh_sock_name = None
+        if config.ssh_enabled and config.ssh_forward_agent:
+            # Forward SSH agent socket (for passphrase-protected keys)
+            # Mount the parent directory instead of the socket file directly to handle
+            # socket file replacement when the SSH agent restarts.
+            ssh_auth_sock = os.getenv("SSH_AUTH_SOCK")
+            if ssh_auth_sock and Path(ssh_auth_sock).exists():
+                ssh_sock_path = Path(ssh_auth_sock)
+                ssh_sock_dir = ssh_sock_path.parent
+                ssh_sock_name = ssh_sock_path.name
+                # Mount the directory containing the socket
+                volumes[str(ssh_sock_dir)] = {"bind": "/ssh-agent-dir", "mode": "ro"}
+            else:
+                console.print("[yellow]Warning: SSH agent forwarding enabled but SSH_AUTH_SOCK not found[/yellow]")
+
+        # Add MCP-specific mounts from mcp-meta.json
+        for mount in mcp_mounts:
+            volumes[mount["host"]] = {"bind": mount["container"], "mode": mount["mode"]}
+
+        # Clean up any stale symlink in project dir (legacy from previous approach)
+        project_credentials_link = project_claude_dir / ".credentials.json"
+        if project_credentials_link.is_symlink():
+            project_credentials_link.unlink()
+
+        # Host Claude client state file (.claude.json in home dir)
+        # This file is in the home directory root. Unlike credentials, it changes infrequently
+        # (mainly settings and telemetry), so a file mount is acceptable here despite the
+        # stale inode limitation. The critical OAuth tokens are in .credentials.json which
+        # is accessed via the directory mount above.
+        # Note: Must be read-write as Claude updates this file with session state.
         host_claude_state = Path.home() / ".claude.json"
         if host_claude_state.exists():
-            volumes[str(host_claude_state)] = {"bind": f"/{username}/claude.json", "mode": "ro"}
+            volumes[str(host_claude_state)] = {"bind": f"/{username}/claude.json", "mode": "rw"}
 
         # Notify socket is exposed via the runtime dir mount; container-init links it.
 
-        # Optional OpenAI/Gemini configs for CLI auth
+        # Optional OpenAI/Gemini configs for CLI auth (already directories)
         if host_openai_config_dir.exists():
-            volumes[str(host_openai_config_dir)] = {"bind": f"/{username}/openai-config", "mode": "ro"}
+            volumes[str(host_openai_config_dir)] = {"bind": f"/{username}/openai-config", "mode": "rw"}
         if host_gemini_config_dir.exists():
-            volumes[str(host_gemini_config_dir)] = {"bind": f"/{username}/gemini-config", "mode": "ro"}
-        if host_codex_dir.exists():
-            volumes[str(host_codex_dir)] = {"bind": f"/{username}/codex", "mode": "ro"}
+            volumes[str(host_gemini_config_dir)] = {"bind": f"/{username}/gemini-config", "mode": "rw"}
 
-        # Extra user-defined mounts from project config
-        volumes_config = project_dir / ".agentbox" / "volumes.json"
-        if volumes_config.exists():
-            try:
-                import json
+        # Extra user-defined workspace mounts from .agentbox.yml
+        for entry in config.workspaces:
+            if not isinstance(entry, dict):
+                continue
+            host_path = entry.get("path")
+            mount_name = entry.get("mount")
+            mode = entry.get("mode", "ro")
+            if not host_path or not mount_name:
+                continue
+            if mode not in ("ro", "rw"):
+                mode = "ro"
+            # Expand ~ in path
+            abs_path = Path(host_path).expanduser().absolute()
+            # Skip if this is the project directory (already mounted at /workspace)
+            if abs_path == project_dir.absolute():
+                console.print(f"[yellow]Warning: skipping workspace mount for project directory[/yellow]")
+                continue
+            if not abs_path.exists():
+                console.print(f"[yellow]Warning: mount path not found: {host_path}[/yellow]")
+                continue
+            mount_point = f"/context/{mount_name}"
+            volumes[str(abs_path)] = {"bind": mount_point, "mode": mode}
 
-                data = json.loads(volumes_config.read_text())
-                extra = data.get("volumes", [])
-                for entry in extra:
-                    if not isinstance(entry, dict):
-                        continue
-                    host_path = entry.get("path")
-                    mount_name = entry.get("mount")
-                    mode = entry.get("mode", "ro")
-                    if not host_path or not mount_name:
-                        continue
-                    if mode not in ("ro", "rw"):
-                        mode = "ro"
-                    if not Path(host_path).exists():
-                        console.print(f"[yellow]Warning: mount path not found: {host_path}[/yellow]")
-                        continue
-                    mount_point = f"/context/{mount_name}"
-                    volumes[str(Path(host_path).absolute())] = {"bind": mount_point, "mode": mode}
-            except Exception as e:
-                console.print(f"[yellow]Warning: Failed to load volumes.json: {e}[/yellow]")
+        # Docker socket mount (if enabled)
+        docker_socket = "/var/run/docker.sock"
+        docker_config = config.config.get("docker", {})
+        if docker_config.get("enabled", False) and Path(docker_socket).exists():
+            volumes[docker_socket] = {"bind": docker_socket, "mode": "rw"}
 
         # Environment variables
         environment = {
@@ -280,25 +433,127 @@ class ContainerManager:
             "GIT_COMMITTER_EMAIL": git_author_email,
             "DBUS_SESSION_BUS_ADDRESS": dbus_address,
             "DISPLAY": display,
+            "SSH_MODE": ssh_mode,
+            "SSH_ENABLED": str(config.ssh_enabled).lower(),
         }
+
+        # Set SSH_AUTH_SOCK if agent forwarding is enabled
+        # Point to the socket file inside the mounted directory
+        if config.ssh_enabled and config.ssh_forward_agent and ssh_sock_name:
+            environment["SSH_AUTH_SOCK"] = f"/ssh-agent-dir/{ssh_sock_name}"
 
         console.print(f"[green]Creating container {container_name}...[/green]")
 
+        # Build security options from config
+        security_opt = []
+        security_config = config.security
+        seccomp = security_config.get("seccomp", "unconfined")
+        if seccomp:
+            security_opt.append(f"seccomp={seccomp}")
+
+        # Build additional container options
+        container_kwargs = {
+            "image": self.BASE_IMAGE,
+            "name": container_name,
+            "hostname": container_name,
+            "volumes": volumes,
+            "environment": environment,
+            "detach": True,
+            "tty": True,
+            "stdin_open": True,
+            "working_dir": "/workspace",
+            "init": True,  # Enable init process to handle zombie processes (needed for Chrome/Playwright)
+        }
+
+        if security_opt:
+            container_kwargs["security_opt"] = security_opt
+
+        # Add resource limits if configured
+        resources_config = config.resources
+        if resources_config.get("memory"):
+            container_kwargs["mem_limit"] = resources_config["memory"]
+        if resources_config.get("cpus"):
+            container_kwargs["nano_cpus"] = int(float(resources_config["cpus"]) * 1e9)
+
+        # Add capabilities if configured
+        capabilities = security_config.get("capabilities", [])
+        if capabilities:
+            container_kwargs["cap_add"] = capabilities
+
+        # Add device mappings if configured (validate devices exist)
+        devices = config.devices
+        if devices:
+            valid_devices = []
+            for device in devices:
+                device_path = Path(device.split(":")[0])  # Handle host:container format
+                if device_path.exists():
+                    valid_devices.append(device)
+                else:
+                    console.print(f"[yellow]Warning: Device not found, skipping: {device}[/yellow]")
+            if valid_devices:
+                container_kwargs["devices"] = valid_devices
+
+        # Add port mappings if configured and mode is docker/auto
+        # In tunnel mode, ports are exposed dynamically via agentboxd
+        if config.ports_host and config.ports_mode in ("docker", "auto"):
+            ports = {}
+            for port_mapping in config.ports_host:
+                # Support formats:
+                # - "8080" -> bind 8080 to all interfaces
+                # - "3000:8080" -> bind container 8080 to host 3000 on all interfaces
+                # - "127.0.0.1:8080:8080" -> bind container 8080 to 127.0.0.1:8080 on host
+                try:
+                    parts = port_mapping.split(":")
+
+                    if len(parts) == 3:
+                        # Format: host_ip:host_port:container_port
+                        host_ip, host_port, container_port = parts
+                        ports[f"{container_port}/tcp"] = (host_ip, int(host_port))
+                    elif len(parts) == 2:
+                        # Format: host_port:container_port
+                        host_port, container_port = parts
+                        ports[f"{container_port}/tcp"] = int(host_port)
+                    else:
+                        # Format: port (same on host and container)
+                        ports[f"{port_mapping}/tcp"] = int(port_mapping)
+                except ValueError:
+                    console.print(f"[red]Error: Invalid port mapping '{port_mapping}'[/red]")
+                    raise ConfigError(f"Invalid port mapping: {port_mapping}")
+
+            container_kwargs["ports"] = ports
+
         try:
-            container = self.client.containers.run(
-                self.BASE_IMAGE,
-                name=container_name,
-                hostname=container_name,
-                volumes=volumes,
-                environment=environment,
-                detach=True,
-                tty=True,
-                stdin_open=True,
-                working_dir="/workspace",
-                security_opt=["seccomp=unconfined"],
-            )
+            container = self.client.containers.run(**container_kwargs)
 
             console.print(f"[green]Container {container_name} created successfully[/green]")
+
+            # Restore container network connections from .agentbox.yml
+            for conn in config.containers:
+                if not conn.get("auto_reconnect", True):
+                    continue
+
+                target_name = conn.get("name")
+                if not target_name:
+                    continue
+
+                # Get networks from target container
+                try:
+                    target = self.client.containers.get(target_name)
+                    if target.status == "running":
+                        networks = list(target.attrs.get("NetworkSettings", {}).get("Networks", {}).keys())
+                        for network in networks:
+                            try:
+                                net = self.client.networks.get(network)
+                                # Check if already connected
+                                current_networks = self.get_container_networks(container_name)
+                                if network not in current_networks:
+                                    net.connect(container)
+                                    console.print(f"[blue]Connected to {target_name} network: {network}[/blue]")
+                            except Exception as e:
+                                console.print(f"[yellow]Warning: Could not connect to network {network}: {e}[/yellow]")
+                except Exception:
+                    console.print(f"[yellow]Warning: Container {target_name} not found or not running[/yellow]")
+
             return container
 
         except docker.errors.ImageNotFound:
@@ -344,6 +599,9 @@ class ContainerManager:
             console.print(f"[yellow]Container {container_name} is not running[/yellow]")
             return
 
+        # Reset terminal before stopping to disable mouse mode
+        reset_terminal()
+
         console.print(f"[blue]Stopping container {container_name}...[/blue]")
         container.stop()
         console.print(f"[green]Container {container_name} stopped[/green]")
@@ -353,12 +611,20 @@ class ContainerManager:
 
         Args:
             container_name: Full container name
-            force: Force remove running container
+            force: Force remove running container (kills immediately without graceful stop)
         """
         container = self.get_container(container_name)
         if container is None:
             console.print(f"[red]Container {container_name} not found[/red]")
             return
+
+        # Reset terminal before removing to disable mouse mode
+        reset_terminal()
+
+        # Stop container gracefully if it's running (unless force is specified)
+        if container.status == "running" and not force:
+            console.print(f"[blue]Stopping container {container_name}...[/blue]")
+            container.stop()
 
         console.print(f"[blue]Removing container {container_name}...[/blue]")
         container.remove(force=force)
@@ -384,11 +650,20 @@ class ContainerManager:
             # Get runtime directory to find original project path
             runtime_dir = self.get_runtime_dir(project_name)
 
+            # Get project path from /workspace mount
+            project_path = None
+            mounts = container.attrs.get("Mounts", [])
+            for mount in mounts:
+                if mount.get("Destination") == "/workspace":
+                    project_path = mount.get("Source")
+                    break
+
             result.append({
                 "name": container.name,
                 "project": project_name,
                 "status": container.status,
                 "runtime_dir": str(runtime_dir),
+                "project_path": project_path,
             })
 
         return result
@@ -459,7 +734,126 @@ class ContainerManager:
             demux=False,
         )
 
-        return exec_result.exit_code, exec_result.output.decode("utf-8")
+        output = exec_result.output or b""
+        return exec_result.exit_code, output.decode("utf-8", errors="replace")
+
+    def wait_for_user(
+        self,
+        container_name: str,
+        username: str,
+        timeout_s: float = 6.0,
+        interval_s: float = 0.25,
+    ) -> bool:
+        """Wait for a user to exist in the container."""
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            container = self.get_container(container_name)
+            if container is None or container.status != "running":
+                return False
+            try:
+                exec_result = container.exec_run(
+                    ["getent", "passwd", username],
+                    user="root",
+                    stream=False,
+                    demux=False,
+                )
+            except docker.errors.APIError:
+                exec_result = None
+
+            if exec_result and exec_result.exit_code == 0 and exec_result.output:
+                return True
+
+            time.sleep(interval_s)
+        return False
+
+    def get_container_init_status(self, container_name: str) -> tuple[str, str]:
+        """Read the container's initialization status file.
+
+        Returns:
+            Tuple of (phase, details). Returns ("unknown", "") if status unavailable.
+        """
+        try:
+            container = self.get_container(container_name)
+            if container is None:
+                return ("unknown", "")
+
+            result = container.exec_run(
+                ["cat", "/tmp/container-status"],
+                user="root",
+            )
+            if result.exit_code == 0:
+                output = result.output.decode("utf-8").strip()
+                if "|" in output:
+                    phase, details = output.split("|", 1)
+                    return (phase, details)
+                return (output, "")
+        except Exception:
+            pass
+        return ("unknown", "")
+
+    def wait_for_ready(
+        self,
+        container_name: str,
+        timeout_s: float = 90.0,
+        interval_s: float = 1.0,
+        status_callback: Callable[[str, str], None] | None = None,
+    ) -> bool:
+        """Wait for container to pass health check (initialization complete).
+
+        Uses Docker's native HEALTHCHECK status to determine when the container
+        has completed initialization including MCP package installation.
+
+        Args:
+            container_name: Full container name
+            timeout_s: Maximum time to wait (default 90s for MCP installs)
+            interval_s: Polling interval in seconds
+            status_callback: Optional callback called with (phase, details) on status changes
+
+        Returns:
+            True if container is healthy, False if timeout/error/unhealthy
+        """
+        deadline = time.time() + timeout_s
+        last_health_status = None
+        last_init_phase = None
+
+        while time.time() < deadline:
+            container = self.get_container(container_name)
+
+            # Container must be running
+            if container is None or container.status != "running":
+                return False
+
+            # Refresh container state to get latest health status
+            container.reload()
+
+            # Get health status from Docker
+            health = container.attrs.get("State", {}).get("Health", {})
+            health_status = health.get("Status", "none")
+
+            # Read init status from container
+            init_phase, init_details = self.get_container_init_status(container_name)
+
+            # Call status callback if phase changed
+            if status_callback and init_phase != last_init_phase:
+                last_init_phase = init_phase
+                status_callback(init_phase, init_details)
+
+            # Track health status changes
+            if health_status != last_health_status:
+                last_health_status = health_status
+
+            # Check health status
+            if health_status == "healthy":
+                return True
+            elif health_status == "unhealthy":
+                # Container failed health check permanently
+                return False
+            # "starting" or "none" - continue waiting
+
+            time.sleep(interval_s)
+
+        # Timeout reached
+        return False
 
     def cleanup_stopped(self) -> None:
         """Remove all stopped Agentbox containers."""
@@ -473,3 +867,103 @@ class ContainerManager:
         console.print(f"[blue]Found {len(stopped)} stopped container(s)[/blue]")
         for container in stopped:
             self.remove_container(container["name"])
+
+    def get_all_containers(self, include_agentbox: bool = False) -> List[Dict[str, Any]]:
+        """List all running Docker containers.
+
+        Args:
+            include_agentbox: Include Agentbox containers in results
+
+        Returns:
+            List of dicts with container info: name, id, image, networks, ports, status
+        """
+        containers = self.client.containers.list(all=False)
+
+        result = []
+        for container in containers:
+            # Skip Agentbox containers unless requested
+            if not include_agentbox and container.name.startswith(self.CONTAINER_PREFIX):
+                continue
+
+            # Get network info
+            networks = list(container.attrs.get("NetworkSettings", {}).get("Networks", {}).keys())
+
+            # Get port info
+            ports = []
+            port_bindings = container.attrs.get("NetworkSettings", {}).get("Ports", {})
+            if port_bindings:
+                for port_key in port_bindings.keys():
+                    # Extract just the port number (e.g., "5432/tcp" -> "5432")
+                    port_num = port_key.split("/")[0] if "/" in port_key else port_key
+                    ports.append(port_num)
+
+            result.append({
+                "name": container.name,
+                "id": container.id[:12],
+                "image": container.image.tags[0] if container.image.tags else container.image.id[:12],
+                "networks": networks,
+                "ports": ports,
+                "status": container.status,
+            })
+
+        return result
+
+    def get_container_networks(self, container_name: str) -> List[str]:
+        """Get list of network names a container is connected to.
+
+        Args:
+            container_name: Target container name
+
+        Returns:
+            List of network names
+        """
+        try:
+            container = self.client.containers.get(container_name)
+            networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
+            return list(networks.keys())
+        except docker.errors.NotFound:
+            return []
+
+    def connect_to_networks(self, container_name: str, networks: List[str]) -> None:
+        """Connect a container to one or more Docker networks.
+
+        Args:
+            container_name: Container to connect
+            networks: List of network names to join
+
+        Raises:
+            docker.errors.NotFound: If container or network doesn't exist
+            docker.errors.APIError: If connection fails
+        """
+        container = self.client.containers.get(container_name)
+        # Fetch current networks once before the loop
+        current_networks = set(self.get_container_networks(container_name))
+
+        for network_name in networks:
+            try:
+                network = self.client.networks.get(network_name)
+                # Check if already connected
+                if network_name not in current_networks:
+                    network.connect(container)
+                    current_networks.add(network_name)
+            except docker.errors.APIError as e:
+                # If already connected, that's fine
+                if "already exists" not in str(e).lower():
+                    raise
+
+    def disconnect_from_networks(self, container_name: str, networks: List[str]) -> None:
+        """Disconnect a container from networks.
+
+        Args:
+            container_name: Container to disconnect
+            networks: Networks to leave
+        """
+        container = self.client.containers.get(container_name)
+
+        for network_name in networks:
+            try:
+                network = self.client.networks.get(network_name)
+                network.disconnect(container)
+            except docker.errors.APIError:
+                # If not connected or other error, continue
+                pass

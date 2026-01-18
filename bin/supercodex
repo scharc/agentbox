@@ -1,0 +1,6 @@
+#!/bin/bash
+# Run Codex with super agent settings
+exec codex \
+    --dangerously-bypass-approvals-and-sandbox \
+    -c 'notify=["/usr/local/bin/notify", "Codex", "Task completed"]' \
+    "$@"

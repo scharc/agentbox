@@ -1,0 +1,306 @@
+# Copyright (c) 2025 Marc Schütze <scharc@gmail.com>
+# SPDX-License-Identifier: MIT
+# See LICENSE file in the project root for full license information.
+
+"""Click shell completion functions.
+
+These functions provide fast tab-completion by querying the agentboxd service
+when available. Falls back to direct Docker API calls when the service isn't running.
+"""
+
+import json
+import os
+import socket
+from pathlib import Path
+from typing import Optional
+
+import click
+
+
+def _get_agentboxd_socket() -> Path:
+    """Get the agentboxd socket path."""
+    return Path(f"/run/user/{os.getuid()}/agentboxd/agentboxd.sock")
+
+
+def _query_agentboxd(action: str, **params) -> Optional[dict]:
+    """Query agentboxd via socket. Returns None on failure.
+
+    This is optimized for fast completions with a short timeout.
+    """
+    socket_path = _get_agentboxd_socket()
+    if not socket_path.exists():
+        return None
+
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(0.1)  # Fast timeout for completions (socket IPC is <10ms)
+        sock.connect(str(socket_path))
+        request = json.dumps({"action": action, **params})
+        sock.sendall(request.encode() + b"\n")
+        response = sock.recv(8192).decode()
+        sock.close()
+        result = json.loads(response)
+        if result.get("ok"):
+            return result
+        return None
+    except Exception:
+        return None
+
+
+# =============================================================================
+# Fallback functions (used when agentboxd is not running)
+# =============================================================================
+
+def _complete_project_name_fallback(incomplete: str) -> list[str]:
+    """Fallback: complete project names via Docker API (slow)."""
+    try:
+        from agentbox.container import ContainerManager
+        manager = ContainerManager()
+        containers = manager.list_containers(all_containers=False)
+        project_names = []
+        for container in containers:
+            name = container.get("name", "")
+            if name.startswith("agentbox-"):
+                project_names.append(name[9:])
+        return [n for n in project_names if n.startswith(incomplete)]
+    except Exception:
+        return []
+
+
+def _complete_session_name_fallback(incomplete: str, project: str = None) -> list[str]:
+    """Fallback: complete session names via Docker exec (slow)."""
+    try:
+        from agentbox.container import ContainerManager
+        from agentbox.cli.helpers.tmux_ops import _get_tmux_sessions
+
+        manager = ContainerManager()
+        if project:
+            project_name = manager.sanitize_project_name(project)
+        else:
+            project_name = manager.get_project_name()
+
+        container_name = manager.get_container_name(project_name)
+        if not manager.is_running(container_name):
+            return []
+
+        sessions = _get_tmux_sessions(manager, container_name)
+        names = [session["name"] for session in sessions]
+        return [n for n in names if n.startswith(incomplete)]
+    except Exception:
+        return []
+
+
+def _complete_worktree_fallback(incomplete: str) -> list[str]:
+    """Fallback: complete worktree branches via Docker exec (slow)."""
+    try:
+        from agentbox.container import ContainerManager, get_abox_environment
+
+        manager = ContainerManager()
+        project_name = manager.get_project_name()
+        container_name = manager.get_container_name(project_name)
+        if not manager.is_running(container_name):
+            return []
+
+        exit_code, output = manager.exec_command(
+            container_name,
+            ["agentctl", "worktree", "list", "--json"],
+            environment=get_abox_environment(include_tmux=True, container_name=container_name),
+            user="abox",
+            workdir="/workspace",
+        )
+        if exit_code != 0:
+            return []
+
+        data = json.loads(output)
+        worktrees = data.get("worktrees", [])
+        branches = []
+        for wt in worktrees:
+            path = wt.get("path", "")
+            branch = wt.get("branch", "")
+            if path != "/workspace" and branch:
+                branches.append(branch)
+        return [b for b in branches if b.startswith(incomplete)]
+    except Exception:
+        return []
+
+
+# =============================================================================
+# Main completion functions (fast path via agentboxd, fallback to slow path)
+# =============================================================================
+
+def _complete_session_name(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
+    """Complete session names for current project."""
+    # Get current project name for context
+    try:
+        from agentbox.container import ContainerManager
+        manager = ContainerManager()
+        project = manager.get_project_name()
+    except Exception:
+        project = None
+
+    # Only use agentboxd if we have a project context (otherwise it returns cross-project entries)
+    if project:
+        result = _query_agentboxd("get_completions", type="sessions", project=project)
+        if result:
+            sessions = result.get("sessions", [])
+            return [s for s in sessions if s.startswith(incomplete)]
+
+    # Fallback to Docker API (slow)
+    return _complete_session_name_fallback(incomplete, project=project)
+
+
+def _complete_project_name(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
+    """Complete project names from running agentbox containers."""
+    # Try agentboxd first (fast)
+    result = _query_agentboxd("get_completions", type="projects")
+    if result:
+        projects = result.get("projects", [])
+        return [p for p in projects if p.startswith(incomplete)]
+
+    # Fallback to Docker API (slow)
+    return _complete_project_name_fallback(incomplete)
+
+
+def _complete_connect_session(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
+    """Complete session names for connect command, using project from first arg if provided."""
+    # Support both "project" and "project_name" parameter names
+    project = ctx.params.get("project_name") or ctx.params.get("project")
+
+    # If no project specified, try to get from current directory
+    if not project:
+        try:
+            from agentbox.container import ContainerManager
+            manager = ContainerManager()
+            project = manager.get_project_name()
+        except Exception:
+            pass
+
+    # Only use agentboxd if we have a project context (otherwise it returns cross-project entries)
+    if project:
+        result = _query_agentboxd("get_completions", type="sessions", project=project)
+        if result:
+            sessions = result.get("sessions", [])
+            return [s for s in sessions if s.startswith(incomplete)]
+
+    # Fallback to Docker API (slow)
+    return _complete_session_name_fallback(incomplete, project=project)
+
+
+def _complete_mcp_names(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
+    """Complete MCP server names from the library."""
+    # Try agentboxd first (fast, but MCP is already fast: ~1ms)
+    result = _query_agentboxd("get_completions", type="mcp")
+    if result:
+        names = result.get("mcp_servers", [])
+        return [n for n in names if n.startswith(incomplete)]
+
+    # Direct fallback (also fast)
+    try:
+        from agentbox.library import LibraryManager
+        lib = LibraryManager()
+        servers = lib.list_mcp_servers()
+        names = [s["name"] for s in servers]
+        return [n for n in names if n.startswith(incomplete)]
+    except Exception:
+        return []
+
+
+def _complete_worktree_branch(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
+    """Complete worktree branch names from existing worktrees."""
+    # Get current project name for context
+    try:
+        from agentbox.container import ContainerManager
+        manager = ContainerManager()
+        project = manager.get_project_name()
+    except Exception:
+        project = None
+
+    # Only use agentboxd if we have a project context (otherwise it returns cross-project entries)
+    if project:
+        result = _query_agentboxd("get_completions", type="worktrees", project=project)
+        if result:
+            worktrees = result.get("worktrees", [])
+            return [w for w in worktrees if w.startswith(incomplete)]
+
+    # Fallback to Docker exec (slow)
+    return _complete_worktree_fallback(incomplete)
+
+
+def _complete_skill_names(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
+    """Complete skill names from the library."""
+    # Try agentboxd first (fast, but skills is already fast: ~23ms)
+    result = _query_agentboxd("get_completions", type="skills")
+    if result:
+        names = result.get("skills", [])
+        return [n for n in names if n.startswith(incomplete)]
+
+    # Direct fallback (also fast)
+    try:
+        from agentbox.library import LibraryManager
+        lib = LibraryManager()
+        skills = lib.list_skills()
+        names = [s["name"] for s in skills]
+        return [n for n in names if n.startswith(incomplete)]
+    except Exception:
+        return []
+
+
+def _complete_workspace_names(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
+    """Complete workspace mount names for current project."""
+    try:
+        from agentbox.cli.helpers import _load_workspaces_config
+        from agentbox.utils.project import resolve_project_dir, get_agentbox_dir
+
+        project_dir = resolve_project_dir()
+        agentbox_dir = get_agentbox_dir(project_dir)
+        workspaces = _load_workspaces_config(agentbox_dir)
+        names = [w.get("mount", "") for w in workspaces if w.get("mount")]
+        return [n for n in names if n.startswith(incomplete)]
+    except Exception:
+        return []
+
+
+def _complete_config_names(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
+    """Complete config names from the library."""
+    try:
+        from agentbox.library import LibraryManager
+        lib = LibraryManager()
+        configs = lib.list_configs()
+        names = [c["name"] for c in configs]
+        return [n for n in names if n.startswith(incomplete)]
+    except Exception:
+        return []
+
+
+def _complete_docker_containers(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
+    """Complete docker container names (non-agentbox containers)."""
+    # Try agentboxd first (queries Docker API but via persistent daemon)
+    result = _query_agentboxd("get_completions", type="docker_containers", include_agentbox=False)
+    if result:
+        names = result.get("docker_containers", [])
+        return [n for n in names if n.startswith(incomplete)]
+
+    # Fallback to Docker API directly
+    try:
+        from agentbox.container import ContainerManager
+        manager = ContainerManager()
+        containers = manager.get_all_containers(include_agentbox=False)
+        names = [c["name"] for c in containers]
+        return [n for n in names if n.startswith(incomplete)]
+    except Exception:
+        return []
+
+
+def _complete_connected_containers(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
+    """Complete connected container names for current project."""
+    try:
+        from agentbox.cli.helpers import _load_containers_config
+        from agentbox.utils.project import resolve_project_dir, get_agentbox_dir
+
+        project_dir = resolve_project_dir()
+        agentbox_dir = get_agentbox_dir(project_dir)
+        connections = _load_containers_config(agentbox_dir)
+        names = [c.get("name", "") for c in connections if c.get("name")]
+        return [n for n in names if n.startswith(incomplete)]
+    except Exception:
+        return []

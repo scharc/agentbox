@@ -1,0 +1,60 @@
+# Agentbox Host Configuration
+# Copy to ~/.config/agentbox/config.yml and customize
+
+version: "1.0"
+
+# Installation paths (auto-detected by default)
+paths:
+  # Override agentbox installation directory
+  # Default: auto-detected from package location or AGENTBOX_DIR env var
+  # agentbox_dir: /opt/agentbox
+
+  # Override runtime socket directory
+  # Default: $XDG_RUNTIME_DIR or /run/user/{uid}
+  # runtime_dir: /run/user/1000
+
+# Web server for UI
+web_server:
+  enabled: true
+  host: 127.0.0.1
+  port: 8080
+  log_level: info
+
+# Notification system
+notifications:
+  # Optional custom hook script
+  # notify_hook: ~/.local/bin/notify-hook.sh
+
+  timeout: 2.0                    # Normal notifications (seconds)
+  timeout_enhanced: 60.0          # Enhanced notifications (seconds)
+  deduplication_window: 10.0      # Ignore duplicates (seconds)
+  hook_timeout: 5.0               # Hook execution timeout (seconds)
+
+# Task agent settings
+task_agents:
+  enabled: false
+  agent: claude
+  model: haiku
+  timeout: 30
+  buffer_lines: 50
+
+# Timeout settings (seconds)
+timeouts:
+  container_wait: 6.0
+  container_wait_interval: 0.25
+  web_connection: 2.0
+  web_resize_wait: 0.1
+  proxy_connection: 2.0
+  stream_registration: 5.0
+  tmux_command: 2.0
+
+# Polling intervals (seconds)
+polling:
+  web_output: 0.1
+  stream_monitor: 0.01
+  session_check: 5.0
+
+# Terminal defaults
+terminal:
+  default_width: 80
+  default_height: 24

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Agentbox Status</title>
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#4a90e2">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Agentbox">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    <link rel="stylesheet" href="/static/css/style.css?v=CACHE_BUST">
+</head>
+<body>
+    <header>
+        <nav class="header-nav">
+            <a href="/" class="nav-btn" aria-label="Sessions">Sessions</a>
+            <a href="/status" class="nav-btn active" aria-label="Status">Status</a>
+        </nav>
+        <button id="refresh-btn" class="refresh-btn" aria-label="Refresh status">&#128260;</button>
+    </header>
+
+    <main id="status-container" aria-live="polite">
+        <div class="loading">Loading status...</div>
+    </main>
+
+    <!-- Confirmation Modal -->
+    <div id="confirm-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="confirm-title">Confirm Action</h2>
+                <button class="close-modal" aria-label="Close modal">&times;</button>
+            </div>
+            <p id="confirm-message">Are you sure?</p>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary cancel-btn">Cancel</button>
+                <button type="button" class="btn-danger confirm-btn">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>
+            <a href="/">Sessions</a> &bull;
+            <a href="/status" class="active">Status</a> &bull;
+            <a href="/decisions">Decisions</a>
+        </p>
+    </footer>
+
+    <script src="/static/js/pwa-init.js?v=CACHE_BUST"></script>
+    <script src="/static/js/status.js?v=CACHE_BUST"></script>
+</body>
+</html>

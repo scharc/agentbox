@@ -1,29 +1,7 @@
 {
   "version": 1,
   "superset": {
-    "mcpServers": {
-      "postgres": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@modelcontextprotocol/server-postgres"
-        ],
-        "env": {
-          "POSTGRES_CONNECTION_STRING": "postgresql://user:password@host.docker.internal:5432/dbname"
-        }
-      },
-      "homeassistant": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@homeassistant/mcp"
-        ],
-        "env": {
-          "HA_URL": "http://host.docker.internal:8123",
-          "HA_TOKEN": "${HA_TOKEN}"
-        }
-      }
-    }
+    "mcpServers": {}
   },
   "agents": {
     "claude": {
@@ -54,6 +32,7 @@
       "mcpServers": {}
     },
     "codex": {
+      "settings": {},
       "projects": {},
       "mcpServers": {}
     }

@@ -1,0 +1,33 @@
+# Codex Configuration
+# https://developers.openai.com/codex/config-reference/
+
+# Model Configuration
+model = "gpt-5-codex"
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+
+# Trust workspace and context directories
+[projects."/workspace"]
+trust_level = "trusted"
+
+[projects."/context"]
+trust_level = "trusted"
+
+# MCP Servers
+# Add servers using: agentbox mcp add <name> <options>
+[mcp_servers]
+# Example:
+# [mcp_servers.postgres]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-postgres"]
+
+# Feature Flags
+[features]
+parallel = true
+shell_snapshot = true
+unified_exec = true
+web_search_request = false
+undo = true
+skills = true
+shell_tool = true
+view_image_tool = true

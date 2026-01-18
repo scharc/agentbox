@@ -1,0 +1,15 @@
+{
+  "name": "agentctl",
+  "description": "Control agentbox sessions and git worktrees. Enables agents to switch branches, work in parallel, and manage their environment.",
+  "config": {
+    "command": "python3",
+    "args": ["/workspace/.agentbox/mcp/agentctl/server_fastmcp.py"],
+    "env": {}
+  },
+  "install": {
+    "pip": [
+      "fastmcp>=2.0.0"
+    ]
+  },
+  "notes": "This MCP allows agents to autonomously switch between branches using git worktrees. When an agent says 'switch to feature-branch', a new worktree is created and the agent's session moves there. Also supports detaching to continue working autonomously (perfect for mobile use)."
+}

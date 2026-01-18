@@ -1,8 +1,9 @@
 # Runtime test data (created by test containers)
 runtime/
 
-# Agentbox local state
+# Agentbox project-specific files (created by agentbox init)
 .agentbox/
+agentbox.config.json
 .claude/
 AGENT.md
 CLAUDE.md
@@ -30,3 +31,15 @@ poetry.lock
 # OS
 .DS_Store
 Thumbs.db
+.test-tmp/
+.mcp.json
+.playwright-mcp/
+
+# Cloned skill repos (keep our own skills, ignore external clones)
+library/skills/anthropics-skills/
+library/skills/superpowers-skills/
+library/skills/playwright-skill/
+library/skills/ios-simulator-skill/
+library/skills/claude-d3js-skill/
+library/skills/web-asset-generator/
+.agentbox.yml

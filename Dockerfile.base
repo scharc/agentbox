@@ -7,6 +7,10 @@
 
 FROM ubuntu:24.04
 
+# Track the Agentbox build version in the image metadata.
+ARG AGENTBOX_VERSION=dev
+LABEL io.agentbox.version=$AGENTBOX_VERSION
+
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=UTC \
@@ -44,6 +48,7 @@ RUN apt-get update && apt-get install -y \
     tree \
     htop \
     tmux \
+    zsh \
     vim \
     nano \
     unzip \
@@ -57,11 +62,13 @@ RUN apt-get update && apt-get install -y \
     bc \
     # Network tools
     netcat-openbsd \
+    socat \
     telnet \
     dnsutils \
     traceroute \
     net-tools \
     iputils-ping \
+    openssh-client \
     # Database clients
     postgresql-client \
     mysql-client \
@@ -73,10 +80,61 @@ RUN apt-get update && apt-get install -y \
     file \
     less \
     man-db \
+    sqlite3 \
+    direnv \
+    entr \
+    shellcheck \
+    pandoc \
+    gettext-base \
     && rm -rf /var/lib/apt/lists/*
 
 # Configure locales
 RUN locale-gen en_US.UTF-8
+
+# Remove default ubuntu user (UID 1000) to avoid conflicts with abox user
+# The container-init.sh creates 'abox' user with HOST_UID (typically 1000)
+RUN userdel -r ubuntu 2>/dev/null || true \
+    && groupdel ubuntu 2>/dev/null || true
+
+# Install GitHub CLI
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install websocat (WebSocket debugging tool)
+RUN ARCH=$(dpkg --print-architecture) \
+    && if [ "$ARCH" = "amd64" ]; then WEBSOCAT_ARCH="x86_64"; else WEBSOCAT_ARCH="aarch64"; fi \
+    && curl -fsSL "https://github.com/vi/websocat/releases/latest/download/websocat.${WEBSOCAT_ARCH}-unknown-linux-musl" -o /usr/local/bin/websocat \
+    && chmod +x /usr/local/bin/websocat
+
+# Install lazygit (TUI for git)
+RUN LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" | jq -r '.tag_name' | sed 's/v//') \
+    && ARCH=$(dpkg --print-architecture) \
+    && if [ "$ARCH" = "amd64" ]; then LAZYGIT_ARCH="x86_64"; else LAZYGIT_ARCH="arm64"; fi \
+    && curl -fsSL "https://github.com/jesseduffield/lazygit/releases/latest/download/lazygit_${LAZYGIT_VERSION}_Linux_${LAZYGIT_ARCH}.tar.gz" | tar xzf - -C /usr/local/bin lazygit
+
+# Install yq (YAML processor)
+RUN ARCH=$(dpkg --print-architecture) \
+    && curl -fsSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${ARCH}" -o /usr/local/bin/yq \
+    && chmod +x /usr/local/bin/yq
+
+# Install eza (modern ls replacement)
+RUN ARCH=$(dpkg --print-architecture) \
+    && curl -fsSL "https://github.com/eza-community/eza/releases/latest/download/eza_${ARCH}-unknown-linux-gnu.tar.gz" | tar xzf - -C /usr/local/bin
+
+# Install delta (better git diff)
+RUN ARCH=$(dpkg --print-architecture) \
+    && if [ "$ARCH" = "amd64" ]; then DELTA_ARCH="x86_64"; else DELTA_ARCH="aarch64"; fi \
+    && curl -fsSL "https://github.com/dandavison/delta/releases/latest/download/delta-${DELTA_ARCH}-unknown-linux-gnu.tar.gz" \
+    | tar xzf - --strip-components=1 -C /usr/local/bin --wildcards '*/delta'
+
+# Install glow (markdown renderer)
+RUN ARCH=$(dpkg --print-architecture) \
+    && if [ "$ARCH" = "amd64" ]; then GLOW_ARCH="x86_64"; else GLOW_ARCH="arm64"; fi \
+    && curl -fsSL "https://github.com/charmbracelet/glow/releases/latest/download/glow_Linux_${GLOW_ARCH}.tar.gz" | tar xzf - -C /usr/local/bin glow
 
 # Install Docker CLI
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \
@@ -90,6 +148,13 @@ RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /
 RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# Normalize npm globals to /usr/local for consistent CLI installs.
+# /usr/etc/npmrc is the global config location for nodesource npm
+RUN mkdir -p /usr/etc && printf 'prefix=/usr/local\n' >/usr/etc/npmrc
+ENV PATH="/home/abox/.local/bin:/home/abox/.npm-global/bin:/usr/local/sbin:/usr/local/bin:${PATH}"
+# Include user pip packages in Python path (for MCP servers installed via pip)
+ENV PYTHONPATH="/home/abox/.local/lib/python3.12/site-packages"
 
 # Install global npm packages
 RUN npm install -g \
@@ -105,9 +170,18 @@ RUN npm install -g \
     @openai/codex \
     @google/gemini-cli
 
-# Install Poetry
+# Install VSCode CLI for /ide integration
+# This allows claude --ide to connect to host VSCode
+RUN curl -Lk 'https://code.visualstudio.com/sha/download?build=stable&os=cli-alpine-x64' --output /tmp/vscode_cli.tar.gz \
+    && tar -xzf /tmp/vscode_cli.tar.gz -C /usr/local/bin \
+    && rm /tmp/vscode_cli.tar.gz \
+    && chmod +x /usr/local/bin/code
+
+# Install Poetry system-wide (accessible to all users)
+ENV POETRY_HOME=/usr/local/poetry
 RUN curl -sSL https://install.python-poetry.org | python3 - \
-    && ln -s /root/.local/bin/poetry /usr/local/bin/poetry
+    && ln -s /usr/local/poetry/bin/poetry /usr/local/bin/poetry \
+    && chmod -R a+rx /usr/local/poetry
 
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
@@ -122,35 +196,63 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     pylint \
     pytest \
     requests \
-    pyyaml
+    pyyaml \
+    fastapi \
+    "uvicorn[standard]" \
+    websockets \
+    starlette \
+    sse-starlette
+
+# Copy and install agentbox package (needed for agentctl)
+COPY agentbox /tmp/agentbox-build/agentbox
+COPY pyproject.toml /tmp/agentbox-build/pyproject.toml
+COPY README.md /tmp/agentbox-build/README.md
+RUN pip3 install --no-cache-dir --break-system-packages poetry-core \
+    && pip3 install --no-cache-dir --break-system-packages /tmp/agentbox-build \
+    && rm -rf /tmp/agentbox-build
 
 # Create directory structure
 RUN mkdir -p /workspace \
     /agentbox/library/config \
     /agentbox/library/mcp \
     /agentbox/library/tools \
-    /agentbox/library/skills
+    /agentbox/library/skills \
+    /context
 
-# Copy all scripts from bin/ directory
+# Copy container scripts
 COPY bin/container-init.sh /usr/local/bin/container-init.sh
-COPY bin/notify.sh /usr/local/bin/notify
-COPY bin/merge-config.py /usr/local/bin/merge-config.py
-COPY bin/split-config.py /usr/local/bin/split-config.py
-COPY bin/merge-codex-config.py /usr/local/bin/merge-codex-config.py
-COPY bin/split-codex-config.py /usr/local/bin/split-codex-config.py
-COPY bin/unified-config.py /usr/local/bin/unified-config.py
-COPY bin/config-watcher.sh /usr/local/bin/config-watcher.sh
-RUN chmod +x /usr/local/bin/container-init.sh /usr/local/bin/notify \
-    /usr/local/bin/merge-config.py /usr/local/bin/split-config.py \
-    /usr/local/bin/merge-codex-config.py /usr/local/bin/split-codex-config.py \
-    /usr/local/bin/unified-config.py \
-    /usr/local/bin/config-watcher.sh
+COPY bin/install-packages.py /usr/local/bin/install-packages.py
+COPY bin/start-mcp-servers.py /usr/local/bin/start-mcp-servers.py
+COPY bin/generate-mcp-config.py /usr/local/bin/generate-mcp-config.py
+COPY bin/mcp-bridge.py /usr/local/bin/mcp-bridge.py
+COPY bin/container-healthcheck.sh /usr/local/bin/container-healthcheck.sh
+COPY bin/abox-notify /usr/local/bin/abox-notify
+COPY bin/superclaude /usr/local/bin/superclaude
+COPY bin/supercodex /usr/local/bin/supercodex
+COPY bin/supergemini /usr/local/bin/supergemini
+COPY bin/agentctl /usr/local/bin/agentctl
+COPY bin/abox-clipboard /usr/local/bin/abox-clipboard
+RUN chmod 755 /usr/local/bin/container-init.sh /usr/local/bin/install-packages.py \
+    /usr/local/bin/start-mcp-servers.py /usr/local/bin/generate-mcp-config.py \
+    /usr/local/bin/mcp-bridge.py /usr/local/bin/container-healthcheck.sh \
+    /usr/local/bin/abox-notify /usr/local/bin/superclaude \
+    /usr/local/bin/supercodex /usr/local/bin/supergemini /usr/local/bin/agentctl \
+    /usr/local/bin/abox-clipboard
 
 # Install bash completions for agentbox and bundled CLIs
-COPY completions/*.bash /etc/bash_completion.d/
+COPY bin/completions/*.bash /etc/bash_completion.d/
+
+# Install zsh completions
+RUN mkdir -p /usr/share/zsh/site-functions
+COPY bin/completions/agentctl-completion.zsh /usr/share/zsh/site-functions/_agentctl
 
 # Working directory
 WORKDIR /workspace
 
 # Entrypoint runs container initialization
 ENTRYPOINT ["/usr/local/bin/container-init.sh"]
+
+# Health check - ensures container is fully initialized before marking healthy
+# start-period=180s allows for heavy MCP installs (e.g., Playwright with Chrome)
+HEALTHCHECK --interval=5s --timeout=3s --start-period=180s --retries=3 \
+    CMD /usr/local/bin/container-healthcheck.sh

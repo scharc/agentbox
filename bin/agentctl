@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Agentctl entry point script"""
+
+import sys
+from agentbox.agentctl.cli import cli
+
+if __name__ == "__main__":
+    sys.exit(cli())
