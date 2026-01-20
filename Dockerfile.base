@@ -123,18 +123,22 @@ RUN ARCH=$(dpkg --print-architecture) \
 
 # Install eza (modern ls replacement)
 RUN ARCH=$(dpkg --print-architecture) \
-    && curl -fsSL "https://github.com/eza-community/eza/releases/latest/download/eza_${ARCH}-unknown-linux-gnu.tar.gz" | tar xzf - -C /usr/local/bin
+    && if [ "$ARCH" = "amd64" ]; then EZA_ARCH="x86_64"; else EZA_ARCH="aarch64"; fi \
+    && curl -fsSL "https://github.com/eza-community/eza/releases/latest/download/eza_${EZA_ARCH}-unknown-linux-gnu.tar.gz" | tar xzf - -C /usr/local/bin
 
 # Install delta (better git diff)
-RUN ARCH=$(dpkg --print-architecture) \
+RUN DELTA_VERSION=$(curl -s "https://api.github.com/repos/dandavison/delta/releases/latest" | jq -r '.tag_name') \
+    && ARCH=$(dpkg --print-architecture) \
     && if [ "$ARCH" = "amd64" ]; then DELTA_ARCH="x86_64"; else DELTA_ARCH="aarch64"; fi \
-    && curl -fsSL "https://github.com/dandavison/delta/releases/latest/download/delta-${DELTA_ARCH}-unknown-linux-gnu.tar.gz" \
+    && curl -fsSL "https://github.com/dandavison/delta/releases/latest/download/delta-${DELTA_VERSION}-${DELTA_ARCH}-unknown-linux-gnu.tar.gz" \
     | tar xzf - --strip-components=1 -C /usr/local/bin --wildcards '*/delta'
 
 # Install glow (markdown renderer)
-RUN ARCH=$(dpkg --print-architecture) \
+RUN GLOW_VERSION=$(curl -s "https://api.github.com/repos/charmbracelet/glow/releases/latest" | jq -r '.tag_name' | sed 's/v//') \
+    && ARCH=$(dpkg --print-architecture) \
     && if [ "$ARCH" = "amd64" ]; then GLOW_ARCH="x86_64"; else GLOW_ARCH="arm64"; fi \
-    && curl -fsSL "https://github.com/charmbracelet/glow/releases/latest/download/glow_Linux_${GLOW_ARCH}.tar.gz" | tar xzf - -C /usr/local/bin glow
+    && curl -fsSL "https://github.com/charmbracelet/glow/releases/latest/download/glow_${GLOW_VERSION}_Linux_${GLOW_ARCH}.tar.gz" \
+    | tar xzf - --strip-components=1 -C /usr/local/bin "glow_${GLOW_VERSION}_Linux_${GLOW_ARCH}/glow"
 
 # Install Docker CLI
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \
