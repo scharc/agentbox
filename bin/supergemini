@@ -1,5 +1,24 @@
 #!/bin/bash
-# Run Gemini with super agent settings
+# Run Gemini with super agent settings (auto-approve mode)
+#
+# Gemini reads instructions from ~/.gemini/GEMINI.md
+# For super mode, we swap the symlink to include superagents.md content
+
+AGENTS_MD="/workspace/.agentbox/agents.md"
+SUPER_MD="/workspace/.agentbox/superagents.md"
+COMBINED="/tmp/agentbox-super-instructions.md"
+GEMINI_MD="${HOME}/.gemini/GEMINI.md"
+
+# Create combined instructions file
+if [[ -f "${AGENTS_MD}" ]] && [[ -f "${SUPER_MD}" ]]; then
+    cat "${AGENTS_MD}" "${SUPER_MD}" > "${COMBINED}"
+    # Update symlink to point to combined file
+    ln -sf "${COMBINED}" "${GEMINI_MD}"
+fi
+
+# Export env var so MCP can also detect super mode
+export AGENTBOX_SUPER_MODE=true
+
 exec gemini \
     --non-interactive \
     "$@"

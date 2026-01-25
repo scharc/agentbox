@@ -1,5 +1,6 @@
 """Tests for agentctl CLI commands"""
 
+import os
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from agentbox.agentctl.helpers import (
@@ -9,8 +10,18 @@ from agentbox.agentctl.helpers import (
     get_agent_command,
     kill_session,
     detach_client,
-    TMUX_TIMEOUT
+    TMUX_TIMEOUT,
+    _tmux_cmd,
 )
+
+
+@pytest.fixture(autouse=True)
+def clear_tmux_env():
+    """Ensure TMUX env var is not set during tests for consistent behavior."""
+    with patch.dict(os.environ, {}, clear=False):
+        # Remove TMUX if it exists to ensure tests use default tmux server
+        os.environ.pop("TMUX", None)
+        yield
 
 
 class TestAgentctlHelpers:
@@ -146,7 +157,7 @@ class TestAgentctlCLI:
         from agentbox.agentctl.cli import cli
 
         runner = CliRunner()
-        result = runner.invoke(cli, ['ls'])
+        result = runner.invoke(cli, ['list'])
 
         assert result.exit_code == 0
         assert "No tmux sessions found" in result.output
@@ -163,7 +174,7 @@ class TestAgentctlCLI:
         from agentbox.agentctl.cli import cli
 
         runner = CliRunner()
-        result = runner.invoke(cli, ['ls'])
+        result = runner.invoke(cli, ['list'])
 
         assert result.exit_code == 0
         assert "claude" in result.output
@@ -181,7 +192,7 @@ class TestAgentctlCLI:
         import json
 
         runner = CliRunner()
-        result = runner.invoke(cli, ['ls', '--json'])
+        result = runner.invoke(cli, ['list', '--json'])
 
         assert result.exit_code == 0
         data = json.loads(result.output)

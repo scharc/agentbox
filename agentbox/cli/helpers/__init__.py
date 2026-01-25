@@ -12,7 +12,7 @@ This package has been split into modular files for better organization:
 - context.py: Dynamic context building
 - utils.py: Utility functions
 
-All functions are re-exported here for backward compatibility.
+All functions are re-exported here for convenience.
 """
 
 from rich.console import Console
@@ -105,6 +105,26 @@ from agentbox.cli.helpers.utils import (
     handle_errors,
     safe_rmtree,
     wait_for_container_ready,
+    parse_env_file,
+    # Error handling helpers
+    show_error_panel,
+    require_initialized,
+    ContainerError,
+    NotInitializedError,
+)
+
+from agentbox.cli.helpers.daemon_client import (
+    query_daemon,
+    get_sessions_from_daemon,
+    get_session_counts_from_daemon,
+)
+
+from agentbox.cli.helpers.port_utils import (
+    PortConflict,
+    check_port_available,
+    check_configured_ports,
+    format_conflict_message,
+    release_port_from_container,
 )
 
 __all__ = [
@@ -170,4 +190,20 @@ __all__ = [
     "handle_errors",
     "safe_rmtree",
     "wait_for_container_ready",
+    "parse_env_file",
+    # Error handling helpers
+    "show_error_panel",
+    "require_initialized",
+    "ContainerError",
+    "NotInitializedError",
+    # Daemon client
+    "query_daemon",
+    "get_sessions_from_daemon",
+    "get_session_counts_from_daemon",
+    # Port utilities
+    "PortConflict",
+    "check_port_available",
+    "check_configured_ports",
+    "format_conflict_message",
+    "release_port_from_container",
 ]

@@ -91,9 +91,8 @@ ensure_abox_aliases() {
             echo "alias ctl='agentctl'"
             echo "alias acls='agentctl ls'"
             echo "alias ad='tmux detach-client 2>/dev/null || echo \"Not in tmux session\"'"
-            echo "# claude aliases with settings"
-            echo "alias claude='/usr/local/bin/claude --settings /home/abox/.claude/config.json --mcp-config /workspace/.agentbox/claude/mcp.json'"
-            echo "alias superclaude='/usr/local/bin/claude --dangerously-skip-permissions --settings /home/abox/.claude/config-super.json --mcp-config /workspace/.agentbox/claude/mcp.json'"
+            echo "# claude alias with settings (superclaude uses /usr/local/bin/superclaude wrapper)"
+            echo "alias claude='\${HOME}/.local/bin/claude --settings /home/abox/.claude/settings.json --mcp-config /home/abox/.mcp.json'"
             echo ""
             echo "# Agentbox CLI tab completion"
             echo 'eval "$(_AGENTBOX_COMPLETE=bash_source agentbox)"'
@@ -322,21 +321,76 @@ if [[ -e /var/run/docker.sock ]]; then
     usermod -aG "${DOCKER_GROUP}" abox 2>/dev/null || true
 fi
 
-# Link agent config directories from project .agentbox/ FIRST
-# This must happen before credential bootstrapping so credentials go into the right place
-if [[ -d "/workspace/.agentbox/claude" ]]; then
-    echo "Linking Claude config from project..."
-    rm -rf "${ABOX_HOME}/.claude"
-    ln -s "/workspace/.agentbox/claude" "${ABOX_HOME}/.claude"
-    chown -h "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.claude" 2>/dev/null || true
-fi
+# === AGENT HOME DIRECTORY SETUP ===
+# Sets up agent configurations in home directories (~/.claude, ~/.codex, etc.)
+# Configs come from library templates, auth from host mounts
+# Must run before credential bootstrapping so credentials go into the right place
 
-if [[ -d "/workspace/.agentbox/codex" ]]; then
-    echo "Linking Codex config from project..."
-    rm -rf "${ABOX_HOME}/.codex"
-    ln -s "/workspace/.agentbox/codex" "${ABOX_HOME}/.codex"
-    chown -h "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.codex" 2>/dev/null || true
-fi
+setup_agent_home_dirs() {
+    local agentbox_dir="/workspace/.agentbox"
+    local library_config="/agentbox/library/config/default"
+
+    echo "Setting up agent home directories..."
+
+    # Create real directories for ALL agents in home
+    for agent in claude codex gemini qwen; do
+        mkdir -p "${ABOX_HOME}/.${agent}"
+        chown "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.${agent}" 2>/dev/null || true
+    done
+
+    # Copy config templates to home dirs
+    # Priority: project config (.agentbox/config/) > library defaults
+    local project_config="${agentbox_dir}/config"
+
+    # Claude: settings.json (used with --settings flag)
+    if [[ -f "${project_config}/claude/settings.json" ]]; then
+        cp "${project_config}/claude/settings.json" "${ABOX_HOME}/.claude/settings.json"
+    elif [[ -f "${library_config}/claude/settings.json" ]]; then
+        cp "${library_config}/claude/settings.json" "${ABOX_HOME}/.claude/settings.json"
+    fi
+    chown "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.claude/settings.json" 2>/dev/null || true
+
+    if [[ -f "${project_config}/claude/settings-super.json" ]]; then
+        cp "${project_config}/claude/settings-super.json" "${ABOX_HOME}/.claude/settings-super.json"
+    elif [[ -f "${library_config}/claude/settings-super.json" ]]; then
+        cp "${library_config}/claude/settings-super.json" "${ABOX_HOME}/.claude/settings-super.json"
+    fi
+    chown "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.claude/settings-super.json" 2>/dev/null || true
+
+    # Gemini: base settings (MCP injected later by distribute script)
+    if [[ -f "${project_config}/gemini/settings.json" ]]; then
+        cp "${project_config}/gemini/settings.json" "${ABOX_HOME}/.gemini/settings.json"
+    elif [[ -f "${library_config}/gemini/settings.json" ]]; then
+        cp "${library_config}/gemini/settings.json" "${ABOX_HOME}/.gemini/settings.json"
+    fi
+    chown "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.gemini/settings.json" 2>/dev/null || true
+
+    # Qwen: base settings (MCP injected later by distribute script)
+    if [[ -f "${project_config}/qwen/settings.json" ]]; then
+        cp "${project_config}/qwen/settings.json" "${ABOX_HOME}/.qwen/settings.json"
+    elif [[ -f "${library_config}/qwen/settings.json" ]]; then
+        cp "${library_config}/qwen/settings.json" "${ABOX_HOME}/.qwen/settings.json"
+    fi
+    chown "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.qwen/settings.json" 2>/dev/null || true
+
+    # Symlink project instructions (agents.md) into agent home dirs
+    if [[ -f "${agentbox_dir}/agents.md" ]]; then
+        ln -sf "${agentbox_dir}/agents.md" "${ABOX_HOME}/.claude/CLAUDE.md" 2>/dev/null || true
+        ln -sf "${agentbox_dir}/agents.md" "${ABOX_HOME}/.codex/AGENTS.md" 2>/dev/null || true
+        ln -sf "${agentbox_dir}/agents.md" "${ABOX_HOME}/.gemini/GEMINI.md" 2>/dev/null || true
+        ln -sf "${agentbox_dir}/agents.md" "${ABOX_HOME}/.qwen/QWEN.md" 2>/dev/null || true
+        # Also create convenience symlink in home
+        ln -sf "${agentbox_dir}/agents.md" "${ABOX_HOME}/agents.md" 2>/dev/null || true
+    fi
+
+    # Symlink skills directory into Claude home (Claude looks for ~/.claude/skills/)
+    if [[ -d "${agentbox_dir}/skills" ]]; then
+        ln -sf "${agentbox_dir}/skills" "${ABOX_HOME}/.claude/skills" 2>/dev/null || true
+    fi
+}
+
+set_status "agent_configs" "Setting up agent home directories"
+setup_agent_home_dirs
 
 # Bootstrap Claude auth/state from host
 # Host directories are mounted as directories (not individual files) to avoid stale
@@ -398,35 +452,55 @@ for dir in /*/host-codex; do
     fi
 done
 
-# Set up Codex auth from host-mounted directory
-if [[ -f "${HOST_CODEX_DIR}/auth.json" ]]; then
-    echo "Setting up Codex credentials from host directory..."
-    mkdir -p "${ABOX_HOME}/.codex"
-    rm -f "${ABOX_HOME}/.codex/auth.json"
-    ln -s "${HOST_CODEX_DIR}/auth.json" "${ABOX_HOME}/.codex/auth.json"
-    chown -h "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.codex/auth.json" 2>/dev/null || true
-fi
-
+# Codex CLI auth files from host (AGENTS.md symlink handled in setup_unified_agent_configs)
+# Symlink all files except .md (instruction files come from project agents.md)
 if [[ -d "${HOST_CODEX_DIR}" ]]; then
-    echo "Bootstrapping Codex state from host..."
-    mkdir -p "${ABOX_HOME}/.codex"
-    chown "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.codex" 2>/dev/null || true
+    echo "Linking Codex auth files from host..."
+    for f in "${HOST_CODEX_DIR}"/*; do
+        [[ ! -f "$f" ]] && continue
+        [[ "$f" == *.md ]] && continue
+        ln -sf "$f" "${ABOX_HOME}/.codex/"
+    done
+    chown -h "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.codex"/* 2>/dev/null || true
 fi
 
 # Bootstrap OpenAI/Gemini CLI configs if mounted
-if [[ -d "/${USER}/openai-config" || -d "/${USER}/gemini-config" ]]; then
+if [[ -d "/${USER}/openai-config" ]]; then
     mkdir -p "${ABOX_HOME}/.config"
     chown -R "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.config"
-fi
-if [[ -d "/${USER}/openai-config" ]]; then
     echo "Linking OpenAI CLI config from host..."
     rm -rf "${ABOX_HOME}/.config/openai"
     ln -s "/${USER}/openai-config" "${ABOX_HOME}/.config/openai"
 fi
-if [[ -d "/${USER}/gemini-config" ]]; then
-    echo "Linking Gemini CLI config from host..."
-    rm -rf "${ABOX_HOME}/.config/gemini"
-    ln -s "/${USER}/gemini-config" "${ABOX_HOME}/.config/gemini"
+# Gemini CLI auth files from host (GEMINI.md symlink handled in setup_unified_agent_configs)
+# Symlink all files except .md (instruction files come from project agents.md)
+if [[ -d "/${USER}/gemini" ]]; then
+    echo "Linking Gemini auth files from host..."
+    for f in "/${USER}/gemini"/*; do
+        [[ ! -f "$f" ]] && continue
+        [[ "$f" == *.md ]] && continue
+        ln -sf "$f" "${ABOX_HOME}/.gemini/"
+    done
+    chown -h "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.gemini"/* 2>/dev/null || true
+fi
+# Qwen CLI auth files from host (QWEN.md symlink handled in setup_unified_agent_configs)
+# Symlink all files except .md (instruction files come from project agents.md)
+if [[ -d "/${USER}/qwen-config" ]]; then
+    echo "Linking Qwen auth files from host..."
+    # Link regular files
+    for f in "/${USER}/qwen-config"/*; do
+        [[ ! -f "$f" ]] && continue
+        [[ "$f" == *.md ]] && continue
+        ln -sf "$f" "${ABOX_HOME}/.qwen/"
+    done
+    # Also link dotfiles (like .env)
+    for f in "/${USER}/qwen-config"/.*; do
+        [[ ! -f "$f" ]] && continue
+        [[ "$(basename "$f")" == "." || "$(basename "$f")" == ".." ]] && continue
+        ln -sf "$f" "${ABOX_HOME}/.qwen/"
+    done
+    chown -h "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.qwen"/* 2>/dev/null || true
+    chown -h "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.qwen"/.* 2>/dev/null || true
 fi
 
 # Load project environment variables (optional).
@@ -443,6 +517,18 @@ load_env_file() {
 
 load_env_file /workspace/.agentbox/.env
 load_env_file /workspace/.agentbox/.env.local
+# Load agent-specific env files (API keys, etc.)
+load_env_file "${ABOX_HOME}/.qwen/.env"
+
+# Load env files from user's custom MCP directories
+# These provide credentials for MCPs in ~/.config/agentbox/mcp/
+if [[ -d "/home/abox/.config/agentbox/mcp" ]]; then
+    for mcp_env in /home/abox/.config/agentbox/mcp/*/.env; do
+        if [[ -f "$mcp_env" ]]; then
+            load_env_file "$mcp_env"
+        fi
+    done
+fi
 
 # Install packages from MCP metadata
 install_mcp_packages() {
@@ -465,9 +551,9 @@ install_mcp_packages() {
 
 install_mcp_packages
 
-# Install packages from project .agentbox.yml
+# Install packages from project .agentbox/config.yml
 install_project_packages() {
-    local config_file="/workspace/.agentbox.yml"
+    local config_file="/workspace/.agentbox/config.yml"
 
     # Wait for volume mount to be fully available (up to 5 seconds)
     local attempts=0
@@ -481,7 +567,7 @@ install_project_packages() {
     fi
 
     set_status "project_packages" "Installing project packages"
-    echo "Installing project packages from .agentbox.yml..."
+    echo "Installing project packages from .agentbox/config.yml..."
 
     # Install apt packages (kept in bash - no quoting issues)
     local apt_packages
@@ -586,16 +672,31 @@ start_mcp_servers() {
 # Generate MCP config (always run to clean up stale configs)
 generate_mcp_config() {
     local config_generator=""
-    if [[ -f "/workspace/agentbox/bin/generate-mcp-config.py" ]]; then
-        config_generator="/workspace/agentbox/bin/generate-mcp-config.py"
+    if [[ -f "/workspace/bin/generate-mcp-config.py" ]]; then
+        config_generator="/workspace/bin/generate-mcp-config.py"
     elif [[ -f "/usr/local/bin/generate-mcp-config.py" ]]; then
         config_generator="/usr/local/bin/generate-mcp-config.py"
     fi
 
     if [[ -n "${config_generator}" ]]; then
-        echo "Generating MCP config..."
+        echo "Generating MCP config (~/.mcp.json)..."
         su -s /bin/bash abox -c "python3 ${config_generator}" || {
             echo "Warning: Failed to generate MCP config"
+        }
+    fi
+
+    # Distribute MCP config to Gemini/Qwen settings.json
+    local distributor=""
+    if [[ -f "/workspace/bin/distribute-mcp-config.py" ]]; then
+        distributor="/workspace/bin/distribute-mcp-config.py"
+    elif [[ -f "/usr/local/bin/distribute-mcp-config.py" ]]; then
+        distributor="/usr/local/bin/distribute-mcp-config.py"
+    fi
+
+    if [[ -n "${distributor}" ]]; then
+        echo "Distributing MCP config to agents..."
+        su -s /bin/bash abox -c "python3 ${distributor}" || {
+            echo "Warning: Failed to distribute MCP config"
         }
     fi
 }
@@ -603,6 +704,51 @@ generate_mcp_config() {
 set_status "mcp_servers" "Starting MCP servers"
 start_mcp_servers
 generate_mcp_config
+
+# Start LiteLLM proxy if enabled in host config
+start_litellm() {
+    # Look for host config in multiple locations
+    local config_file=""
+    for path in "/host-config/agentbox/config.yml" "${ABOX_HOME}/.config/agentbox/config.yml"; do
+        if [[ -f "${path}" ]]; then
+            config_file="${path}"
+            break
+        fi
+    done
+
+    if [[ -z "${config_file}" ]]; then
+        return
+    fi
+
+    # Check if LiteLLM is enabled
+    local enabled=$(python3 -c "
+import yaml
+try:
+    with open('${config_file}') as f:
+        cfg = yaml.safe_load(f) or {}
+    print(cfg.get('litellm', {}).get('enabled', False))
+except:
+    print('False')
+" 2>/dev/null)
+
+    if [[ "${enabled}" == "True" ]]; then
+        echo "Starting LiteLLM proxy..."
+        local litellm_script=""
+        if [[ -f "/workspace/bin/start-litellm.py" ]]; then
+            litellm_script="/workspace/bin/start-litellm.py"
+        elif [[ -f "/usr/local/bin/start-litellm.py" ]]; then
+            litellm_script="/usr/local/bin/start-litellm.py"
+        fi
+
+        if [[ -n "${litellm_script}" ]]; then
+            su -s /bin/bash abox -c "nohup python3 ${litellm_script} >> /tmp/litellm.log 2>&1 &"
+            echo "LiteLLM proxy starting (logs: /tmp/litellm.log)"
+        fi
+    fi
+}
+
+set_status "litellm" "Starting LiteLLM proxy"
+start_litellm
 
 set_status "container_client" "Starting container client"
 echo "Container initialization complete!"

@@ -123,7 +123,7 @@ This is the user's host machine that creates and manages containers.
 ### Template files (copied to user projects)
 - `/workspace/.agentbox/agents.md` - Base agent instructions (template)
 - `/workspace/.agentbox/superagents.md` - Super agent instructions (template)
-- `/workspace/.agentbox/config.json` - Agentbox project config
+- `/workspace/.agentbox/config.yml` - Agentbox project config
 - `/workspace/.agentbox/mcp-meta.json` - MCP installation tracking
 - `/workspace/.agentbox/workspaces.json` - Additional directory mounts
 
@@ -202,13 +202,13 @@ Agentbox follows a strict CLI design pattern:
 agentbox workspace add /home/user/code ro backend
 agentbox mcp add agentbox-analyst
 agentbox container connect postgres-dev
-agentctl wt add feature-auth
+agentctl worktree add feature-auth
 
 # ❌ WRONG - Do not use flags
 agentbox workspace add /home/user/code --mode ro --name backend
 agentbox mcp add agentbox-analyst force
 agentbox container connect postgres-dev auto-reconnect
-agentctl wt add feature-auth create force
+agentctl worktree add feature-auth create force
 ```
 
 **Rationale:** Positional arguments keep commands clean, predictable, and consistent. The order matters and users learn the pattern quickly.

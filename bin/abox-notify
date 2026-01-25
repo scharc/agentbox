@@ -14,13 +14,22 @@ URGENCY="${3:-normal}"
 CONTAINER="${4:-${AGENTBOX_CONTAINER:-}}"
 SESSION="${5:-${AGENTBOX_SESSION_NAME:-}}"
 
+# Get tmux socket from TMUX env var (format: /path/to/socket,pid,index)
+# This ensures we talk to the same tmux server as the current session
+if [[ -n "${TMUX:-}" ]]; then
+    TMUX_SOCKET="${TMUX%%,*}"
+    TMUX_CMD="tmux -S $TMUX_SOCKET"
+else
+    TMUX_CMD="tmux"
+fi
+
 # Fallback: try to detect container/session if not provided
 if [[ -z "$CONTAINER" ]]; then
     CONTAINER=$(hostname)
 fi
 
 if [[ -z "$SESSION" ]]; then
-    SESSION=$(tmux display-message -p '#S' 2>/dev/null || echo "unknown")
+    SESSION=$($TMUX_CMD display-message -p '#S' 2>/dev/null || echo "unknown")
 fi
 
 # Extract project name from container (remove 'agentbox-' prefix)
@@ -31,96 +40,213 @@ AGENT_TYPE="${SESSION%%-*}"
 # Capitalize first letter
 AGENT_TYPE="$(echo "${AGENT_TYPE:0:1}" | tr '[:lower:]' '[:upper:]')${AGENT_TYPE:1}"
 
-# Build enhanced title with project and agent info
-# Format: "Project | Agent" (e.g., "myproject | Claude")
-ENHANCED_TITLE="${PROJECT} | ${AGENT_TYPE}"
+# Detect notification type from message
+if [[ -n "${AGENTBOX_STALL_BUFFER:-}" ]] || [[ "$MESSAGE" == *"No output"* ]]; then
+    NOTIFY_TYPE="Stalled"
+elif [[ "$MESSAGE" == *"Task completed"* ]] || [[ "$MESSAGE" == *"completed"* ]]; then
+    NOTIFY_TYPE="Done"
+elif [[ "$MESSAGE" == *"permission"* ]] || [[ "$MESSAGE" == *"Permission"* ]]; then
+    NOTIFY_TYPE="Waiting"
+else
+    NOTIFY_TYPE=""
+fi
+
+# Build enhanced title with project, agent, and notification type
+# Format: "Project | Agent | Type" (e.g., "myproject | Claude | Stalled")
+if [[ -n "$NOTIFY_TYPE" ]]; then
+    ENHANCED_TITLE="${PROJECT} | ${AGENT_TYPE} | ${NOTIFY_TYPE}"
+else
+    ENHANCED_TITLE="${PROJECT} | ${AGENT_TYPE}"
+fi
 
 # Check if enhancement is enabled in config and get agent type
 CONFIG=$(python3 -c "
 import sys
 try:
     import yaml
-    with open('/workspace/.agentbox.yml', 'r') as f:
+    with open('/workspace/.agentbox/config.yml', 'r') as f:
         config = yaml.safe_load(f) or {}
         task_config = config.get('task_agents', {})
         print(task_config.get('enabled', False))
         print(task_config.get('agent', 'claude'))
-        print(task_config.get('model', 'haiku'))
+        print(task_config.get('model', 'fast'))
+        print(task_config.get('auto_answer', False))
 except:
     print('False')
     print('claude')
-    print('haiku')
+    print('fast')
+    print('False')
 " 2>/dev/null)
 
-# Parse config output
-IFS=$'\n' read -r ENABLED AGENT MODEL <<< "$CONFIG"
+# Parse config output (readarray handles multi-line properly)
+readarray -t CONFIG_LINES <<< "$CONFIG"
+ENABLED="${CONFIG_LINES[0]:-False}"
+AGENT="${CONFIG_LINES[1]:-claude}"
+MODEL="${CONFIG_LINES[2]:-fast}"
+AUTO_ANSWER_ENABLED="${CONFIG_LINES[3]:-False}"
+
+# Model alias mapping: generic names -> agent-specific models
+# Allows users to use "fast", "balanced", "powerful" regardless of agent
+declare -A CLAUDE_MODELS=( ["fast"]="haiku" ["balanced"]="sonnet" ["powerful"]="opus" )
+declare -A CODEX_MODELS=( ["fast"]="gpt-4o-mini" ["balanced"]="gpt-4o" ["powerful"]="o3" )
+
+# Translate model alias to agent-specific model
+if [[ "$AGENT" == "codex" ]]; then
+    MODEL="${CODEX_MODELS[$MODEL]:-$MODEL}"
+else
+    MODEL="${CLAUDE_MODELS[$MODEL]:-$MODEL}"
+fi
+
+# Debug mode - set ABOX_NOTIFY_DEBUG=1 to see what's happening
+DEBUG="${ABOX_NOTIFY_DEBUG:-}"
+debug() { [[ -n "$DEBUG" ]] && echo "[abox-notify] $*" >&2 || true; }
+
+debug "ENABLED=$ENABLED AGENT=$AGENT MODEL=$MODEL"
+debug "TMUX=$TMUX SESSION=$SESSION"
 
 # If enhancement enabled, try AI analysis
 if [[ "$ENABLED" == "True" ]] && [[ -z "${AGENTBOX_INVOCATION_DEPTH:-}" ]]; then
+    debug "Enhancement enabled, checking buffer..."
     # Get buffer from env var (stall detection) or capture from tmux (hook mode)
     if [[ -n "${AGENTBOX_STALL_BUFFER:-}" ]]; then
         BUFFER="$AGENTBOX_STALL_BUFFER"
+        debug "Using stall buffer (${#BUFFER} chars)"
     else
         # Capture last 50 lines of session buffer
-        BUFFER=$(tmux capture-pane -p -t "$SESSION" -S -50 2>/dev/null || echo "")
+        BUFFER=$($TMUX_CMD capture-pane -p -t "$SESSION" -S -50 2>/dev/null || echo "")
+        debug "Captured tmux buffer (${#BUFFER} chars)"
     fi
 
-    if [[ -n "$BUFFER" ]]; then
-        # Load prompt template from config
-        PROMPT=$(python3 -c "
-import sys
-try:
-    import yaml
-    with open('/workspace/.agentbox.yml', 'r') as f:
-        config = yaml.safe_load(f) or {}
-        template = config.get('task_agents', {}).get('prompt_template', '''You are analyzing terminal output. Respond with ONLY a short summary (max 80 chars).
+    # Try auto-answer first if enabled
+    if [[ "$AUTO_ANSWER_ENABLED" == "True" ]] && [[ -n "$BUFFER" ]]; then
+        debug "Auto-answer enabled, checking if we can answer..."
+        DECISION_PROMPT="You are analyzing terminal output from a Claude Code AI agent to determine if it needs input.
+
+Terminal format (Claude Code):
+- Lines starting with ❯ or > = human input
+- Lines starting with ● ○ ◐ = agent output/thinking
+- Everything else = command output, file contents, etc.
 
 Terminal output:
 \`\`\`
-{buffer}
+$BUFFER
 \`\`\`
 
-Summary:''')
-        buffer = sys.stdin.read()
-        # Sanitize buffer
-        buffer = ''.join(c for c in buffer if c.isprintable() or c in '\n\t')
-        print(template.format(buffer=buffer))
-except Exception as e:
-    sys.exit(1)
-" <<< "$BUFFER" 2>/dev/null)
+Respond in EXACTLY this format:
+DECISION: <ANSWER|ESCALATE>
+ANSWER: <your answer if DECISION is ANSWER, or 'none'>
 
-        if [[ -n "$PROMPT" ]]; then
-            # Call appropriate CLI based on agent type
-            if [[ "$AGENT" == "codex" ]]; then
-                # Codex: use exec subcommand with stdin
-                SUMMARY=$(echo "$PROMPT" | AGENTBOX_INVOCATION_DEPTH=1 codex exec - --model "$MODEL" 2>/dev/null | grep -v "^mcp" | grep -v "^thinking" | grep -v "^codex$" | grep -v "^tokens used" | head -c 500 || echo "")
-            else
-                # Claude: use -p flag with stdin
-                SUMMARY=$(echo "$PROMPT" | AGENTBOX_INVOCATION_DEPTH=1 claude -p --model "$MODEL" 2>/dev/null | head -c 500 || echo "")
-            fi
+Guidelines:
+- ANSWER: Simple confirmations (Y/n), obvious choices, clear questions
+- ESCALATE: Complex decisions, ambiguous questions, needs human judgment
 
-            if [[ -n "$SUMMARY" ]]; then
-                # AI-enhanced message replaces the original message
-                MESSAGE="$SUMMARY"
-                echo "AI-enhanced: $MESSAGE" >&2
+Be conservative - when in doubt, ESCALATE."
+
+        # Get AI decision
+        AI_RESPONSE=$(echo "$DECISION_PROMPT" | AGENTBOX_INVOCATION_DEPTH=1 claude -p --model "$MODEL" 2>/dev/null | head -c 500 || echo "")
+
+        if [[ -n "$AI_RESPONSE" ]]; then
+            # Parse decision
+            DECISION=$(echo "$AI_RESPONSE" | grep -oP '^DECISION:\s*\K\w+' || echo "ESCALATE")
+            ANSWER=$(echo "$AI_RESPONSE" | grep -oP '^ANSWER:\s*\K.+' || echo "none")
+            debug "AI decision: $DECISION, answer: $ANSWER"
+
+            if [[ "$DECISION" == "ANSWER" ]] && [[ "$ANSWER" != "none" ]] && [[ -n "$ANSWER" ]]; then
+                debug "Auto-answering: $ANSWER"
+                debug "TMUX_CMD=$TMUX_CMD SESSION=$SESSION"
+                # Send answer to tmux session
+                if $TMUX_CMD send-keys -t "$SESSION" -l "$ANSWER"; then
+                    debug "Text sent OK"
+                else
+                    debug "Text send FAILED: $?"
+                fi
+                if $TMUX_CMD send-keys -t "$SESSION" Enter; then
+                    debug "Enter sent OK"
+                else
+                    debug "Enter send FAILED: $?"
+                fi
+                exit 0
             fi
         fi
+        debug "Escalating to notification"
     fi
+
+    # Generate both short and long summaries for different channels
+    SUMMARY_SHORT=""
+    SUMMARY_LONG=""
+
+    if [[ -n "$BUFFER" ]]; then
+        debug "Generating summaries..."
+
+        # Single AI call to generate both summaries
+        SUMMARY_PROMPT="Analyze this terminal output and provide two summaries:
+
+Terminal output:
+\`\`\`
+$BUFFER
+\`\`\`
+
+Respond in EXACTLY this format:
+SHORT: <3-6 words, no punctuation>
+LONG: <1-2 sentences describing what's happening>
+
+Example:
+SHORT: Fixing authentication bug in login
+LONG: The agent is debugging an authentication issue in the login flow, specifically investigating why tokens are not being validated correctly."
+
+        debug "Calling $AGENT with model $MODEL..."
+        AI_RESPONSE=$(echo "$SUMMARY_PROMPT" | AGENTBOX_INVOCATION_DEPTH=1 claude -p --model "$MODEL" 2>/dev/null | head -c 500 || echo "")
+
+        if [[ -n "$AI_RESPONSE" ]]; then
+            SUMMARY_SHORT=$(echo "$AI_RESPONSE" | grep -oP '^SHORT:\s*\K.+' | head -c 60 || echo "")
+            SUMMARY_LONG=$(echo "$AI_RESPONSE" | grep -oP '^LONG:\s*\K.+' | head -c 200 || echo "")
+            debug "Short: $SUMMARY_SHORT"
+            debug "Long: $SUMMARY_LONG"
+        fi
+
+        # Fallback to original message if AI failed
+        if [[ -z "$SUMMARY_SHORT" ]]; then
+            SUMMARY_SHORT="$MESSAGE"
+        fi
+        if [[ -z "$SUMMARY_LONG" ]]; then
+            SUMMARY_LONG="$MESSAGE"
+        fi
+
+        # Desktop uses short summary
+        MESSAGE="$SUMMARY_SHORT"
+    else
+        debug "Empty buffer, using original message"
+        SUMMARY_SHORT="$MESSAGE"
+        SUMMARY_LONG="$MESSAGE"
+    fi
+else
+    debug "Enhancement disabled or recursive call"
 fi
 
-# Send notification to host proxy
-# Use enhanced title that includes project and agent info
-# Try SSH mode (local IPC socket) first, fall back to legacy socket
-export ENHANCED_TITLE MESSAGE URGENCY
+# Send structured notification to host
+# Includes both short (desktop) and long (telegram) summaries
+export ENHANCED_TITLE MESSAGE URGENCY NOTIFY_TYPE SUMMARY_SHORT SUMMARY_LONG CONTAINER SESSION PROJECT
 python3 <<'PYTHON_SCRIPT'
 import json
 import os
 import socket
 import sys
 
-title = os.environ.get('ENHANCED_TITLE', 'Agentbox')
-message = os.environ.get('MESSAGE', 'Notification')
-urgency = os.environ.get('URGENCY', 'normal')
+# Build structured notification payload
+payload = {
+    'action': 'notify',
+    'title': os.environ.get('ENHANCED_TITLE', 'Agentbox'),
+    'message': os.environ.get('MESSAGE', 'Notification'),
+    'urgency': os.environ.get('URGENCY', 'normal'),
+    'metadata': {
+        'notify_type': os.environ.get('NOTIFY_TYPE', ''),
+        'summary_short': os.environ.get('SUMMARY_SHORT', ''),
+        'summary_long': os.environ.get('SUMMARY_LONG', ''),
+        'container': os.environ.get('CONTAINER', ''),
+        'session': os.environ.get('SESSION', ''),
+        'project': os.environ.get('PROJECT', ''),
+    }
+}
 
 # SSH mode: local IPC socket (container_client.py)
 ssh_mode_socket = "/tmp/agentbox-local.sock"
@@ -128,17 +254,10 @@ ssh_mode_socket = "/tmp/agentbox-local.sock"
 # Legacy mode: direct connection to host agentboxd socket
 legacy_socket = f"/run/user/{os.getuid()}/agentboxd/agentboxd.sock"
 
-def send_via_ssh_mode(title, message, urgency):
-    """Send notification via SSH mode (local IPC socket)."""
-    payload = {
-        'action': 'notify',
-        'title': title,
-        'message': message,
-        'urgency': urgency
-    }
-
+def send_notification(sock_path):
+    """Send notification to socket."""
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.connect(ssh_mode_socket)
+    sock.connect(sock_path)
     sock.settimeout(5.0)
     sock.sendall((json.dumps(payload) + '\n').encode('utf-8'))
 
@@ -156,26 +275,10 @@ def send_via_ssh_mode(title, message, urgency):
         return result.get('ok', False)
     return False
 
-def send_via_legacy(title, message, urgency):
-    """Send notification via legacy socket."""
-    payload = {
-        'action': 'notify',
-        'title': title,
-        'message': message,
-        'urgency': urgency
-    }
-
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.connect(legacy_socket)
-    sock.settimeout(2.0)
-    sock.sendall((json.dumps(payload) + '\n').encode('utf-8'))
-    sock.close()
-    return True
-
 # Try SSH mode first (preferred)
 if os.path.exists(ssh_mode_socket):
     try:
-        if send_via_ssh_mode(title, message, urgency):
+        if send_notification(ssh_mode_socket):
             sys.exit(0)
         else:
             print("Notification failed via SSH mode", file=sys.stderr)
@@ -186,7 +289,7 @@ if os.path.exists(ssh_mode_socket):
 # Fall back to legacy socket
 if os.path.exists(legacy_socket):
     try:
-        send_via_legacy(title, message, urgency)
+        send_notification(legacy_socket)
         sys.exit(0)
     except Exception as e:
         print(f"Failed to send notification: {e}", file=sys.stderr)

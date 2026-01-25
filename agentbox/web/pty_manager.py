@@ -67,9 +67,10 @@ class PTYSession:
 
             # Use regular tmux attach (not read-only) with BOTH stdin and stdout
             # This gives us full bidirectional PTY socket
+            # Use = prefix for exact session matching (prevents prefix matching)
             exec_create = self.manager.client.api.exec_create(
                 container.id,
-                cmd=["/usr/bin/tmux", "attach", "-t", self.session_name],
+                cmd=["/usr/bin/tmux", "attach", "-t", f"={self.session_name}"],
                 stdin=True,  # Enable input via socket
                 stdout=True,
                 stderr=True,

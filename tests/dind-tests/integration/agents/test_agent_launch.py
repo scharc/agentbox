@@ -21,10 +21,10 @@ class TestAgentPrerequisites:
 
         result = exec_in_container(
             container_name,
-            "test -f /workspace/.agentbox/claude/mcp.json"
+            "test -f /home/abox/.mcp.json"
         )
 
-        assert result.returncode == 0, "MCP config should exist after project init"
+        assert result.returncode == 0, "MCP config should exist at ~/.mcp.json after project init"
 
     def test_agent_instructions_accessible(self, running_container, test_project):
         """Test that agent instructions are accessible."""
@@ -252,7 +252,7 @@ class TestAgentConfiguration:
         # Verify MCP config is readable in a tmux session
         result = exec_in_container(
             container_name,
-            "tmux new-session -d -s mcp-test 'cat /workspace/.agentbox/claude/mcp.json > /tmp/mcp-output.txt; sleep 2'"
+            "tmux new-session -d -s mcp-test 'cat /home/abox/.mcp.json > /tmp/mcp-output.txt; sleep 2'"
         )
         assert result.returncode == 0
 

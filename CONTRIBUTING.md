@@ -575,17 +575,17 @@ To work on multiple branches simultaneously:
 
 1. Create a worktree:
    ```bash
-   agentctl wt add feature-auth
+   agentctl worktree add feature-auth
    ```
 
 2. Switch to the worktree:
    ```bash
-   agentctl wt switch feature-auth
+   agentctl worktree switch feature-auth
    ```
 
 3. Start working:
    ```bash
-   agentctl wt superclaude feature-auth "Implement OAuth"
+   agentctl worktree superclaude feature-auth "Implement OAuth"
    ```
 
 **What this does:**
@@ -603,7 +603,7 @@ To work on multiple branches simultaneously:
 The `add` function creates worktrees. Use `switch` to switch.
 
 ```bash
-agentctl wt add <branch>
+agentctl worktree add <branch>
 ```
 ```
 

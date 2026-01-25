@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import signal
 import socket
 import subprocess
@@ -31,6 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from agentbox.host_config import get_config
 from agentbox.ssh_tunnel import SSHTunnelServer, check_asyncssh_available
 from agentbox.utils.logging import get_daemon_logger, configure_logging
+from agentbox import container_naming
 
 # Configure logging for daemon mode
 configure_logging(daemon=True)
@@ -64,6 +64,9 @@ class Agentboxd:
         self.config = get_config()
         self.recent_notifications = {}  # Deduplication: (container, session) -> timestamp
         self.notifications_lock = threading.Lock()  # Protects recent_notifications
+        # Active notifications for auto-dismissal: (container, session) -> {desktop_id, telegram}
+        self.active_notifications: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        self.active_notifications_lock = threading.Lock()
         self.handlers = {
             "notify": self._handle_notify,
             "clipboard": self._handle_clipboard,
@@ -72,6 +75,8 @@ class Agentboxd:
             "remove_host_port": self._handle_remove_host_port,
             "remove_container_port": self._handle_remove_container_port,
             "get_completions": self._handle_get_completions,
+            "get_active_ports": self._handle_get_active_ports,
+            "check_port": self._handle_check_port,
         }
         # Streaming support: container -> {session -> {buffer, cursor_x, cursor_y}}
         self.session_buffers: Dict[str, Dict[str, Dict]] = {}
@@ -82,6 +87,9 @@ class Agentboxd:
         # Container state (pushed from containers): container -> {worktrees: [...], ...}
         self.container_state: Dict[str, Dict] = {}
         self.container_state_lock = threading.Lock()
+        # Session metadata (pushed from containers): container -> {sessions: [...], updated_at: float}
+        self.session_metadata: Dict[str, Dict] = {}
+        self.session_metadata_lock = threading.Lock()
         # Tailscale IP monitoring
         self.tailscale_monitor_thread: Optional[threading.Thread] = None
         self.tailscale_monitor_running = False
@@ -105,32 +113,162 @@ class Agentboxd:
         # Cleanup timestamp tracking
         self._last_cleanup_time = time.time()
         self.session_activity: Dict[Tuple[str, str], float] = {}
+        # Rate limit state: agent -> {limited, resets_at, detected_at, error_type}
+        self.rate_limit_state: Dict[str, Dict[str, Any]] = {}
+        self.rate_limit_lock = threading.Lock()
 
     def _handle_notify(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle notifications and dispatch to configured channels.
+
+        Payload can include metadata with different summaries:
+        - message / summary_short: Used for desktop (compact)
+        - summary_long: Used for Telegram/Slack (verbose)
+        """
         title = str(payload.get("title", "Agentbox"))
         message = str(payload.get("message", "Notification"))
         urgency = str(payload.get("urgency", "normal"))
+        metadata = payload.get("metadata", {})
+
         if urgency == "high":
             urgency = "critical"
 
-        args = ["notify-send", "-u", urgency, title, message]
-        logger.debug(f"Notify: title={title!r} message={message!r}")
-        try:
-            result = subprocess.run(args, check=False, capture_output=True, text=True, timeout=10)
-        except subprocess.TimeoutExpired:
-            logger.warning("notify-send timed out")
-            return {"ok": False, "error": "notify_timeout"}
+        # Extract summaries from metadata (if available)
+        summary_short = metadata.get("summary_short") or message
+        summary_long = metadata.get("summary_long") or message
+        notify_type = metadata.get("notify_type", "")
+        container = metadata.get("container", "")
+        session = metadata.get("session", "")
+        project = metadata.get("project", "")
+
+        logger.debug(f"Notify: type={notify_type} title={title!r} short={summary_short!r}")
+
+        # Dispatch to channels
+        results = self._dispatch_to_channels(
+            title=title,
+            summary_short=summary_short,
+            summary_long=summary_long,
+            urgency=urgency,
+            notify_type=notify_type,
+            container=container,
+            session=session,
+            project=project,
+        )
 
         if urgency == "critical":
             self._beep()
 
         # Run user hook if configured
-        self._run_notify_hook(title, message, urgency)
+        self._run_notify_hook(title, summary_short, urgency)
 
-        if result.returncode != 0:
-            logger.warning(result.stderr.strip() or "notify-send failed")
-            return {"ok": False, "error": result.stderr.strip() or "notify_failed"}
-        return {"ok": True}
+        return {"ok": all(results.values()), "channels": results}
+
+    def _dispatch_to_channels(
+        self,
+        title: str,
+        summary_short: str,
+        summary_long: str,
+        urgency: str,
+        notify_type: str,
+        container: str,
+        session: str,
+        project: str,
+    ) -> Dict[str, bool]:
+        """Dispatch notification to all configured channels."""
+        results = {}
+        notification_data: Dict[str, Any] = {}
+
+        # Desktop channel (always enabled) - uses short summary
+        desktop_id = self._send_desktop_notification(title, summary_short, urgency)
+        results["desktop"] = desktop_id is not None
+        if desktop_id and desktop_id > 0:
+            notification_data["desktop_id"] = desktop_id
+
+        # Telegram channel (if configured) - uses long summary
+        telegram_config = self.config.get("notifications.telegram", default=None)
+        if telegram_config and telegram_config.get("enabled"):
+            success, tg_data = self._send_telegram_notification(
+                telegram_config,
+                title=title,
+                message=summary_long,
+                notify_type=notify_type,
+                project=project,
+                session=session,
+            )
+            results["telegram"] = success
+            if success and tg_data:
+                notification_data["telegram"] = tg_data
+
+        # Store notification data for auto-dismissal (thread-safe)
+        if container and session and notification_data:
+            key = (container, session)
+            with self.active_notifications_lock:
+                self.active_notifications[key] = notification_data
+
+        return results
+
+    def _send_desktop_notification(self, title: str, message: str, urgency: str) -> Optional[int]:
+        """Send notification via notify-send, return notification ID."""
+        args = ["notify-send", "-p", "-u", urgency, title, message]  # -p prints ID
+        try:
+            result = subprocess.run(args, check=False, capture_output=True, text=True, timeout=10)
+            if result.returncode != 0:
+                logger.warning(result.stderr.strip() or "notify-send failed")
+                return None
+            # Parse notification ID from output
+            if result.stdout.strip():
+                try:
+                    return int(result.stdout.strip())
+                except ValueError:
+                    pass
+            return 0  # Success but no ID (old notify-send without -p support)
+        except subprocess.TimeoutExpired:
+            logger.warning("notify-send timed out")
+            return None
+
+    def _send_telegram_notification(
+        self,
+        config: Dict[str, Any],
+        title: str,
+        message: str,
+        notify_type: str,
+        project: str,
+        session: str,
+    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
+        """Send notification via Telegram bot.
+
+        Returns:
+            Tuple of (success, {message_id, chat_id}) for auto-dismissal tracking.
+        """
+        try:
+            import requests
+            bot_token = config.get("bot_token")
+            chat_id = config.get("chat_id")
+            if not bot_token or not chat_id:
+                logger.warning("Telegram bot_token or chat_id not configured")
+                return False, None
+
+            # Format message for Telegram
+            emoji = {"Stalled": "⏸️", "Done": "✅", "Waiting": "❓"}.get(notify_type, "📢")
+            text = f"{emoji} *{project}* | {session}\n\n{message}"
+
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            resp = requests.post(url, json={
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "Markdown",
+            }, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                result = data.get("result", {})
+                return True, {
+                    "message_id": result.get("message_id"),
+                    "chat_id": str(result.get("chat", {}).get("id", chat_id)),
+                }
+            logger.warning(f"Telegram API error: {resp.status_code} {resp.text}")
+            return False, None
+        except Exception as e:
+            logger.warning(f"Telegram notification failed: {e}")
+            return False, None
 
     def _handle_clipboard(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Handle clipboard set requests from containers.
@@ -342,30 +480,33 @@ class Agentboxd:
             # Return project names from connected containers (via SSH tunnel)
             with self.ssh_tunnel_server.connections_lock:
                 projects = []
-                for container_name in self.ssh_tunnel_server.connections.keys():
-                    # Only include agentbox containers, strip prefix to get project name
-                    if container_name.startswith("agentbox-"):
-                        projects.append(container_name[9:])
+                for name in self.ssh_tunnel_server.connections.keys():
+                    # Extract project name using container_naming (handles hashed names)
+                    project_name = container_naming.extract_project_name(name)
+                    if project_name:
+                        projects.append(project_name)
             return {"ok": True, "projects": projects}
 
         elif comp_type == "sessions":
-            # Return sessions from session_buffers
+            # Return sessions from session_metadata (pushed by containers)
+            # Falls back to session_buffers if metadata not available
             project = payload.get("project")
-            with self.stream_lock:
+            with self.session_metadata_lock:
                 if project:
                     # Sanitize project name to match Docker container naming
-                    sanitized = re.sub(r'[^a-z0-9_-]', '-', project.lower())
-                    container = f"agentbox-{sanitized}"
-                    sessions = list(self.session_buffers.get(container, {}).keys())
+                    sanitized = container_naming.sanitize_name(project)
+                    container = f"{container_naming.CONTAINER_PREFIX}{sanitized}"
+                    meta = self.session_metadata.get(container, {})
+                    sessions = [s["name"] for s in meta.get("sessions", [])]
                 else:
                     # Return all sessions as "project/session" (only agentbox containers)
                     sessions = []
-                    for container, sess_dict in self.session_buffers.items():
-                        if not container.startswith("agentbox-"):
+                    for container, meta in self.session_metadata.items():
+                        proj = container_naming.extract_project_name(container)
+                        if not proj:
                             continue  # Skip non-agentbox containers
-                        proj = container[9:]
-                        for sess in sess_dict.keys():
-                            sessions.append(f"{proj}/{sess}")
+                        for sess in meta.get("sessions", []):
+                            sessions.append(f"{proj}/{sess['name']}")
             return {"ok": True, "sessions": sessions}
 
         elif comp_type == "worktrees":
@@ -374,15 +515,16 @@ class Agentboxd:
             with self.container_state_lock:
                 if project:
                     # Sanitize project name to match Docker container naming
-                    sanitized = re.sub(r'[^a-z0-9_-]', '-', project.lower())
-                    container = f"agentbox-{sanitized}"
+                    sanitized = container_naming.sanitize_name(project)
+                    container = f"{container_naming.CONTAINER_PREFIX}{sanitized}"
                     state = self.container_state.get(container, {})
                     worktrees = state.get("worktrees", [])
                 else:
                     # Return all worktrees (only from agentbox containers)
                     worktrees = []
                     for container, state in self.container_state.items():
-                        if not container.startswith("agentbox-"):
+                        proj = container_naming.extract_project_name(container)
+                        if not proj:
                             continue  # Skip non-agentbox containers
                         worktrees.extend(state.get("worktrees", []))
             return {"ok": True, "worktrees": worktrees}
@@ -425,6 +567,147 @@ class Agentboxd:
                 return {"ok": True, "docker_containers": []}
 
         return {"ok": False, "error": f"unknown completion type: {comp_type}"}
+
+    def _handle_get_active_ports(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Get all active ports across all connected containers.
+
+        Returns ports that are actively forwarded via SSH tunnels, allowing
+        CLI commands to check for conflicts before configuring new ports.
+        """
+        host_ports = []  # Exposed ports (container -> host)
+        container_ports = []  # Forwarded ports (host -> container)
+
+        with self.ssh_tunnel_server.connections_lock:
+            for container, conn in self.ssh_tunnel_server.connections.items():
+                # Remote forwards = exposed ports (container listening -> host)
+                # Stored as: {"host_port": ..., "listen_host": ...}
+                # The host_port is the port on host, container_port is same (or from config)
+                for fwd in conn.remote_forwards:
+                    hp = fwd.get("host_port", 0)
+                    host_ports.append({
+                        "host_port": hp,
+                        "container_port": fwd.get("container_port", hp),
+                        "container": container,
+                    })
+                # Local forwards = forwarded ports (host -> container listening)
+                # Stored as: {"host": dest_host, "port": dest_port} OR
+                # {"host_port": ..., "container_port": ...} depending on source
+                for fwd in conn.local_forwards:
+                    # Handle both storage formats
+                    hp = fwd.get("host_port") or fwd.get("port", 0)
+                    cp = fwd.get("container_port") or fwd.get("port", hp)
+                    container_ports.append({
+                        "host_port": hp,
+                        "container_port": cp,
+                        "container": container,
+                    })
+
+        return {
+            "ok": True,
+            "host_ports": host_ports,
+            "container_ports": container_ports,
+        }
+
+    def _handle_check_port(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Check if a port is available and what's using it if not.
+
+        Args:
+            payload: {"port": int, "host": str (optional, default "127.0.0.1")}
+
+        Returns:
+            {
+                "ok": True,
+                "available": bool,
+                "used_by": {
+                    "type": "agentbox" | "external",
+                    "container": str (if agentbox),
+                    "process": str (if external, e.g. "python (pid 1234)"),
+                    "pid": int (if external),
+                } or None if available
+            }
+        """
+        port = payload.get("port")
+        host = payload.get("host", "127.0.0.1")
+
+        if not port:
+            return {"ok": False, "error": "missing required field: port"}
+
+        # Check if port is used by an agentbox container
+        with self.ssh_tunnel_server.connections_lock:
+            for container, conn in self.ssh_tunnel_server.connections.items():
+                # Check remote forwards (container exposes port on host)
+                # Stored as: {"host_port": ..., "listen_host": ...}
+                for fwd in conn.remote_forwards:
+                    if fwd.get("host_port") == port:
+                        return {
+                            "ok": True,
+                            "available": False,
+                            "used_by": {
+                                "type": "agentbox",
+                                "container": container,
+                                "direction": "exposed",
+                            },
+                        }
+                # Check local forwards (host port forwarded to container)
+                # Stored as: {"host": ..., "port": ...} or {"host_port": ..., "container_port": ...}
+                for fwd in conn.local_forwards:
+                    hp = fwd.get("host_port") or fwd.get("port", 0)
+                    if hp == port:
+                        return {
+                            "ok": True,
+                            "available": False,
+                            "used_by": {
+                                "type": "agentbox",
+                                "container": container,
+                                "direction": "forwarded",
+                            },
+                        }
+
+        # Check if port is used by external process using ss
+        try:
+            result = subprocess.run(
+                ["ss", "-tlnp", f"sport = :{port}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                lines = result.stdout.strip().split("\n")
+                # Skip header line
+                if len(lines) > 1:
+                    # Parse the output to get process info
+                    # Format: State  Recv-Q  Send-Q  Local Address:Port  Peer Address:Port  Process
+                    line = lines[1]
+                    process_info = "unknown"
+                    pid = None
+
+                    # Try to extract process info from users:(...) field
+                    if "users:" in line:
+                        import re
+                        match = re.search(r'users:\(\("([^"]+)",pid=(\d+)', line)
+                        if match:
+                            process_info = match.group(1)
+                            pid = int(match.group(2))
+
+                    return {
+                        "ok": True,
+                        "available": False,
+                        "used_by": {
+                            "type": "external",
+                            "process": process_info,
+                            "pid": pid,
+                        },
+                    }
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+            logger.warning(f"Failed to check port with ss: {e}")
+            # Fall through to return available
+
+        # Port is available
+        return {
+            "ok": True,
+            "available": True,
+            "used_by": None,
+        }
 
     def _run_notify_hook(self, title: str, message: str, urgency: str) -> None:
         """Run user notify hook script if configured."""
@@ -492,6 +775,10 @@ class Agentboxd:
         self.ssh_tunnel_server.register_request_handler("port_add", self._ssh_handle_port_add)
         self.ssh_tunnel_server.register_request_handler("port_remove", self._ssh_handle_port_remove)
         self.ssh_tunnel_server.register_request_handler("ping", self._ssh_handle_ping)
+        # Usage/rate limit handlers
+        self.ssh_tunnel_server.register_request_handler("check_agent", self._ssh_handle_check_agent)
+        self.ssh_tunnel_server.register_request_handler("get_usage_status", self._ssh_handle_get_usage_status)
+        self.ssh_tunnel_server.register_request_handler("clear_rate_limit", self._ssh_handle_clear_rate_limit)
 
         # Event handlers (no response)
         self.ssh_tunnel_server.register_event_handler("stream_register", self._ssh_handle_stream_register)
@@ -499,6 +786,9 @@ class Agentboxd:
         self.ssh_tunnel_server.register_event_handler("stream_unregister", self._ssh_handle_stream_unregister)
         self.ssh_tunnel_server.register_event_handler("state_update", self._ssh_handle_state_update)
         self.ssh_tunnel_server.register_event_handler("forward_removed", self._ssh_handle_forward_removed)
+        self.ssh_tunnel_server.register_event_handler("session_resumed", self._ssh_handle_session_resumed)
+        self.ssh_tunnel_server.register_event_handler("report_rate_limit", self._ssh_handle_report_rate_limit)
+        self.ssh_tunnel_server.register_event_handler("local_forwards_registered", self._ssh_handle_local_forwards_registered)
 
         # Internal events for connection lifecycle
         self.ssh_tunnel_server.register_event_handler("_container_connect", self._ssh_on_container_connect)
@@ -571,6 +861,130 @@ class Agentboxd:
         """Handle ping request."""
         return {"ok": True}
 
+    # ========== Rate Limit / Usage Handlers ==========
+
+    def _ssh_handle_check_agent(self, container: str, payload: dict) -> dict:
+        """Check if an agent is available (not rate-limited)."""
+        from datetime import datetime, timezone
+
+        agent = payload.get("agent", "")
+        if not agent:
+            return {"ok": False, "error": "missing agent"}
+
+        with self.rate_limit_lock:
+            agent_state = self.rate_limit_state.get(agent, {})
+
+        if not agent_state.get("limited"):
+            return {"ok": True, "available": True}
+
+        # Check if limit has reset
+        resets_at_str = agent_state.get("resets_at")
+        if resets_at_str:
+            try:
+                resets_at = datetime.fromisoformat(resets_at_str)
+                if resets_at.tzinfo is None:
+                    resets_at = resets_at.replace(tzinfo=timezone.utc)
+                if resets_at < datetime.now(timezone.utc):
+                    # Limit has reset, clear state
+                    with self.rate_limit_lock:
+                        if agent in self.rate_limit_state:
+                            del self.rate_limit_state[agent]
+                    return {"ok": True, "available": True}
+            except (ValueError, TypeError):
+                pass
+
+        return {"ok": True, "available": False, "resets_at": resets_at_str}
+
+    def _ssh_handle_get_usage_status(self, container: str, payload: dict) -> dict:
+        """Get status of all agents."""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        result = {}
+
+        # All known agents
+        agents = [
+            "superclaude", "supercodex", "supergemini", "superqwen",
+            "claude", "codex", "gemini", "qwen",
+        ]
+
+        with self.rate_limit_lock:
+            state_copy = dict(self.rate_limit_state)
+
+        for agent in agents:
+            agent_state = state_copy.get(agent, {})
+            limited = agent_state.get("limited", False)
+            resets_at_str = agent_state.get("resets_at")
+
+            # Check if limit has reset
+            available = True
+            resets_in_seconds = None
+
+            if limited and resets_at_str:
+                try:
+                    resets_at = datetime.fromisoformat(resets_at_str)
+                    if resets_at.tzinfo is None:
+                        resets_at = resets_at.replace(tzinfo=timezone.utc)
+                    if resets_at > now:
+                        available = False
+                        resets_in_seconds = int((resets_at - now).total_seconds())
+                except (ValueError, TypeError):
+                    available = not limited
+
+            result[agent] = {
+                "available": available,
+                "limited": limited and not available,
+                "resets_at": resets_at_str if not available else None,
+                "resets_in_seconds": resets_in_seconds,
+                "error_type": agent_state.get("error_type"),
+            }
+
+        return {"ok": True, "status": result}
+
+    def _ssh_handle_clear_rate_limit(self, container: str, payload: dict) -> dict:
+        """Clear rate limit state for an agent."""
+        agent = payload.get("agent", "")
+        if not agent:
+            return {"ok": False, "error": "missing agent"}
+
+        with self.rate_limit_lock:
+            if agent in self.rate_limit_state:
+                del self.rate_limit_state[agent]
+                logger.info(f"Cleared rate limit state for {agent}")
+                return {"ok": True}
+
+        return {"ok": True}  # Already clear
+
+    def _ssh_handle_report_rate_limit(self, container: str, payload: dict) -> None:
+        """Handle report_rate_limit event - store rate limit info."""
+        from datetime import datetime, timezone, timedelta
+
+        agent = payload.get("agent", "")
+        limited = payload.get("limited", True)
+        resets_at = payload.get("resets_at")
+        resets_in_seconds = payload.get("resets_in_seconds")
+        error_type = payload.get("error_type")
+
+        if not agent:
+            return
+
+        now = datetime.now(timezone.utc)
+
+        # Calculate resets_at from resets_in_seconds if not provided
+        if not resets_at and resets_in_seconds:
+            resets_at = (now + timedelta(seconds=resets_in_seconds)).isoformat()
+
+        with self.rate_limit_lock:
+            self.rate_limit_state[agent] = {
+                "limited": limited,
+                "detected_at": now.isoformat(),
+                "resets_at": resets_at,
+                "error_type": error_type,
+                "reported_by": container,
+            }
+
+        logger.info(f"Rate limit reported for {agent} by {container}: resets_at={resets_at}")
+
     def _ssh_handle_stream_register(self, container: str, payload: dict) -> None:
         """Handle stream_register event from SSH control channel."""
         session = payload.get("session", "unknown")
@@ -623,6 +1037,15 @@ class Agentboxd:
                 self.container_state[container]["worktrees"] = payload["worktrees"]
                 logger.debug(f"SSH state update: {container} worktrees={payload['worktrees']}")
 
+        # Store session metadata separately with timestamp
+        if "sessions" in payload:
+            with self.session_metadata_lock:
+                self.session_metadata[container] = {
+                    "sessions": payload["sessions"],
+                    "updated_at": time.time(),
+                }
+                logger.debug(f"SSH state update: {container} sessions={len(payload['sessions'])}")
+
     def _ssh_handle_forward_removed(self, container: str, payload: dict) -> None:
         """Handle forward_removed event - update server-side tracking."""
         direction = payload.get("direction")
@@ -646,6 +1069,108 @@ class Agentboxd:
                     f for f in conn.remote_forwards if f.get("host_port") != host_port
                 ]
                 logger.debug(f"Removed remote forward tracking: {container}:{host_port}")
+
+    def _ssh_handle_local_forwards_registered(self, container: str, payload: dict) -> None:
+        """Handle local_forwards_registered event - track local forwards for display.
+
+        Local forwards are set up on the client side, so the server doesn't know
+        about them unless the client explicitly tells us. This is for display only.
+        """
+        forwards = payload.get("forwards", [])
+        if not forwards:
+            return
+
+        with self.ssh_tunnel_server.connections_lock:
+            conn = self.ssh_tunnel_server.connections.get(container)
+            if not conn:
+                return
+
+            # Replace local forwards with the registered ones
+            conn.local_forwards = forwards
+            logger.debug(f"Registered {len(forwards)} local forwards for {container}")
+
+    def _ssh_handle_session_resumed(self, container: str, payload: dict) -> None:
+        """Handle session_resumed event - dismiss active notifications."""
+        # Check config
+        auto_dismiss = self.config.get("notifications.auto_dismiss", default=True)
+        if not auto_dismiss:
+            return
+
+        session = payload.get("session", "")
+        key = (container, session)
+
+        # Thread-safe pop
+        with self.active_notifications_lock:
+            notification_data = self.active_notifications.pop(key, None)
+
+        if not notification_data:
+            logger.debug(f"No active notification for {container}/{session}")
+            return
+
+        logger.debug(f"Dismissing notifications for {container}/{session}")
+
+        # Dismiss desktop notification via gdbus
+        desktop_id = notification_data.get("desktop_id")
+        if desktop_id:
+            self._dismiss_desktop_notification(desktop_id)
+
+        # Delete Telegram message
+        telegram_data = notification_data.get("telegram")
+        if telegram_data:
+            self._dismiss_telegram_notification(
+                telegram_data.get("chat_id"),
+                telegram_data.get("message_id")
+            )
+
+    def _dismiss_desktop_notification(self, notification_id: int) -> bool:
+        """Dismiss a desktop notification via gdbus."""
+        try:
+            result = subprocess.run([
+                "gdbus", "call", "--session",
+                "--dest", "org.freedesktop.Notifications",
+                "--object-path", "/org/freedesktop/Notifications",
+                "--method", "org.freedesktop.Notifications.CloseNotification",
+                str(notification_id)
+            ], check=False, capture_output=True, timeout=5)
+            if result.returncode == 0:
+                logger.debug(f"Dismissed desktop notification {notification_id}")
+            return result.returncode == 0
+        except subprocess.TimeoutExpired:
+            logger.debug(f"Timeout dismissing notification {notification_id}")
+            return False
+        except FileNotFoundError:
+            logger.debug("gdbus not found - cannot dismiss desktop notification")
+            return False
+        except Exception as e:
+            logger.debug(f"Failed to dismiss notification {notification_id}: {e}")
+            return False
+
+    def _dismiss_telegram_notification(self, chat_id: Optional[str], message_id: Optional[int]) -> bool:
+        """Delete a Telegram message."""
+        if not chat_id or not message_id:
+            return False
+
+        telegram_config = self.config.get("notifications.telegram", default=None)
+        if not telegram_config:
+            return False
+
+        bot_token = telegram_config.get("bot_token")
+        if not bot_token:
+            return False
+
+        try:
+            import requests
+            url = f"https://api.telegram.org/bot{bot_token}/deleteMessage"
+            resp = requests.post(url, json={
+                "chat_id": chat_id,
+                "message_id": message_id,
+            }, timeout=5)
+            if resp.status_code == 200:
+                logger.debug(f"Deleted Telegram message {message_id}")
+            return resp.status_code == 200
+        except Exception as e:
+            logger.debug(f"Failed to delete Telegram message: {e}")
+            return False
 
     def _ssh_on_container_connect(self, container: str) -> None:
         """Handle container connect event."""
@@ -676,6 +1201,18 @@ class Agentboxd:
         # Clean up container state
         with self.container_state_lock:
             self.container_state.pop(container, None)
+
+        # Clean up session metadata
+        with self.session_metadata_lock:
+            self.session_metadata.pop(container, None)
+
+        # Clean up active notifications for this container (prevent memory leak)
+        with self.active_notifications_lock:
+            keys_to_remove = [k for k in self.active_notifications if k[0] == container]
+            for key in keys_to_remove:
+                self.active_notifications.pop(key, None)
+            if keys_to_remove:
+                logger.debug(f"Cleaned up {len(keys_to_remove)} notifications for {container}")
 
     def _check_tailscale_ip(self) -> bool:
         """Check if Tailscale IP has changed.
@@ -1113,6 +1650,95 @@ def get_connected_containers() -> list:
 
     with _instance.ssh_tunnel_server.connections_lock:
         return list(_instance.ssh_tunnel_server.connections.keys())
+
+
+def get_session_metadata(container: str = None, max_age: float = 30.0) -> Optional[Dict[str, List[Dict]]]:
+    """Get cached session metadata from containers.
+
+    Args:
+        container: Optional container name to filter by. If None, returns all.
+        max_age: Maximum age in seconds for data to be considered fresh.
+                 Returns None for stale data (older than max_age).
+
+    Returns:
+        Dict mapping container names to lists of session metadata dicts.
+        Each session dict has: name, windows, attached, agent_type, identifier.
+        Returns None if daemon not running or data is stale.
+    """
+    if not _instance:
+        return None
+
+    now = time.time()
+    result = {}
+
+    with _instance.session_metadata_lock:
+        if container:
+            meta = _instance.session_metadata.get(container)
+            if meta:
+                if now - meta.get("updated_at", 0) <= max_age:
+                    result[container] = meta.get("sessions", [])
+                # Stale data - return None for this container
+        else:
+            for cont, meta in _instance.session_metadata.items():
+                if now - meta.get("updated_at", 0) <= max_age:
+                    result[cont] = meta.get("sessions", [])
+                # Skip stale containers
+
+    return result if result else None
+
+
+def get_usage_status() -> Optional[Dict[str, Any]]:
+    """Get rate limit status of all agents.
+
+    Returns:
+        Dict with agent statuses, or None if daemon not running.
+        Each agent entry has: available, limited, resets_at, resets_in_seconds, error_type.
+    """
+    from datetime import datetime, timezone
+
+    if not _instance:
+        return None
+
+    now = datetime.now(timezone.utc)
+    result = {}
+
+    agents = [
+        "superclaude", "supercodex", "supergemini", "superqwen",
+        "claude", "codex", "gemini", "qwen",
+    ]
+
+    with _instance.rate_limit_lock:
+        state_copy = dict(_instance.rate_limit_state)
+
+    for agent in agents:
+        agent_state = state_copy.get(agent, {})
+        limited = agent_state.get("limited", False)
+        resets_at_str = agent_state.get("resets_at")
+
+        # Check if limit has reset
+        available = True
+        resets_in_seconds = None
+
+        if limited and resets_at_str:
+            try:
+                resets_at = datetime.fromisoformat(resets_at_str)
+                if resets_at.tzinfo is None:
+                    resets_at = resets_at.replace(tzinfo=timezone.utc)
+                if resets_at > now:
+                    available = False
+                    resets_in_seconds = int((resets_at - now).total_seconds())
+            except (ValueError, TypeError):
+                available = not limited
+
+        result[agent] = {
+            "available": available,
+            "limited": limited and not available,
+            "resets_at": resets_at_str if not available else None,
+            "resets_in_seconds": resets_in_seconds,
+            "error_type": agent_state.get("error_type"),
+        }
+
+    return result
 
 
 def run_agentboxd(socket_path: Optional[str] = None) -> None:

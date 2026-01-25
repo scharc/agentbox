@@ -43,3 +43,12 @@ library/skills/ios-simulator-skill/
 library/skills/claude-d3js-skill/
 library/skills/web-asset-generator/
 .agentbox.yml
+
+# Agentbox state (session data, not for version control)
+.agentbox/claude/projects/
+.agentbox/claude/file-history/
+.agentbox/claude/todos/
+.agentbox/claude/debug/
+.agentbox/claude/statsig/
+.agentbox/codex/sessions/
+.agentbox/backup-pre-migration/

@@ -68,31 +68,19 @@ class TestSkillAdd:
             f"Expected success message: {result.stdout}"
         )
 
-        # Verify skill directories exist in both Claude and Codex
+        # Verify skill directory exists (skills are now project-level, shared by all agents)
         result = exec_in_container(
             container_name,
-            "test -d /workspace/.agentbox/claude/skills/test-skill"
+            "test -d /workspace/.agentbox/skills/test-skill"
         )
-        assert result.returncode == 0, "Skill should exist in Claude skills directory"
+        assert result.returncode == 0, "Skill should exist in skills directory"
 
+        # Verify SKILL.md exists
         result = exec_in_container(
             container_name,
-            "test -d /workspace/.agentbox/codex/skills/test-skill"
+            "test -f /workspace/.agentbox/skills/test-skill/SKILL.md"
         )
-        assert result.returncode == 0, "Skill should exist in Codex skills directory"
-
-        # Verify SKILL.md exists in both locations
-        result = exec_in_container(
-            container_name,
-            "test -f /workspace/.agentbox/claude/skills/test-skill/SKILL.md"
-        )
-        assert result.returncode == 0, "SKILL.md should exist in Claude skills"
-
-        result = exec_in_container(
-            container_name,
-            "test -f /workspace/.agentbox/codex/skills/test-skill/SKILL.md"
-        )
-        assert result.returncode == 0, "SKILL.md should exist in Codex skills"
+        assert result.returncode == 0, "SKILL.md should exist in skill directory"
 
         # Cleanup
         run_abox("skill", "remove", "test-skill", cwd=test_project)
@@ -154,7 +142,7 @@ class TestSkillRemove:
         # Verify skill exists
         result = exec_in_container(
             container_name,
-            "test -d /workspace/.agentbox/claude/skills/remove-test"
+            "test -d /workspace/.agentbox/skills/remove-test"
         )
         assert result.returncode == 0, "Skill should exist before removal"
 
@@ -166,18 +154,12 @@ class TestSkillRemove:
             f"Expected success message: {result.stdout}"
         )
 
-        # Verify skill is gone from both locations
+        # Verify skill is gone
         result = exec_in_container(
             container_name,
-            "test -d /workspace/.agentbox/claude/skills/remove-test"
+            "test -d /workspace/.agentbox/skills/remove-test"
         )
-        assert result.returncode != 0, "Skill should be removed from Claude skills"
-
-        result = exec_in_container(
-            container_name,
-            "test -d /workspace/.agentbox/codex/skills/remove-test"
-        )
-        assert result.returncode != 0, "Skill should be removed from Codex skills"
+        assert result.returncode != 0, "Skill should be removed from skills directory"
 
     def test_remove_nonexistent_skill(self, test_project):
         """Test removing non-existent skill shows warning."""
@@ -218,17 +200,17 @@ class TestSkillIntegration:
         assert result.returncode == 0
         assert "Added" in result.stdout or "added" in result.stdout.lower()
 
-        # 3. Verify files are in both locations
+        # 3. Verify skill files exist
         result = exec_in_container(
             container_name,
-            f"cat /workspace/.agentbox/claude/skills/{skill_name}/SKILL.md"
+            f"cat /workspace/.agentbox/skills/{skill_name}/SKILL.md"
         )
         assert result.returncode == 0
         assert "Lifecycle Skill" in result.stdout
 
         result = exec_in_container(
             container_name,
-            f"cat /workspace/.agentbox/codex/skills/{skill_name}/config.json"
+            f"cat /workspace/.agentbox/skills/{skill_name}/config.json"
         )
         assert result.returncode == 0
         assert "Test content" in result.stdout
@@ -241,7 +223,7 @@ class TestSkillIntegration:
         # 5. Verify removal
         result = exec_in_container(
             container_name,
-            f"test -d /workspace/.agentbox/claude/skills/{skill_name}"
+            f"test -d /workspace/.agentbox/skills/{skill_name}"
         )
         assert result.returncode != 0, "Skill should be removed"
 
@@ -268,7 +250,7 @@ class TestSkillIntegration:
         for skill in skills:
             result = exec_in_container(
                 container_name,
-                f"test -f /workspace/.agentbox/claude/skills/{skill}/SKILL.md"
+                f"test -f /workspace/.agentbox/skills/{skill}/SKILL.md"
             )
             assert result.returncode == 0, f"{skill} should exist in Claude skills"
 
@@ -281,7 +263,7 @@ class TestSkillIntegration:
         for skill in skills:
             result = exec_in_container(
                 container_name,
-                f"test -d /workspace/.agentbox/claude/skills/{skill}"
+                f"test -d /workspace/.agentbox/skills/{skill}"
             )
             assert result.returncode != 0, f"{skill} should be removed"
 
@@ -303,7 +285,7 @@ class TestSkillIntegration:
         # Verify skill exists
         result = exec_in_container(
             container_name,
-            f"test -f /workspace/.agentbox/claude/skills/{skill_name}/SKILL.md"
+            f"test -f /workspace/.agentbox/skills/{skill_name}/SKILL.md"
         )
         assert result.returncode == 0
 
@@ -317,13 +299,13 @@ class TestSkillIntegration:
         # Verify skill still exists after rebuild
         result = exec_in_container(
             container_name,
-            f"test -f /workspace/.agentbox/claude/skills/{skill_name}/SKILL.md"
+            f"test -f /workspace/.agentbox/skills/{skill_name}/SKILL.md"
         )
         assert result.returncode == 0, "Skill should persist after rebuild"
 
         result = exec_in_container(
             container_name,
-            f"cat /workspace/.agentbox/claude/skills/{skill_name}/SKILL.md"
+            f"cat /workspace/.agentbox/skills/{skill_name}/SKILL.md"
         )
         assert result.returncode == 0
         assert "Persist Test" in result.stdout, "Skill content should be preserved"

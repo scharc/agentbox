@@ -47,12 +47,16 @@ def wait_for_port(port: int, host: str = "127.0.0.1", timeout: int = 10) -> bool
 
 def is_agentboxd_running() -> bool:
     """Check if agentboxd is running."""
-    result = subprocess.run(
-        ["systemctl", "--user", "is-active", "agentboxd"],
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "is-active", "agentboxd"],
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0
+    except FileNotFoundError:
+        # systemctl not available (e.g., running in container)
+        return False
 
 
 @pytest.mark.integration

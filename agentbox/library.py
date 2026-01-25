@@ -9,12 +9,122 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
+
 import yaml
 from rich.console import Console
 from rich.table import Table
 from rich.syntax import Syntax
 
+from agentbox.paths import ContainerPaths, HostPaths
+
 console = Console()
+
+
+def auto_detect_mcp_config(mcp_path: Path) -> Optional[Dict[str, Any]]:
+    """Auto-detect MCP configuration from a Python package.
+
+    Examines pyproject.toml to extract:
+    - Entry point command from [project.scripts]
+    - Dependencies from [project.dependencies]
+    - Name and description from [project]
+
+    Args:
+        mcp_path: Path to MCP directory
+
+    Returns:
+        Generated config dict, or None if detection fails
+    """
+    pyproject_path = mcp_path / "pyproject.toml"
+    if not pyproject_path.exists():
+        return None
+
+    try:
+        content = pyproject_path.read_text()
+        data = tomllib.loads(content)
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+
+    project = data.get("project", {})
+    name = project.get("name", mcp_path.name)
+    description = project.get("description", f"MCP server: {name}")
+
+    # Find entry point from [project.scripts]
+    scripts = project.get("scripts", {})
+    command = None
+    command_name = None
+
+    if scripts:
+        # Use first script as the command
+        command_name, entry_point = next(iter(scripts.items()))
+        command = command_name
+
+    # Get dependencies
+    dependencies = project.get("dependencies", [])
+    # Filter out version specifiers for cleaner install
+    pip_deps = []
+    for dep in dependencies:
+        # Extract package name (before any version specifier)
+        pkg_name = re.split(r'[<>=!~\[]', dep)[0].strip()
+        if pkg_name:
+            pip_deps.append(pkg_name)
+
+    # Determine how to run the server
+    # Container path for user MCP directory
+    container_mcp_path = f"{ContainerPaths.user_mcp_dir()}/{mcp_path.name}"
+
+    if command:
+        # Has entry point script - install package and use command
+        config = {
+            "name": name,
+            "description": description,
+            "config": {
+                "command": command,
+                "env": {}
+            },
+            "install": {
+                "pip": [f"-e {container_mcp_path}"]
+            },
+            "auto_detected": True
+        }
+    else:
+        # No entry point - try to find server module
+        src_dir = mcp_path / "src"
+        if src_dir.exists():
+            # Look for a server.py or __main__.py
+            for pkg_dir in src_dir.iterdir():
+                if pkg_dir.is_dir() and not pkg_dir.name.startswith((".", "_")):
+                    module_name = pkg_dir.name
+                    config = {
+                        "name": name,
+                        "description": description,
+                        "config": {
+                            "command": "python3",
+                            "args": ["-m", f"{module_name}.server"],
+                            "env": {
+                                "PYTHONPATH": f"{container_mcp_path}/src"
+                            }
+                        },
+                        "install": {
+                            "pip": pip_deps if pip_deps else []
+                        },
+                        "auto_detected": True
+                    }
+                    break
+            else:
+                return None
+        else:
+            return None
+
+    # Check for .env file and note it
+    env_path = mcp_path / ".env"
+    if env_path.exists():
+        config["has_env_file"] = True
+
+    return config
 
 
 def parse_yaml_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
@@ -57,7 +167,7 @@ class LibraryManager:
         """
         if library_root is None:
             # First check container standard path
-            container_library = Path("/agentbox/library")
+            container_library = Path(ContainerPaths.LIBRARY)
             if container_library.exists():
                 library_root = container_library
             else:
@@ -75,12 +185,12 @@ class LibraryManager:
     @property
     def user_mcp_dir(self) -> Path:
         """User's custom MCP directory (~/.config/agentbox/mcp/)."""
-        return Path.home() / ".config" / "agentbox" / "mcp"
+        return HostPaths.user_mcp_dir()
 
     @property
     def user_skills_dir(self) -> Path:
         """User's custom skills directory (~/.config/agentbox/skills/)."""
-        return Path.home() / ".config" / "agentbox" / "skills"
+        return HostPaths.user_skills_dir()
 
     def get_mcp_path(self, name: str) -> Optional[Path]:
         """Get path to MCP directory, checking custom first then library.

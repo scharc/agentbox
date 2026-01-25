@@ -1,59 +1,15 @@
 # Copyright (c) 2025 Marc Schütze <scharc@gmail.com>
 # SPDX-License-Identifier: MIT
 
-"""Integration tests for notification client."""
+"""Integration tests for notification client via SSH tunnel."""
 
 import json
-import socket
-import tempfile
-import threading
 import time
-from pathlib import Path
 
 import pytest
 
 from helpers.cli import run_abox
 from helpers.docker import exec_in_container
-
-
-def create_mock_socket_server(socket_path: Path, response: dict, delay: float = 0):
-    """Create a mock Unix socket server for testing.
-
-    Args:
-        socket_path: Path to Unix socket
-        response: Response dict to send back
-        delay: Delay before responding (seconds)
-    """
-    def server_thread():
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        try:
-            socket_path.unlink(missing_ok=True)
-            sock.bind(str(socket_path))
-            sock.listen(1)
-            sock.settimeout(5.0)
-
-            conn, _ = sock.accept()
-            # Read request
-            data = conn.recv(4096)
-
-            # Delay if requested
-            if delay > 0:
-                time.sleep(delay)
-
-            # Send response
-            response_json = json.dumps(response) + "\n"
-            conn.sendall(response_json.encode("utf-8"))
-            conn.close()
-        except Exception:
-            pass
-        finally:
-            sock.close()
-            socket_path.unlink(missing_ok=True)
-
-    thread = threading.Thread(target=server_thread, daemon=True)
-    thread.start()
-    time.sleep(0.2)  # Let server start
-    return thread
 
 
 @pytest.mark.integration
@@ -76,7 +32,7 @@ class TestNotificationClient:
         """Test basic notification with title and message."""
         container_name = f"agentbox-{test_project.name}"
 
-        # Note: This will fail if proxy is not running, which is expected in DinD
+        # Note: This will fail if SSH tunnel is not running, which is expected in DinD
         # We're testing that the script exists and accepts correct arguments
         result = exec_in_container(
             container_name,
@@ -117,16 +73,16 @@ class TestNotificationPayload:
         assert result.returncode == 0
         assert "OK" in result.stdout
 
-    def test_send_notification_without_socket(self, running_container, test_project):
-        """Test send_notification returns False when socket doesn't exist."""
+    def test_send_notification_without_ssh_socket(self, running_container, test_project):
+        """Test send_notification returns False when SSH socket doesn't exist."""
         container_name = f"agentbox-{test_project.name}"
 
-        # Try to send notification with non-existent socket
+        # Try to send notification - will fail without SSH tunnel
         result = exec_in_container(
             container_name,
             "python3 -c '"
             "from agentbox.notifications import send_notification; "
-            "result = send_notification(\"Title\", \"Message\", socket_path=\"/tmp/nonexistent.sock\"); "
+            "result = send_notification(\"Title\", \"Message\"); "
             "print(\"RESULT:\", result)"
             "'"
         )
@@ -134,24 +90,23 @@ class TestNotificationPayload:
         assert result.returncode == 0
         assert "RESULT: False" in result.stdout
 
-    def test_notification_payload_structure(self, running_container, test_project):
-        """Test that notification creates correct payload structure."""
+    def test_notification_with_enhancement_metadata(self, running_container, test_project):
+        """Test notification with enhancement metadata doesn't crash."""
         container_name = f"agentbox-{test_project.name}"
 
-        # Create a script that builds the payload without sending
         script = """
-import json
 from agentbox.notifications import send_notification
 
-# Build payload (same logic as in send_notification)
-payload_dict = {
-    "action": "notify",
-    "title": "Test Title",
-    "message": "Test Message",
-    "urgency": "normal",
-}
-
-print(json.dumps(payload_dict))
+result = send_notification(
+    title="Enhanced",
+    message="Message",
+    urgency="normal",
+    container="test-container",
+    session="test-session",
+    buffer="buffer content",
+    enhance=True
+)
+print(f"RESULT:{result}")
 """
 
         result = exec_in_container(
@@ -160,70 +115,31 @@ print(json.dumps(payload_dict))
         )
 
         assert result.returncode == 0
-        data = json.loads(result.stdout)
-        assert data["action"] == "notify"
-        assert data["title"] == "Test Title"
-        assert data["message"] == "Test Message"
-        assert data["urgency"] == "normal"
-
-    def test_notification_with_enhancement_metadata(self, running_container, test_project):
-        """Test notification payload with enhancement metadata."""
-        container_name = f"agentbox-{test_project.name}"
-
-        script = """
-import json
-
-# Build enhanced payload
-payload_dict = {
-    "action": "notify",
-    "title": "Enhanced",
-    "message": "Message",
-    "urgency": "normal",
-    "enhance": True,
-    "metadata": {
-        "container": "test-container",
-        "session": "test-session",
-        "buffer": "buffer content"
-    }
-}
-
-print(json.dumps(payload_dict))
-"""
-
-        result = exec_in_container(
-            container_name,
-            f"python3 -c '{script}'"
-        )
-
-        assert result.returncode == 0
-        data = json.loads(result.stdout)
-        assert data["enhance"] is True
-        assert "metadata" in data
-        assert data["metadata"]["container"] == "test-container"
-        assert data["metadata"]["session"] == "test-session"
+        # Will be False without SSH tunnel, but should not crash
+        assert "RESULT:" in result.stdout
 
 
 @pytest.mark.integration
 class TestNotificationErrorHandling:
     """Test notification error handling."""
 
-    def test_notification_with_missing_socket_path(self, running_container, test_project):
-        """Test notification fails gracefully with missing socket."""
+    def test_notification_returns_false_without_tunnel(self, running_container, test_project):
+        """Test notification fails gracefully without SSH tunnel."""
         container_name = f"agentbox-{test_project.name}"
 
         result = exec_in_container(
             container_name,
             "python3 -c '"
             "from agentbox.notifications import send_notification; "
-            "result = send_notification(\"Title\", \"Message\", socket_path=\"/tmp/missing.sock\"); "
+            "result = send_notification(\"Title\", \"Message\"); "
             "exit(0 if result is False else 1)"
             "'"
         )
 
-        assert result.returncode == 0, "Should return False for missing socket"
+        assert result.returncode == 0, "Should return False without SSH tunnel"
 
     def test_notification_with_invalid_urgency(self, running_container, test_project):
-        """Test notification with invalid urgency level."""
+        """Test notification with invalid urgency level doesn't crash."""
         container_name = f"agentbox-{test_project.name}"
 
         # Python will accept any string for urgency, but test it doesn't crash
@@ -231,7 +147,7 @@ class TestNotificationErrorHandling:
             container_name,
             "python3 -c '"
             "from agentbox.notifications import send_notification; "
-            "result = send_notification(\"Title\", \"Message\", urgency=\"invalid\", socket_path=\"/tmp/x.sock\"); "
+            "result = send_notification(\"Title\", \"Message\", urgency=\"invalid\"); "
             "print(\"OK\")"
             "'"
         )
@@ -240,14 +156,14 @@ class TestNotificationErrorHandling:
         assert "OK" in result.stdout
 
     def test_notification_with_empty_title(self, running_container, test_project):
-        """Test notification with empty title."""
+        """Test notification with empty title doesn't crash."""
         container_name = f"agentbox-{test_project.name}"
 
         result = exec_in_container(
             container_name,
             "python3 -c '"
             "from agentbox.notifications import send_notification; "
-            "result = send_notification(\"\", \"Message\", socket_path=\"/tmp/x.sock\"); "
+            "result = send_notification(\"\", \"Message\"); "
             "print(\"OK\")"
             "'"
         )
@@ -257,7 +173,7 @@ class TestNotificationErrorHandling:
         assert "OK" in result.stdout
 
     def test_notification_with_long_message(self, running_container, test_project):
-        """Test notification with very long message."""
+        """Test notification with very long message doesn't crash."""
         container_name = f"agentbox-{test_project.name}"
 
         # Create a long message
@@ -267,7 +183,7 @@ class TestNotificationErrorHandling:
             container_name,
             f"python3 -c '"
             "from agentbox.notifications import send_notification; "
-            f"result = send_notification(\"Title\", \"{long_message}\", socket_path=\"/tmp/x.sock\"); "
+            f"result = send_notification(\"Title\", \"{long_message}\"); "
             "print(\"OK\")"
             "'"
         )
@@ -278,47 +194,44 @@ class TestNotificationErrorHandling:
 
 
 @pytest.mark.integration
-class TestNotificationSocketCommunication:
-    """Test notification socket communication patterns."""
+class TestSshSocketPath:
+    """Test SSH socket path resolution."""
 
-    def test_socket_path_resolution(self, running_container, test_project):
-        """Test that socket path is resolved correctly."""
+    def test_ssh_socket_path_function_exists(self, running_container, test_project):
+        """Test that _get_ssh_socket_path function exists."""
         container_name = f"agentbox-{test_project.name}"
 
-        # Get default socket path
         result = exec_in_container(
             container_name,
             "python3 -c '"
-            "from agentbox.host_config import get_config; "
-            "config = get_config(); "
-            "print(config.socket_path)"
+            "from agentbox.notifications import _get_ssh_socket_path; "
+            "result = _get_ssh_socket_path(); "
+            "print(f\"RESULT:{result}\")"
             "'"
         )
 
         assert result.returncode == 0
-        # Should contain agentbox and .sock
-        assert "agentbox" in result.stdout
-        assert ".sock" in result.stdout
+        assert "RESULT:" in result.stdout
 
-    def test_custom_socket_path_used(self, running_container, test_project):
-        """Test that custom socket path is used when provided."""
+    def test_ssh_socket_env_var_check(self, running_container, test_project):
+        """Test that AGENTBOX_SSH_SOCKET env var is respected."""
         container_name = f"agentbox-{test_project.name}"
 
-        # The function should use the provided path
         result = exec_in_container(
             container_name,
-            "python3 -c '"
-            "from agentbox.notifications import send_notification; "
+            "AGENTBOX_SSH_SOCKET=/tmp/test.sock python3 -c '"
+            "import os; "
+            "from agentbox.notifications import _get_ssh_socket_path; "
+            "# Create the file so it passes exists check; "
             "from pathlib import Path; "
-            "custom_path = \"/tmp/custom.sock\"; "
-            "result = send_notification(\"T\", \"M\", socket_path=custom_path); "
-            "print(\"USED_CUSTOM\" if not Path(custom_path).exists() else \"EXISTS\")"
+            "Path(\"/tmp/test.sock\").touch(); "
+            "result = _get_ssh_socket_path(); "
+            "print(f\"RESULT:{result}\")"
             "'"
         )
 
         assert result.returncode == 0
-        # Socket doesn't exist so it should fail but use the custom path
-        assert "USED_CUSTOM" in result.stdout or "EXISTS" in result.stdout
+        assert "/tmp/test.sock" in result.stdout
 
 
 @pytest.mark.integration
@@ -346,23 +259,6 @@ class TestNotificationConfigIntegration:
         assert "NORMAL:" in result.stdout
         assert "ENHANCED:" in result.stdout
 
-    def test_socket_path_from_config(self, running_container, test_project):
-        """Test that socket path comes from config when not specified."""
-        container_name = f"agentbox-{test_project.name}"
-
-        result = exec_in_container(
-            container_name,
-            "python3 -c '"
-            "from agentbox.host_config import get_config; "
-            "config = get_config(); "
-            "sock_path = config.socket_path; "
-            "print(f\"PATH:{sock_path}\")"
-            "'"
-        )
-
-        assert result.returncode == 0
-        assert "PATH:" in result.stdout
-
 
 @pytest.mark.integration
 class TestNotificationIntegration:
@@ -378,7 +274,7 @@ class TestNotificationIntegration:
             "abox-notify 'Integration Test' 'This is a test message' normal 2>&1 || echo 'CALLED'"
         )
 
-        # Script should be called (may fail due to no socket, but that's OK)
+        # Script should be called (may fail due to no SSH tunnel, but that's OK)
         assert "CALLED" in result.stdout or result.returncode == 0
 
     def test_notification_from_python_api(self, running_container, test_project):
@@ -388,7 +284,7 @@ class TestNotificationIntegration:
         script = """
 from agentbox.notifications import send_notification
 
-# This will fail without proxy, but tests the API
+# This will fail without SSH tunnel, but tests the API
 try:
     result = send_notification(
         title="API Test",

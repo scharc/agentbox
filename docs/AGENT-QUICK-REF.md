@@ -96,12 +96,12 @@ When adding features to agentbox or agentctl:
 # ✅ CORRECT - positional arguments
 agentbox workspace add /path/to/dir ro mydir
 agentbox mcp add agentbox-analyst
-agentctl wt add feature-branch
+agentctl worktree add feature-branch
 
 # ❌ WRONG - do not use flags
 agentbox workspace add /path/to/dir --mode ro --name mydir
 agentbox mcp add agentbox-analyst force
-agentctl wt add feature-branch create
+agentctl worktree add feature-branch create
 ```
 
 **Rule:** All agentbox/agentctl commands use positional arguments in the correct order. No flags, no options. Follow existing command patterns.
@@ -129,7 +129,7 @@ pyproject.toml            # Poetry dependencies (DO NOT use pip)
 ```
 .agentbox/agents.md        # Agent instructions
 .agentbox/superagents.md   # Super agent instructions
-.agentbox/config.json      # Project config
+.agentbox/config.yml       # Project config
 ```
 
 ### Python Dependencies (Poetry Project)

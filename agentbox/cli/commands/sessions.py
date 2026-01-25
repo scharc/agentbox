@@ -11,6 +11,7 @@ from rich.table import Table
 
 from agentbox.cli import cli
 from agentbox.container import get_abox_environment
+from agentbox.paths import ContainerPaths
 from agentbox.utils.terminal import reset_terminal
 from agentbox.utils.project import resolve_project_dir
 from agentbox.cli.helpers import (
@@ -26,45 +27,19 @@ from agentbox.cli.helpers import (
     _require_container_running,
     _sanitize_tmux_name,
     _session_exists,
+    get_sessions_from_daemon,
     console,
     handle_errors,
+    require_initialized,
 )
 
 
-@cli.group()
-def session():
-    """Manage tmux sessions in containers."""
-    pass
+# Supported agent types for sessions
+AGENT_TYPES = ["claude", "superclaude", "codex", "supercodex", "gemini", "supergemini", "shell"]
 
 
-@session.command(name="new")
-@click.argument("agent_type", type=click.Choice([
-    "claude", "superclaude", "codex", "supercodex", "gemini", "supergemini", "shell"
-]))
-@click.argument("name", required=False)
-@handle_errors
-def session_new(agent_type: str, name: Optional[str]):
-    """Create a new agent session with custom name or auto-numbered.
-
-    Creates a new tmux session for the specified agent type.
-
-    Examples:
-        abox session new superclaude              # Creates superclaude-1
-        abox session new superclaude "feature 1"  # Creates superclaude-feature-1
-        abox session new codex mcp-receiver       # Creates codex-mcp-receiver
-    """
-    # Check if current directory is initialized
-    from agentbox.config import ProjectConfig
-
-    project_dir = resolve_project_dir()
-    config = ProjectConfig(project_dir)
-
-    if not config.exists():
-        raise click.ClickException(
-            f"Current directory is not initialized: {project_dir}. Run: agentbox init"
-        )
-
-    # Import agent-specific functions
+def _run_session_agent(session_name: str, agent_type: str):
+    """Create and attach to a new agent session."""
     from agentbox.cli.commands.agents import (
         _read_agent_instructions,
         _read_super_prompt,
@@ -72,20 +47,23 @@ def session_new(agent_type: str, name: Optional[str]):
     )
     from agentbox.cli.helpers import _run_agent_command
 
+    # Check project is initialized (raises NotInitializedError if not)
+    require_initialized()
+
     pctx = _get_project_context()
 
-    # Ensure container is running (will create if needed)
-    if not _ensure_container_running(pctx.manager, pctx.container_name):
-        raise click.ClickException(f"Failed to start container {pctx.container_name}")
+    # Ensure container is running (raises ContainerError on failure)
+    _ensure_container_running(pctx.manager, pctx.container_name)
 
-    # Generate session name
-    session_name = _generate_session_name(pctx.manager, pctx.container_name, agent_type, name)
+    # Sanitize session name
+    full_session_name = f"{agent_type}-{_sanitize_tmux_name(session_name)}"
 
     # Check if session already exists
-    if _session_exists(pctx.manager, pctx.container_name, session_name):
-        raise click.ClickException(
-            f"Session '{session_name}' already exists. Attach with: abox session attach {session_name}"
-        )
+    if _session_exists(pctx.manager, pctx.container_name, full_session_name):
+        # Attach to existing session
+        console.print(f"[yellow]Session '{full_session_name}' exists, attaching...[/yellow]")
+        _attach_tmux_session(pctx.manager, pctx.container_name, full_session_name)
+        return
 
     # Prepare agent-specific settings
     command = None
@@ -95,11 +73,11 @@ def session_new(agent_type: str, name: Optional[str]):
 
     if agent_type == "claude":
         command = "claude"
-        label = f"Claude Code ({session_name})"
+        label = f"Claude Code ({full_session_name})"
         instructions = _read_agent_instructions()
         extra_args = [
-            "--settings", "/home/abox/.claude/config.json",
-            "--mcp-config", "/workspace/.agentbox/claude/mcp.json",
+            "--settings", ContainerPaths.claude_settings(),
+            "--mcp-config", ContainerPaths.mcp_config(),
             "--append-system-prompt", instructions,
         ]
         if _has_vscode():
@@ -107,11 +85,11 @@ def session_new(agent_type: str, name: Optional[str]):
 
     elif agent_type == "superclaude":
         command = "claude"
-        label = f"Claude Code (auto-approve, {session_name})"
+        label = f"Claude Code (auto-approve, {full_session_name})"
         prompt = _read_super_prompt()
         extra_args = [
-            "--settings", "/home/abox/.claude/config-super.json",
-            "--mcp-config", "/workspace/.agentbox/claude/mcp.json",
+            "--settings", ContainerPaths.claude_super_settings(),
+            "--mcp-config", ContainerPaths.mcp_config(),
             "--dangerously-skip-permissions",
             "--append-system-prompt", prompt,
         ]
@@ -121,41 +99,67 @@ def session_new(agent_type: str, name: Optional[str]):
 
     elif agent_type == "codex":
         command = "codex"
-        label = f"Codex ({session_name})"
+        label = f"Codex ({full_session_name})"
 
     elif agent_type == "supercodex":
         command = "codex"
-        label = f"Codex (auto-approve, {session_name})"
+        label = f"Codex (auto-approve, {full_session_name})"
         extra_args = ["--dangerously-bypass-approvals-and-sandbox"]
         persist_session = False
 
     elif agent_type == "gemini":
         command = "gemini"
-        label = f"Gemini ({session_name})"
+        label = f"Gemini ({full_session_name})"
 
     elif agent_type == "supergemini":
         command = "gemini"
-        label = f"Gemini (auto-approve, {session_name})"
+        label = f"Gemini (auto-approve, {full_session_name})"
         extra_args = ["--non-interactive"]
         persist_session = False
 
     elif agent_type == "shell":
         command = "/bin/bash"
-        label = f"Shell ({session_name})"
+        label = f"Shell ({full_session_name})"
 
-    # Create and attach to new session
-    console.print(f"[green]Creating session: {session_name}[/green]")
+    console.print(f"[green]Creating session: {full_session_name}[/green]")
     _run_agent_command(
         pctx.manager,
-        None,  # Uses current project (auto-detected)
-        tuple(),  # No additional args
+        None,
+        tuple(),
         command,
         extra_args=extra_args,
         label=label,
-        reuse_tmux_session=False,  # Force new session
+        reuse_tmux_session=False,
         persist_session=persist_session,
-        custom_session_name=session_name,
+        custom_session_name=full_session_name,
     )
+
+
+@cli.group(name="session")
+def session_group():
+    """Manage tmux sessions in containers.
+
+    \b
+    Usage:
+        abox session add [NAME]      # Create shell session
+        abox session new AGENT [NAME] # Create agent session
+        abox session list [all]      # List sessions
+        abox session attach SESSION  # Attach to existing session
+        abox session remove SESSION  # Remove session
+        abox session rename OLD NEW  # Rename session
+
+    \b
+    Agent types: claude, superclaude, codex, supercodex, gemini, supergemini
+
+    \b
+    Examples:
+        abox session add                      # Create shell-1
+        abox session add my-shell             # Create shell-my-shell
+        abox session new superclaude          # Create superclaude-1
+        abox session new superclaude feature  # Create superclaude-feature
+        abox session list                     # List all sessions
+    """
+    pass
 
 
 def _complete_list_scope(ctx, param, incomplete):
@@ -163,11 +167,11 @@ def _complete_list_scope(ctx, param, incomplete):
     return [c for c in ["all"] if c.startswith(incomplete)]
 
 
-@session.command(name="list")
+@session_group.command(name="list")
 @click.argument("scope", required=False, type=click.Choice(["all"]), shell_complete=_complete_list_scope)
 @handle_errors
 def session_list(scope: Optional[str]):
-    """List tmux sessions with agent types and identifiers.
+    """List tmux sessions.
 
     SCOPE: Use "all" to list sessions across all containers.
 
@@ -178,32 +182,44 @@ def session_list(scope: Optional[str]):
     pctx = _get_project_context()
 
     if scope == "all":
-        # List sessions across all containers
-        all_containers = pctx.manager.client.containers.list(
-            filters={"name": "agentbox-"}
-        )
+        # Try daemon cache first (fast path)
+        daemon_sessions = get_sessions_from_daemon(timeout=1.0)
+        if daemon_sessions is not None:
+            all_sessions = [
+                {
+                    "project": s.get("project", ""),
+                    "session": s.get("session_name", ""),
+                    "status": "attached" if s.get("attached") else "detached",
+                    "windows": s.get("windows", 1),
+                }
+                for s in daemon_sessions
+            ]
+        else:
+            # Fallback to docker exec (slow path)
+            all_containers = pctx.manager.client.containers.list(
+                filters={"name": "agentbox-"}
+            )
 
-        if not all_containers:
-            console.print("[yellow]No agentbox containers found[/yellow]")
-            return
+            if not all_containers:
+                console.print("[yellow]No agentbox containers found[/yellow]")
+                return
 
-        all_sessions = []
-        for container in all_containers:
-            cname = container.name
-            if not cname.startswith("agentbox-"):
-                continue
+            all_sessions = []
+            for container in all_containers:
+                cname = container.name
+                if not cname.startswith("agentbox-"):
+                    continue
 
-            # Extract project name (strip "agentbox-" prefix)
-            project_name = cname[9:] if cname.startswith("agentbox-") else cname
+                project_name = cname[9:] if cname.startswith("agentbox-") else cname
 
-            sessions = _get_tmux_sessions(pctx.manager, cname)
-            for sess in sessions:
-                all_sessions.append({
-                    "project": project_name,
-                    "session": sess["name"],
-                    "status": "attached" if sess["attached"] else "detached",
-                    "windows": sess["windows"]
-                })
+                sessions = _get_tmux_sessions(pctx.manager, cname)
+                for sess in sessions:
+                    all_sessions.append({
+                        "project": project_name,
+                        "session": sess["name"],
+                        "status": "attached" if sess["attached"] else "detached",
+                        "windows": sess["windows"]
+                    })
 
         if not all_sessions:
             console.print("[yellow]No tmux sessions found in any container[/yellow]")
@@ -226,7 +242,6 @@ def session_list(scope: Optional[str]):
         console.print(table)
         console.print("\n[blue]Connect:[/blue] abox connect <project> <session>")
     else:
-        # List sessions in current project only
         if not pctx.manager.is_running(pctx.container_name):
             console.print(f"[red]Container {pctx.container_name} is not running[/red]")
             console.print("[blue]Start it with: agentbox start[/blue]")
@@ -254,15 +269,38 @@ def session_list(scope: Optional[str]):
             )
 
         console.print(table)
-        console.print("\n[blue]Attach to session:[/blue] abox session attach <session-name>")
-        console.print("[blue]Create new session:[/blue] abox session new <agent-type> [name]")
+        console.print("\n[blue]Attach:[/blue] abox session attach <session>")
+        console.print("[blue]Create:[/blue] abox session new <agent> [name]")
 
 
-@session.command(name="remove")
+@session_group.command(name="attach")
+@click.argument("session_name", shell_complete=_complete_session_name)
+@handle_errors
+def session_attach(session_name: str):
+    """Attach to an existing session.
+
+    SESSION_NAME: Name of the session to attach to
+
+    Examples:
+        abox session attach superclaude-my-feature
+    """
+    pctx = _get_project_context()
+    _require_container_running(pctx.manager, pctx.container_name)
+
+    _attach_tmux_session(pctx.manager, pctx.container_name, session_name)
+
+
+@session_group.command(name="remove")
 @click.argument("session_name", shell_complete=_complete_session_name)
 @handle_errors
 def session_remove(session_name: str):
-    """Kill a tmux session inside a container."""
+    """Remove a session.
+
+    SESSION_NAME: Name of the session to remove
+
+    Examples:
+        abox session remove superclaude-my-feature
+    """
     pctx = _get_project_context()
     _require_container_running(pctx.manager, pctx.container_name)
 
@@ -277,50 +315,48 @@ def session_remove(session_name: str):
         user="abox",
     )
     if exit_code != 0:
-        msg = f"Failed to remove tmux session {session_name}"
+        msg = f"Failed to remove session {session_name}"
         if output.strip():
             msg += f": {output.strip()}"
         raise click.ClickException(msg)
 
-    # Reset terminal in case user was attached to this session
     reset_terminal()
-    console.print(f"[green]Removed tmux session {session_name} from {pctx.container_name}[/green]")
+    console.print(f"[green]Removed session {session_name}[/green]")
 
 
-@session.command(name="rename")
-@click.argument("old_name", shell_complete=_complete_session_name)
-@click.argument("new_identifier")
+@session_group.command(name="rename")
+@click.argument("session_name", shell_complete=_complete_session_name)
+@click.argument("new_name")
 @handle_errors
-def session_rename(old_name: str, new_identifier: str):
-    """Rename a session's identifier while preserving agent type.
+def session_rename(session_name: str, new_name: str):
+    """Rename a session.
+
+    SESSION_NAME: Current session name
+    NEW_NAME: New identifier (agent type prefix preserved)
 
     Examples:
         abox session rename superclaude-1 feature-auth
-        # Renames to: superclaude-feature-auth
+        # Results in: superclaude-feature-auth
     """
     pctx = _get_project_context()
     _require_container_running(pctx.manager, pctx.container_name)
 
-    # Check if old session exists
     sessions = _get_agent_sessions(pctx.manager, pctx.container_name)
-    old_session = next((s for s in sessions if s["name"] == old_name), None)
+    old_session = next((s for s in sessions if s["name"] == session_name), None)
 
     if not old_session:
-        raise click.ClickException(f"Session '{old_name}' not found")
+        raise click.ClickException(f"Session '{session_name}' not found")
 
-    # Generate new name with same agent type
     agent_type = old_session["agent_type"]
-    new_name = f"{agent_type}-{_sanitize_tmux_name(new_identifier)}"
+    full_new_name = f"{agent_type}-{_sanitize_tmux_name(new_name)}"
 
-    # Check if new name already exists
-    if _session_exists(pctx.manager, pctx.container_name, new_name):
-        raise click.ClickException(f"Session '{new_name}' already exists")
+    if _session_exists(pctx.manager, pctx.container_name, full_new_name):
+        raise click.ClickException(f"Session '{full_new_name}' already exists")
 
-    # Rename session using tmux
     socket_path = _get_tmux_socket(pctx.manager, pctx.container_name)
-    tmux_cmd = ["/usr/bin/tmux", "rename-session", "-t", old_name, new_name]
+    tmux_cmd = ["/usr/bin/tmux", "rename-session", "-t", session_name, full_new_name]
     if socket_path:
-        tmux_cmd = ["/usr/bin/tmux", "-S", socket_path, "rename-session", "-t", old_name, new_name]
+        tmux_cmd = ["/usr/bin/tmux", "-S", socket_path, "rename-session", "-t", session_name, full_new_name]
 
     exit_code, output = pctx.manager.exec_command(
         pctx.container_name,
@@ -335,17 +371,66 @@ def session_rename(old_name: str, new_identifier: str):
             msg += f": {output.strip()}"
         raise click.ClickException(msg)
 
-    console.print(f"[green]Renamed '{old_name}' to '{new_name}'[/green]")
+    console.print(f"[green]Renamed '{session_name}' to '{full_new_name}'[/green]")
 
 
-@session.command(name="attach")
-@click.argument("session_name", shell_complete=_complete_session_name)
+def _complete_agent_type(ctx, param, incomplete):
+    """Shell completion for agent types."""
+    return [a for a in AGENT_TYPES if a.startswith(incomplete)]
+
+
+@session_group.command(name="add")
+@click.argument("name", required=False)
 @handle_errors
-def session_attach(session_name: str):
-    """Attach to a tmux session inside the project container."""
+def session_add(name: Optional[str]):
+    """Create a shell session (no AI agent).
+
+    NAME: Optional session identifier. Auto-numbered if omitted.
+
+    Examples:
+        abox session add              # Creates shell-1 (or next available)
+        abox session add my-shell     # Creates shell-my-shell
+    """
+    require_initialized()
     pctx = _get_project_context()
-    _require_container_running(pctx.manager, pctx.container_name)
 
-    _attach_tmux_session(pctx.manager, pctx.container_name, session_name)
+    # Ensure container is running (raises ContainerError on failure)
+    _ensure_container_running(pctx.manager, pctx.container_name)
+
+    if name:
+        _run_session_agent(name, "shell")
+    else:
+        # Auto-generate name
+        session_name = _generate_session_name(pctx.manager, pctx.container_name, "shell", identifier=None)
+        identifier = session_name.split("-", 1)[1] if "-" in session_name else "1"
+        _run_session_agent(identifier, "shell")
 
 
+@session_group.command(name="new")
+@click.argument("agent", type=click.Choice(AGENT_TYPES), shell_complete=_complete_agent_type)
+@click.argument("name", required=False)
+@handle_errors
+def session_new(agent: str, name: Optional[str]):
+    """Create a new agent session.
+
+    AGENT: Agent type (claude, superclaude, codex, supercodex, gemini, supergemini, shell)
+    NAME: Optional session identifier. Auto-numbered if omitted.
+
+    Examples:
+        abox session new superclaude          # Creates superclaude-1
+        abox session new superclaude feature  # Creates superclaude-feature
+        abox session new claude bugfix        # Creates claude-bugfix
+    """
+    require_initialized()
+    pctx = _get_project_context()
+
+    # Ensure container is running (raises ContainerError on failure)
+    _ensure_container_running(pctx.manager, pctx.container_name)
+
+    if name:
+        _run_session_agent(name, agent)
+    else:
+        # Auto-generate name
+        session_name = _generate_session_name(pctx.manager, pctx.container_name, agent, identifier=None)
+        identifier = session_name.split("-", 1)[1] if "-" in session_name else "1"
+        _run_session_agent(identifier, agent)

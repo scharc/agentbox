@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Marc Schütze <scharc@gmail.com>
 # SPDX-License-Identifier: MIT
 
-"""Pydantic models for project configuration (.agentbox.yml)."""
+"""Pydantic models for project configuration (.agentbox/config.yml)."""
 
 import re
 from typing import Any, Dict, List, Literal, Optional, Union
@@ -76,11 +76,19 @@ class SecurityConfig(BaseModel):
 
 
 class TaskAgentsConfig(BaseModel):
-    """Task agent configuration for notification enhancement."""
+    """Task agent configuration for notification enhancement.
+
+    Model aliases (work with any agent):
+        - fast: Quick responses (claude: haiku, codex: gpt-4o-mini)
+        - balanced: Good quality (claude: sonnet, codex: gpt-4o)
+        - powerful: Best quality (claude: opus, codex: o3)
+
+    You can also use agent-specific model names directly.
+    """
 
     enabled: bool = False
     agent: str = "claude"
-    model: str = "haiku"
+    model: str = "fast"  # Use alias for cross-agent compatibility
     timeout: int = 30
     buffer_lines: int = 50
     enhance_hooks: bool = True

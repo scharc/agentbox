@@ -33,6 +33,7 @@ from agentbox.ssh_tunnel import (
     check_asyncssh_available,
 )
 from agentbox.utils.logging import get_daemon_logger, configure_logging
+from agentbox.paths import ContainerPaths, HostPaths, ProjectPaths, TempPaths
 
 # Configure logging for daemon mode
 configure_logging(daemon=True)
@@ -41,7 +42,7 @@ logger = get_daemon_logger("container-client")
 # Local IPC socket for inter-process communication within the container
 # This allows scripts like abox-notify to send messages through the SSH tunnel
 # Use /tmp which is writable by all users
-LOCAL_IPC_SOCKET_PATH = Path("/tmp/agentbox-local.sock")
+LOCAL_IPC_SOCKET_PATH = Path(TempPaths.LOCAL_IPC_SOCKET)
 
 
 class SessionState(Enum):
@@ -107,6 +108,8 @@ class ContainerClient:
 
         # State tracking
         self._last_worktrees: List[str] = []
+        self._last_sessions: List[Dict[str, Any]] = []
+        self._last_state_hash: str = ""
         self._running = False
 
         # Stall detection config
@@ -136,12 +139,12 @@ class ContainerClient:
             if path.exists():
                 return path
 
-        uid = os.getuid()
-        path = Path(f"/run/user/{uid}/agentboxd/ssh.sock")
-        if path.exists():
-            return path
+        # Try XDG runtime location
+        ssh_socket = HostPaths.ssh_socket()
+        if ssh_socket.exists():
+            return ssh_socket
 
-        # Container mount location
+        # Container mount location (fallback)
         container_path = Path("/run/agentboxd/ssh.sock")
         if container_path.exists():
             return container_path
@@ -149,8 +152,9 @@ class ContainerClient:
         return None
 
     def _load_stall_config(self) -> None:
-        """Load stall detection config from .agentbox.yml."""
-        config_path = Path('/workspace/.agentbox.yml')
+        """Load stall detection config from .agentbox/config.yml."""
+        workspace = Path(ContainerPaths.WORKSPACE)
+        config_path = ProjectPaths.config_file(workspace)
         if not config_path.exists():
             return
 
@@ -313,6 +317,12 @@ class ContainerClient:
                     session.stall_state.last_buffer_content = buffer
                     session.stall_state.last_activity_time = now
 
+                    # Always notify host of activity - allows dismissing any pending
+                    # notifications (stall, needs-permission, etc.)
+                    await self._ssh_client.send_event_async("session_resumed", {
+                        "session": session_name,
+                    })
+
                     if session.stall_state.state in (SessionState.STALE, SessionState.NOTIFIED):
                         session.stall_state.state = SessionState.ACTIVE
                         session.stall_state.notification_sent_time = None
@@ -358,7 +368,36 @@ class ContainerClient:
                         state.notification_sent_time = now
 
     async def _send_stall_notification(self, session_name: str, idle_seconds: float, buffer: str) -> None:
-        """Send stall notification via control channel."""
+        """Send stall notification via abox-notify (for AI enhancement)."""
+        # Use abox-notify directly for AI-enhanced notifications
+        # Pass buffer via env var so it can be used for AI summary/auto-answer
+        env = os.environ.copy()
+        env["AGENTBOX_STALL_BUFFER"] = buffer
+        env["AGENTBOX_CONTAINER"] = self.container_name
+        env["AGENTBOX_SESSION_NAME"] = session_name
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "/usr/local/bin/abox-notify",
+                "",  # title (empty, will use enhanced title)
+                f"No output for {int(idle_seconds)}s",  # message
+                "normal",  # urgency
+                self.container_name,
+                session_name,
+                env=env,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(proc.wait(), timeout=60.0)
+            if proc.returncode == 0:
+                return
+            logger.warning(f"abox-notify returned {proc.returncode} for {session_name}")
+        except asyncio.TimeoutError:
+            logger.warning(f"abox-notify timed out for {session_name}")
+        except Exception as e:
+            logger.warning(f"abox-notify failed for {session_name}: {e}")
+
+        # Fallback to SSH control channel (no AI enhancement)
         result = await self._ssh_client.request_async("notify", {
             "title": "Session stalled",
             "message": f"No output for {int(idle_seconds)}s",
@@ -375,6 +414,56 @@ class ContainerClient:
 
     # ========== State Updates ==========
 
+    async def _get_session_metadata(self) -> List[Dict[str, Any]]:
+        """Get full metadata for all tmux sessions.
+
+        Returns list of dicts with: name, windows, attached, agent_type, identifier
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "/usr/bin/tmux", "list-sessions", "-F",
+                "#{session_name}\t#{session_windows}\t#{session_attached}",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+                env=self._tmux_env
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=2.0)
+            if proc.returncode != 0:
+                return []
+
+            sessions = []
+            for line in stdout.decode().strip().split("\n"):
+                if not line.strip():
+                    continue
+                parts = line.split("\t")
+                if len(parts) >= 3:
+                    name = parts[0]
+                    windows = int(parts[1]) if parts[1].isdigit() else 1
+                    attached = parts[2] == "1"
+
+                    # Parse agent_type and identifier from session name
+                    # Format: "identifier-agent_type" (e.g., "main-superclaude")
+                    agent_type = None
+                    identifier = None
+                    if "-" in name:
+                        # Split on last dash to handle identifiers with dashes
+                        idx = name.rfind("-")
+                        identifier = name[:idx]
+                        agent_type = name[idx + 1:]
+                    else:
+                        identifier = name
+
+                    sessions.append({
+                        "name": name,
+                        "windows": windows,
+                        "attached": attached,
+                        "agent_type": agent_type,
+                        "identifier": identifier,
+                    })
+            return sessions
+        except (asyncio.TimeoutError, OSError):
+            return []
+
     def _get_worktrees(self) -> List[str]:
         """Get list of git worktree branch names."""
         try:
@@ -382,7 +471,7 @@ class ContainerClient:
                 ["git", "worktree", "list", "--porcelain"],
                 capture_output=True,
                 text=True,
-                cwd="/workspace",
+                cwd=ContainerPaths.WORKSPACE,
                 timeout=5
             )
             if result.returncode != 0:
@@ -397,16 +486,36 @@ class ContainerClient:
         except Exception:
             return []
 
-    async def _push_worktree_state(self, force: bool = False) -> None:
-        """Push worktree state if changed."""
+    async def _push_state(self, force: bool = False) -> None:
+        """Push worktree and session state to daemon.
+
+        Combines worktrees and sessions into a single state_update event.
+        Always pushes to keep daemon cache fresh (30s staleness TTL).
+        """
+        import hashlib
+
         worktrees = self._get_worktrees()
+        sessions = await self._get_session_metadata()
 
-        if not force and worktrees == self._last_worktrees:
-            return
+        # Create state payload
+        state = {
+            "worktrees": worktrees,
+            "sessions": sessions,
+        }
 
+        # Hash for change detection
+        state_json = json.dumps(state, sort_keys=True)
+        state_hash = hashlib.md5(state_json.encode()).hexdigest()
+
+        # Always push to refresh daemon's staleness timer, even if unchanged
+        # (Daemon marks data stale after 30s, we push every 10s)
+
+        self._last_state_hash = state_hash
         self._last_worktrees = worktrees
-        await self._ssh_client.send_event_async("state_update", {"worktrees": worktrees})
-        logger.debug(f"Pushed worktree state: {worktrees}")
+        self._last_sessions = sessions
+
+        await self._ssh_client.send_event_async("state_update", state)
+        logger.debug(f"Pushed state: {len(worktrees)} worktrees, {len(sessions)} sessions")
 
     # ========== Event Handlers (from server) ==========
 
@@ -464,6 +573,82 @@ class ContainerClient:
 
         return {"ok": success}
 
+    async def _handle_probe_agent(self, payload: dict) -> dict:
+        """Handle probe_agent request from service.
+
+        Probes an agent by running a minimal test and reports the result.
+        """
+        import re
+
+        agent = payload.get("agent", "")
+        if not agent:
+            return {"ok": False, "error": "missing agent"}
+
+        # Map agent name to CLI command
+        base_command = agent.replace("super", "")
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                base_command, "-p",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(input=b"ping"),
+                timeout=30.0
+            )
+
+            output = f"{stdout.decode()}\n{stderr.decode()}"
+            output_lower = output.lower()
+
+            # Check for rate limit indicators
+            is_limited = any(
+                phrase in output_lower
+                for phrase in [
+                    "rate limit", "usage limit", "quota exceeded",
+                    "too many requests", "usage_limit_reached",
+                ]
+            )
+
+            # Extract resets_in_seconds if available
+            resets_in_seconds = None
+            resets_match = re.search(r'"resets_in_seconds"\s*:\s*(\d+)', output)
+            if resets_match:
+                resets_in_seconds = int(resets_match.group(1))
+
+            # Determine error type
+            error_type = None
+            if is_limited:
+                if "usage_limit_reached" in output_lower:
+                    error_type = "usage_limit_reached"
+                elif "rate limit" in output_lower:
+                    error_type = "rate_limit"
+                elif "quota exceeded" in output_lower:
+                    error_type = "quota_exceeded"
+
+                # Report to service
+                await self._ssh_client.send_event_async("report_rate_limit", {
+                    "agent": agent,
+                    "limited": True,
+                    "resets_in_seconds": resets_in_seconds,
+                    "error_type": error_type,
+                })
+
+            return {
+                "ok": True,
+                "is_limited": is_limited,
+                "resets_in_seconds": resets_in_seconds,
+                "error_type": error_type,
+            }
+
+        except asyncio.TimeoutError:
+            return {"ok": True, "is_limited": False, "error_type": "timeout"}
+        except FileNotFoundError:
+            return {"ok": True, "is_limited": False, "error_type": "not_installed"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     # ========== Main Loop ==========
 
     async def _main_loop(self) -> None:
@@ -472,7 +657,7 @@ class ContainerClient:
 
         # Initial sync
         await self._sync_sessions()
-        await self._push_worktree_state(force=True)
+        await self._push_state(force=True)
 
         while self._running and self._ssh_client and self._ssh_client.is_connected:
             now = asyncio.get_event_loop().time()
@@ -482,9 +667,9 @@ class ContainerClient:
                 await self._sync_sessions()
                 self._last_session_sync = now
 
-            # Check for worktree changes every 10 seconds
+            # Check for worktree/session changes every 10 seconds
             if now - self._last_worktree_push > 10:
-                await self._push_worktree_state()
+                await self._push_state()
                 self._last_worktree_push = now
 
             # Check for stalls
@@ -544,6 +729,7 @@ class ContainerClient:
         self._ssh_client.register_request_handler("stream_input", self._handle_stream_input_request)
         self._ssh_client.register_request_handler("port_add", self._handle_port_add)
         self._ssh_client.register_request_handler("port_remove", self._handle_port_remove)
+        self._ssh_client.register_request_handler("probe_agent", self._handle_probe_agent)
 
         # Set callbacks
         self._ssh_client.on_connect = self._on_connect
@@ -760,13 +946,68 @@ class ContainerClient:
                 "container": self.container_name,
             }
 
+        elif action == "report_rate_limit":
+            # Forward to service via SSH control channel
+            if not self._ssh_client or not self._ssh_client.is_connected:
+                return {"ok": False, "error": "not_connected"}
+
+            # Send as event (no response expected)
+            payload = {
+                "agent": request.get("agent"),
+                "limited": request.get("limited", True),
+                "resets_at": request.get("resets_at"),
+                "resets_in_seconds": request.get("resets_in_seconds"),
+                "error_type": request.get("error_type"),
+            }
+            self._ssh_client.send_event("report_rate_limit", payload)
+            return {"ok": True}
+
+        elif action == "check_agent":
+            # Query service for agent availability
+            if not self._ssh_client or not self._ssh_client.is_connected:
+                return {"ok": False, "available": None, "error": "not_connected"}
+
+            result = self._ssh_client.request("check_agent", {
+                "agent": request.get("agent"),
+            }, timeout=5.0)
+
+            if result:
+                return result
+            return {"ok": False, "available": None, "error": "request_failed"}
+
+        elif action == "get_usage_status":
+            # Query service for all agent statuses
+            if not self._ssh_client or not self._ssh_client.is_connected:
+                return {"ok": False, "status": None, "error": "not_connected"}
+
+            result = self._ssh_client.request("get_usage_status", {}, timeout=5.0)
+
+            if result:
+                return result
+            return {"ok": False, "status": None, "error": "request_failed"}
+
+        elif action == "clear_rate_limit":
+            # Request service to clear rate limit
+            if not self._ssh_client or not self._ssh_client.is_connected:
+                return {"ok": False, "error": "not_connected"}
+
+            result = self._ssh_client.request("clear_rate_limit", {
+                "agent": request.get("agent"),
+            }, timeout=5.0)
+
+            if result:
+                return result
+            return {"ok": False, "error": "request_failed"}
+
         else:
             return {"ok": False, "error": f"Unknown action: {action}"}
 
 
 def load_config_from_yaml() -> tuple:
-    """Load port forward config from .agentbox.yml."""
-    config_path = Path('/workspace/.agentbox.yml')
+    """Load port forward config from .agentbox/config.yml."""
+    workspace = Path(ContainerPaths.WORKSPACE)
+    config_path = ProjectPaths.config_file(workspace)
+
     local_forwards = []
     remote_forwards = []
 

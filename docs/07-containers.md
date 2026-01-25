@@ -95,7 +95,8 @@ agentbox rebuild
 Expose container ports to your host:
 
 ```bash
-agentbox ports list                # Show current port config
+agentbox ports list                # Show current project's port config
+agentbox ports list all            # Show ports across all containers
 agentbox ports expose 3000         # container:3000 -> host:3000
 agentbox ports expose 3000 8080    # container:3000 -> host:8080
 agentbox ports unexpose 3000       # Remove exposed port

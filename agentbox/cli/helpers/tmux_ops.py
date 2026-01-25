@@ -5,8 +5,7 @@
 """Tmux session operations and utilities for CLI.
 
 This module provides CLI-specific tmux operations. The core tmux functions
-are imported from agentbox.core.tmux and re-exported with underscore prefix
-for backward compatibility.
+are imported from agentbox.core.tmux and re-exported here as the CLI API.
 """
 
 import os
@@ -22,7 +21,7 @@ from agentbox.container import ContainerManager, get_abox_environment
 from agentbox.config import ProjectConfig
 from agentbox.utils.terminal import reset_terminal
 
-# Import from core and re-export for backward compatibility
+# Import from core and re-export as CLI API
 from agentbox.core.tmux import (
     sanitize_tmux_name as _sanitize_tmux_name,
     get_tmux_socket_path,
@@ -48,7 +47,7 @@ def _show_warning_panel(message: str, title: str) -> None:
     console.print(Panel(message, title=f"⚠ {title}", border_style="yellow"))
 
 
-# Re-export core functions with underscore prefix for backward compatibility
+# CLI wrapper functions (add error handling and formatting)
 def _get_tmux_socket(manager: ContainerManager, container_name: str) -> Optional[str]:
     """Get tmux socket path for container. Wrapper for core function."""
     return get_tmux_socket_path(manager, container_name)
@@ -94,7 +93,10 @@ def _resolve_tmux_prefix() -> Optional[str]:
 
 
 def _warn_if_agents_running(manager: ContainerManager, container_name: str, action: str = "rebuild") -> bool:
-    """Check for active agent sessions and warn user before disruptive actions.
+    """Check for active sessions and warn user before disruptive actions.
+
+    Warns about ALL tmux sessions (agents, shells, etc.) since any active
+    session represents work that could be lost.
 
     Args:
         manager: ContainerManager instance
@@ -111,19 +113,10 @@ def _warn_if_agents_running(manager: ContainerManager, container_name: str, acti
     if not sessions:
         return True
 
-    # Filter for agent sessions (claude, codex, gemini, etc.)
-    agent_sessions = [s for s in sessions if any(
-        agent in s["name"].lower()
-        for agent in ["claude", "codex", "gemini", "superclaude", "supercodex", "supergemini"]
-    )]
-
-    if not agent_sessions:
-        return True
-
-    # Show warning
-    console.print(f"\n[yellow]⚠ Warning: Active agent sessions detected[/yellow]")
+    # Show warning for ALL sessions (agents, shells, etc.)
+    console.print(f"\n[yellow]⚠ Warning: Active sessions detected[/yellow]")
     console.print(f"[yellow]This {action} will interrupt:[/yellow]")
-    for session in agent_sessions:
+    for session in sessions:
         attached_str = "(attached)" if session["attached"] else "(detached)"
         console.print(f"  - {session['name']} {attached_str}")
 
@@ -136,7 +129,7 @@ def _warn_if_base_outdated(manager: ContainerManager, container_name: str, proje
 
     Checks:
     1. If the container was created from an older base image
-    2. If the .agentbox.yml was created with an older agentbox version
+    2. If the .agentbox/config.yml was created with an older agentbox version
 
     Args:
         manager: ContainerManager instance
@@ -174,7 +167,7 @@ def _warn_if_devices_missing(project_dir: Path) -> None:
     allowing the user to plug in devices and retry, or skip and continue.
 
     Args:
-        project_dir: Project directory containing .agentbox.yml
+        project_dir: Project directory containing .agentbox/config.yml
     """
     config = ProjectConfig(project_dir)
     if not config.exists() or not config.devices:
@@ -232,9 +225,11 @@ def _attach_tmux_session(manager: ContainerManager, container_name: str, session
         raise SystemExit(1)
 
     socket_path = _get_tmux_socket(manager, container_name)
-    tmux_cmd = ["tmux", "attach", "-t", session_name]
+    # Use "=session_name" syntax for exact matching (prevents prefix matching)
+    exact_session = f"={session_name}"
+    tmux_cmd = ["tmux", "attach", "-t", exact_session]
     if socket_path:
-        tmux_cmd = ["tmux", "-S", socket_path, "attach", "-t", session_name]
+        tmux_cmd = ["tmux", "-S", socket_path, "attach", "-t", exact_session]
     cmd = [
         "docker",
         "exec",

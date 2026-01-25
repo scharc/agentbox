@@ -51,13 +51,13 @@ def test_claude_mcp_config_mounted_in_container(test_project):
 
     container_name = f"agentbox-{test_project.name}"
 
-    # Check if MCP config is accessible
+    # Check if MCP config is accessible (now at ~/.mcp.json)
     result = subprocess.run(
-        ["docker", "exec", container_name, "test", "-f", "/workspace/.agentbox/claude/mcp.json"],
+        ["docker", "exec", container_name, "test", "-f", "/home/abox/.mcp.json"],
         capture_output=True
     )
 
-    assert result.returncode == 0, "Claude mcp.json should be accessible at /workspace/.agentbox/claude/mcp.json"
+    assert result.returncode == 0, "MCP config should be accessible at /home/abox/.mcp.json"
 
 
 def test_codex_config_mounted_in_container(test_project):
@@ -67,13 +67,13 @@ def test_codex_config_mounted_in_container(test_project):
 
     container_name = f"agentbox-{test_project.name}"
 
-    # Check if Codex config is accessible
+    # Check if Codex config is accessible (now in home directory from host mount)
     result = subprocess.run(
-        ["docker", "exec", container_name, "test", "-f", "/workspace/.agentbox/codex/config.toml"],
+        ["docker", "exec", container_name, "test", "-f", "/home/abox/.codex/config.toml"],
         capture_output=True
     )
 
-    assert result.returncode == 0, "Codex config.toml should be accessible at /workspace/.agentbox/codex/config.toml"
+    assert result.returncode == 0, "Codex config.toml should be accessible at /home/abox/.codex/config.toml"
 
 
 def test_mcp_config_contains_added_server(test_project):
@@ -86,9 +86,9 @@ def test_mcp_config_contains_added_server(test_project):
 
     container_name = f"agentbox-{test_project.name}"
 
-    # Read MCP config from inside container
+    # Read MCP config from inside container (now at ~/.mcp.json)
     result = subprocess.run(
-        ["docker", "exec", container_name, "cat", "/workspace/.agentbox/claude/mcp.json"],
+        ["docker", "exec", container_name, "cat", "/home/abox/.mcp.json"],
         capture_output=True,
         text=True
     )

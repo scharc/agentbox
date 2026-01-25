@@ -29,8 +29,8 @@ AGENT_TYPES = ["claude", "superclaude", "codex", "supercodex", "gemini", "superg
 
 # Agent commands mapping
 AGENT_COMMANDS = {
-    "claude": "/usr/local/bin/claude --settings /home/abox/.claude/config.json --mcp-config /workspace/.agentbox/claude/mcp.json",
-    "superclaude": "/usr/local/bin/claude --settings /home/abox/.claude/config-super.json --mcp-config /workspace/.agentbox/claude/mcp.json --dangerously-skip-permissions",
+    "claude": "/usr/local/bin/claude --settings /home/abox/.claude/settings.json --mcp-config /home/abox/.mcp.json",
+    "superclaude": "/usr/local/bin/claude --settings /home/abox/.claude/settings-super.json --mcp-config /home/abox/.mcp.json --dangerously-skip-permissions",
     "codex": "/usr/local/bin/codex",
     "supercodex": "/usr/local/bin/codex --dangerously-bypass-approvals-and-sandbox",
     "gemini": "/usr/local/bin/gemini",
@@ -62,34 +62,53 @@ def get_sessions_for_container(container_name: str) -> List[Dict]:
 def get_all_sessions() -> List[Dict]:
     """Get tmux sessions across all running agentbox containers.
 
+    Performance optimized: Uses ThreadPoolExecutor to parallelize docker exec
+    calls across containers (reduces N sequential calls to ~1 parallel batch).
+
     Returns:
         List of session dicts with keys: container, name, windows, attached, created
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     from agentbox.container import ContainerManager
+
+    def fetch_sessions_for_container(manager: "ContainerManager", container_name: str) -> List[Dict]:
+        """Fetch sessions for a single container (runs in thread pool)."""
+        if not container_name.startswith("agentbox-"):
+            return []
+        project_name = container_name[9:]
+        try:
+            sessions = list_tmux_sessions(manager, container_name)
+            return [
+                {
+                    "container": container_name,
+                    "project": project_name,
+                    "name": sess["name"],
+                    "windows": sess["windows"],
+                    "attached": sess["attached"],
+                    "created": sess.get("created", ""),
+                }
+                for sess in sessions
+            ]
+        except Exception:
+            return []
 
     try:
         manager = ContainerManager()
         all_containers = manager.client.containers.list(filters={"name": "agentbox-"})
 
+        if not all_containers:
+            return []
+
+        # Parallelize docker exec calls across containers
         all_sessions = []
-        for container in all_containers:
-            container_name = container.name
-            if not container_name.startswith("agentbox-"):
-                continue
-
-            # Extract project name (strip "agentbox-" prefix)
-            project_name = container_name[9:] if container_name.startswith("agentbox-") else container_name
-
-            sessions = list_tmux_sessions(manager, container_name)
-            for sess in sessions:
-                all_sessions.append({
-                    "container": container_name,  # Keep for internal use
-                    "project": project_name,       # Clean name for display
-                    "name": sess["name"],
-                    "windows": sess["windows"],
-                    "attached": sess["attached"],
-                    "created": sess.get("created", ""),
-                })
+        with ThreadPoolExecutor(max_workers=min(len(all_containers), 10)) as executor:
+            futures = {
+                executor.submit(fetch_sessions_for_container, manager, c.name): c.name
+                for c in all_containers
+            }
+            for future in as_completed(futures):
+                sessions = future.result()
+                all_sessions.extend(sessions)
 
         return all_sessions
     except Exception:

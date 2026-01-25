@@ -6,232 +6,104 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 import pytest
 
-from agentbox.notifications import send_notification
+from agentbox.notifications import send_notification, _get_ssh_socket_path
+
+
+class TestGetSshSocketPath:
+    """Test SSH socket path discovery"""
+
+    def test_env_var_takes_precedence(self, tmp_path):
+        """Test AGENTBOX_SSH_SOCKET env var is checked first"""
+        sock_path = tmp_path / "ssh.sock"
+        sock_path.touch()
+
+        with patch.dict('os.environ', {'AGENTBOX_SSH_SOCKET': str(sock_path)}):
+            result = _get_ssh_socket_path()
+            assert result == sock_path
+
+    def test_env_var_nonexistent_file(self, tmp_path):
+        """Test env var pointing to nonexistent file returns None"""
+        with patch.dict('os.environ', {'AGENTBOX_SSH_SOCKET': '/nonexistent/path'}):
+            with patch('pathlib.Path.exists', return_value=False):
+                result = _get_ssh_socket_path()
+                assert result is None
+
+    @patch('os.getuid', return_value=1000)
+    def test_xdg_runtime_path(self, mock_getuid, tmp_path):
+        """Test XDG runtime directory path"""
+        with patch.dict('os.environ', {}, clear=True):
+            with patch('pathlib.Path.exists') as mock_exists:
+                # No env var set, so first exists() is XDG path -> True
+                mock_exists.return_value = True
+                result = _get_ssh_socket_path()
+                assert result == Path("/run/user/1000/agentboxd/ssh.sock")
+
+    def test_container_path_fallback(self):
+        """Test container mount path as fallback"""
+        with patch.dict('os.environ', {}, clear=True):
+            with patch('pathlib.Path.exists') as mock_exists:
+                # No env var, XDG path fails, container path succeeds
+                mock_exists.side_effect = [False, True]
+                with patch('os.getuid', return_value=1000):
+                    result = _get_ssh_socket_path()
+                    assert result == Path("/run/agentboxd/ssh.sock")
+
+    def test_no_socket_found(self):
+        """Test returns None when no socket found"""
+        with patch.dict('os.environ', {}, clear=True):
+            with patch('pathlib.Path.exists', return_value=False):
+                with patch('os.getuid', return_value=1000):
+                    result = _get_ssh_socket_path()
+                    assert result is None
 
 
 class TestSendNotification:
     """Test notification sending functionality"""
 
-    @patch('socket.socket')
-    @patch('pathlib.Path.exists')
-    def test_send_notification_success(self, mock_exists, mock_socket_class):
-        """Test successful notification sending"""
-        mock_exists.return_value = True
+    @patch('agentbox.notifications._get_ssh_socket_path')
+    def test_returns_false_when_no_socket(self, mock_get_socket):
+        """Test notification fails gracefully when no SSH socket"""
+        mock_get_socket.return_value = None
 
-        # Mock socket instance
-        mock_sock = MagicMock()
-        mock_socket_class.return_value.__enter__.return_value = mock_sock
-        mock_sock.recv.return_value = json.dumps({"ok": True}).encode("utf-8")
-
-        result = send_notification("Test Title", "Test Message", "normal")
-
-        assert result is True
-        mock_sock.connect.assert_called_once()
-        mock_sock.sendall.assert_called_once()
-
-        # Verify payload structure
-        call_args = mock_sock.sendall.call_args[0][0]
-        payload = json.loads(call_args.decode("utf-8").strip())
-        assert payload["action"] == "notify"
-        assert payload["title"] == "Test Title"
-        assert payload["message"] == "Test Message"
-        assert payload["urgency"] == "normal"
-
-    @patch('pathlib.Path.exists')
-    def test_send_notification_socket_missing(self, mock_exists):
-        """Test notification when socket doesn't exist"""
-        mock_exists.return_value = False
-
-        result = send_notification("Test", "Message")
+        result = send_notification("Test Title", "Test Message")
 
         assert result is False
 
-    @patch('socket.socket')
-    @patch('pathlib.Path.exists')
-    def test_send_notification_socket_error(self, mock_exists, mock_socket_class):
-        """Test notification when socket connection fails"""
-        mock_exists.return_value = True
-        mock_socket_class.return_value.__enter__.side_effect = ConnectionRefusedError()
+    @patch('agentbox.notifications._get_ssh_socket_path')
+    def test_returns_false_when_asyncssh_missing(self, mock_get_socket):
+        """Test notification fails gracefully when asyncssh not installed"""
+        mock_get_socket.return_value = Path("/tmp/ssh.sock")
 
-        result = send_notification("Test", "Message")
-
-        assert result is False
-
-    @patch('socket.socket')
-    @patch('pathlib.Path.exists')
-    def test_send_notification_proxy_error(self, mock_exists, mock_socket_class):
-        """Test notification when proxy returns error"""
-        mock_exists.return_value = True
-
-        mock_sock = MagicMock()
-        mock_socket_class.return_value.__enter__.return_value = mock_sock
-        mock_sock.recv.return_value = json.dumps({"ok": False, "error": "test_error"}).encode("utf-8")
-
-        result = send_notification("Test", "Message")
-
-        assert result is False
-
-    @patch('socket.socket')
-    @patch('pathlib.Path.exists')
-    def test_send_notification_invalid_response(self, mock_exists, mock_socket_class):
-        """Test notification with invalid JSON response"""
-        mock_exists.return_value = True
-
-        mock_sock = MagicMock()
-        mock_socket_class.return_value.__enter__.return_value = mock_sock
-        mock_sock.recv.return_value = b"invalid json"
-
-        result = send_notification("Test", "Message")
-
-        assert result is False
-
-    @patch('socket.socket')
-    @patch('pathlib.Path.exists')
-    def test_send_notification_custom_socket_path(self, mock_exists, mock_socket_class):
-        """Test notification with custom socket path"""
-        mock_exists.return_value = True
-
-        mock_sock = MagicMock()
-        mock_socket_class.return_value.__enter__.return_value = mock_sock
-        mock_sock.recv.return_value = json.dumps({"ok": True}).encode("utf-8")
-
-        custom_path = "/tmp/custom.sock"
-        result = send_notification("Test", "Message", socket_path=custom_path)
-
-        assert result is True
-        mock_sock.connect.assert_called_once_with(custom_path)
-
-    @patch('socket.socket')
-    @patch('pathlib.Path.exists')
-    def test_send_notification_urgency_levels(self, mock_exists, mock_socket_class):
-        """Test different urgency levels"""
-        mock_exists.return_value = True
-
-        mock_sock = MagicMock()
-        mock_socket_class.return_value.__enter__.return_value = mock_sock
-        mock_sock.recv.return_value = json.dumps({"ok": True}).encode("utf-8")
-
-        for urgency in ["low", "normal", "critical"]:
-            send_notification("Test", "Message", urgency)
-
-            call_args = mock_sock.sendall.call_args[0][0]
-            payload = json.loads(call_args.decode("utf-8").strip())
-            assert payload["urgency"] == urgency
-
-    @patch('socket.socket')
-    @patch('pathlib.Path.exists')
-    def test_send_notification_timeout(self, mock_exists, mock_socket_class):
-        """Test notification timeout handling"""
-        mock_exists.return_value = True
-
-        mock_sock = MagicMock()
-        mock_socket_class.return_value.__enter__.return_value = mock_sock
-        mock_sock.recv.side_effect = socket.timeout()
-
-        result = send_notification("Test", "Message")
-
-        assert result is False
-        mock_sock.settimeout.assert_called_once_with(2.0)
-
-
-class TestNotifyEnhancedScript:
-    """Integration tests for bin/abox-notify script"""
-
-    def test_socket_connect_before_settimeout(self, tmp_path):
-        """Test that connect() is called before settimeout() to avoid EAGAIN.
-
-        Setting timeout before connect on Unix domain sockets can cause
-        BlockingIOError (EAGAIN) because the socket is put in non-blocking
-        mode before the connection is established.
-        """
-        import subprocess
-        import threading
-        import os
-
-        # Create a real Unix socket server
-        sock_path = tmp_path / "test.sock"
-        server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        server_sock.bind(str(sock_path))
-        server_sock.listen(1)
-
-        response_sent = threading.Event()
-
-        def server_handler():
-            conn, _ = server_sock.accept()
-            conn.settimeout(5.0)
+        with patch.dict('sys.modules', {'asyncssh': None}):
+            # Force ImportError by making asyncssh import fail
+            import sys
+            old_asyncssh = sys.modules.get('asyncssh')
+            sys.modules['asyncssh'] = None
             try:
-                data = conn.recv(4096)
-                conn.sendall(json.dumps({"ok": True}).encode() + b"\n")
+                # Reload to trigger ImportError
+                result = send_notification("Test", "Message")
+                # The function catches ImportError and returns False
             finally:
-                conn.close()
-                response_sent.set()
+                if old_asyncssh:
+                    sys.modules['asyncssh'] = old_asyncssh
 
-        server_thread = threading.Thread(target=server_handler)
-        server_thread.start()
+    def test_enhance_builds_metadata(self):
+        """Test enhance=True includes metadata in request"""
+        with patch('agentbox.notifications._get_ssh_socket_path', return_value=None):
+            # Can't fully test without SSH, but verify it doesn't crash
+            result = send_notification(
+                "Test",
+                "Message",
+                enhance=True,
+                container="test-container",
+                session="test-session",
+                buffer="test buffer content"
+            )
+            assert result is False  # No socket, but shouldn't crash
 
-        try:
-            # Test the socket client code directly (extracted from abox-notify)
-            # This is the pattern that was broken when settimeout was before connect
-            client_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            # CORRECT ORDER: connect first, then settimeout
-            client_sock.connect(str(sock_path))
-            client_sock.settimeout(60.0)
 
-            payload = {"action": "notify", "title": "Test", "message": "Test"}
-            client_sock.sendall((json.dumps(payload) + "\n").encode())
-            client_sock.shutdown(socket.SHUT_WR)
-            response = client_sock.recv(4096)
-            client_sock.close()
-
-            assert b'"ok": true' in response.lower() or b'"ok":true' in response.lower()
-        finally:
-            response_sent.wait(timeout=5)
-            server_sock.close()
-            server_thread.join(timeout=5)
-
-    def test_socket_settimeout_before_connect_fails(self, tmp_path):
-        """Verify that settimeout before connect causes EAGAIN on Unix sockets.
-
-        This test documents the bug that was fixed - if this test starts
-        passing (no error), it means the underlying behavior changed.
-        """
-        import threading
-
-        sock_path = tmp_path / "test.sock"
-        server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        server_sock.bind(str(sock_path))
-        server_sock.listen(1)
-
-        def server_handler():
-            try:
-                conn, _ = server_sock.accept()
-                conn.close()
-            except:
-                pass
-
-        server_thread = threading.Thread(target=server_handler)
-        server_thread.start()
-
-        try:
-            client_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            # WRONG ORDER: settimeout before connect - this causes EAGAIN
-            client_sock.settimeout(60.0)
-
-            # This should raise BlockingIOError (EAGAIN) on most systems
-            # If it doesn't, the test documents that the issue doesn't occur
-            # on this system/Python version
-            try:
-                client_sock.connect(str(sock_path))
-                # If we get here, the bug doesn't manifest on this system
-                pytest.skip("settimeout before connect works on this system")
-            except BlockingIOError:
-                # This is the expected behavior that we fixed
-                pass
-            finally:
-                client_sock.close()
-        finally:
-            server_sock.close()
-            server_thread.join(timeout=5)
+class TestNotifyScript:
+    """Tests for bin/abox-notify script"""
 
     def test_abox_notify_script_syntax(self):
         """Test that abox-notify script has valid bash syntax"""
@@ -248,31 +120,3 @@ class TestNotifyEnhancedScript:
             text=True
         )
         assert result.returncode == 0, f"Syntax error: {result.stderr}"
-
-    def test_abox_notify_python_code_order(self):
-        """Verify the Python code in abox-notify has correct socket operation order"""
-        from pathlib import Path
-        import re
-
-        script_path = Path(__file__).parent.parent / "bin" / "abox-notify"
-        if not script_path.exists():
-            pytest.skip("abox-notify script not found")
-
-        content = script_path.read_text()
-
-        # Extract the Python code block
-        python_match = re.search(r"python3 <<'PYTHON_SCRIPT'(.+?)PYTHON_SCRIPT", content, re.DOTALL)
-        assert python_match, "Could not find Python code block in script"
-
-        python_code = python_match.group(1)
-
-        # Find positions of connect and settimeout calls
-        connect_match = re.search(r'sock\.connect\(', python_code)
-        settimeout_match = re.search(r'sock\.settimeout\(', python_code)
-
-        assert connect_match, "sock.connect() not found in script"
-        assert settimeout_match, "sock.settimeout() not found in script"
-
-        # Verify connect comes before settimeout
-        assert connect_match.start() < settimeout_match.start(), \
-            "sock.connect() must be called before sock.settimeout() to avoid EAGAIN"

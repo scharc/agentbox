@@ -10,6 +10,7 @@ import yaml
 from pydantic import ValidationError
 
 from agentbox.models.host_config import HostConfigModel
+from agentbox.paths import HostPaths
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ class HostConfig:
     """Manages host-side configuration from ~/.config/agentbox/config.yml."""
 
     def __init__(self):
-        self.config_path = Path.home() / ".config" / "agentbox" / "config.yml"
+        self.config_path = HostPaths.config_file()
         self._model: Optional[HostConfigModel] = None
         self._config = self._load()
 
@@ -116,18 +117,17 @@ class HostConfig:
             pass
 
         # 3. Fallback to standard location
-        return Path.home() / ".local" / "share" / "agentbox"
+        return HostPaths.data_dir()
 
     @property
     def socket_dir(self) -> Path:
         """Get agentboxd socket directory."""
-        runtime_dir = os.getenv("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
-        return Path(runtime_dir) / "agentboxd"
+        return HostPaths.agentboxd_dir()
 
     @property
     def socket_path(self) -> Path:
         """Get agentboxd socket path."""
-        return self.socket_dir / "agentboxd.sock"
+        return HostPaths.agentboxd_socket()
 
     @property
     def web_server_url(self) -> str:
@@ -141,7 +141,7 @@ class HostConfig:
         """Get resolved list of hosts to bind the web server to.
 
         Resolves special values like "tailscale" to actual IPs.
-        Falls back to legacy 'host' config if 'hosts' not set.
+        Falls back to single 'host' config if 'hosts' array not set.
         """
         if self._model:
             hosts = self._model.web_server.hosts

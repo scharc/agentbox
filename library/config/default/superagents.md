@@ -3,7 +3,7 @@
 ## Auto-Approve Mode Enabled
 You are running with **auto-approve permissions**. You can execute commands without asking for permission.
 
-**Remember:** You are INSIDE the container. You have access to `agentctl wt` and `notify.sh`, but you CANNOT run `abox` or `agentbox` commands - those run on the host system.
+**Remember:** You are INSIDE the container. You have access to `agentctl worktree` and `notify.sh`, but you CANNOT run `abox` or `agentbox` commands - those run on the host system.
 
 ## Working on the Agentbox Repository
 

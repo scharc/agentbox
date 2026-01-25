@@ -370,8 +370,8 @@ library/mcp/agentctl/
 The MCP integrates with existing agentbox infrastructure:
 
 1. **Worktree Management**: Uses `agentbox.agentctl.worktree` commands
-   - `agentctl wt add` - Create worktrees
-   - `agentctl wt ls` - List worktrees
+   - `agentctl worktree add` - Create worktrees
+   - `agentctl worktree list` - List worktrees
    - Metadata tracking in `.agentbox/worktrees.json`
 
 2. **Session Management**: Uses `agentctl` CLI commands
@@ -401,7 +401,7 @@ The MCP integrates with existing agentbox infrastructure:
 **Container worktrees** (created at `/worktree-*`):
 - Lost on container rebuild/restart
 - Branches are safe in git (if pushed)
-- Recreate worktree in 1 second: `agentctl wt add <branch>`
+- Recreate worktree in 1 second: `agentctl worktree add <branch>`
 
 **Recovery after rebuild:**
 ```bash
@@ -463,7 +463,7 @@ Possible causes:
 - Not in a git repository
 
 Solutions:
-- Remove existing worktree: `agentctl wt remove <branch>`
+- Remove existing worktree: `agentctl worktree remove <branch>`
 - Use different branch name
 - Check git status
 
@@ -476,7 +476,7 @@ Possible causes:
 
 Solutions:
 - Use different session name
-- Verify worktree exists: `agentctl wt ls`
+- Verify worktree exists: `agentctl worktree list`
 - Check agent installation: `which claude`
 
 ## Future Enhancements

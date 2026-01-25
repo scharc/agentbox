@@ -52,10 +52,11 @@ All these commands automatically rebuild the container to apply changes.
 └── .agentbox/                # Generated runtime files
     ├── agents.md             # Agent instructions template
     ├── superagents.md        # Super agent instructions template
-    ├── claude/               # Claude-specific config
-    │   └── mcp.json          # Active MCP servers for Claude
+    ├── skills/               # Installed skills (shared by all agents)
     ├── mcp/                   # Installed MCP server code
-    ├── mcp-meta.json         # MCP installation tracking
+    ├── mcp-meta.json         # MCP installation tracking (deployed to ~/.mcp.json)
+    ├── config/               # Project-level agent config overrides (optional)
+    │   └── claude/           # Claude settings overrides
     ├── LOG.md                # Development log
     └── workspaces.json       # Workspace mount tracking
 
@@ -230,14 +231,24 @@ docker:
 ```yaml
 task_agents:
   enabled: false           # Enable AI-enhanced notifications
-  agent: claude            # Agent to use (claude, codex, gemini)
-  model: haiku             # Model for summarization
+  agent: claude            # Agent to use (claude, codex)
+  model: fast              # Model alias (see below)
   timeout: 30              # Seconds to wait for response
   buffer_lines: 50         # Lines of terminal buffer to analyze
   enhance_hooks: true      # Enhance hook notifications
   enhance_stall: true      # Enhance stall detection notifications
   prompt_template: "..."   # Custom prompt for summarization
 ```
+
+**Model aliases:** Use these generic names that work with any agent:
+
+| Alias | Claude | Codex (OpenAI) | Use case |
+|-------|--------|----------------|----------|
+| `fast` | haiku | gpt-4o-mini | Quick summaries, low cost |
+| `balanced` | sonnet | gpt-4o | Good quality, moderate cost |
+| `powerful` | opus | o3 | Best quality, higher cost |
+
+You can also use agent-specific model names directly (e.g., `haiku`, `gpt-4o`).
 
 ### Stall Detection
 
@@ -313,10 +324,12 @@ notifications:
 task_agents:
   enabled: false           # Host-level task agent config
   agent: claude
-  model: haiku
+  model: fast              # Model alias: fast, balanced, powerful
   timeout: 30
   buffer_lines: 50
 ```
+
+See [Task Agents](#task-agents-notification-enhancement) for model alias details.
 
 ### Stall Detection (Host-level)
 
@@ -327,6 +340,50 @@ stall_detection:
   check_interval_seconds: 5.0
   cooldown_seconds: 60.0
 ```
+
+### LiteLLM Proxy
+
+LiteLLM provides multi-provider LLM access with automatic fallback. When enabled, a LiteLLM proxy runs in the container, providing an OpenAI-compatible API that can route to multiple providers.
+
+```yaml
+litellm:
+  enabled: true
+  port: 4000                    # Proxy port (localhost only)
+
+  # Provider configurations
+  providers:
+    openai:
+      api_key: ${OPENAI_API_KEY}
+
+    anthropic:
+      api_key: ${ANTHROPIC_API_KEY}
+
+  # Model aliases with fallback chains
+  models:
+    default:                    # Primary model alias
+      - provider: openai
+        model: gpt-4o
+
+    fast:
+      - provider: openai
+        model: gpt-4o-mini
+
+  # Fallback behavior
+  fallbacks:
+    on_rate_limit: true         # Fallback on 429 errors
+    on_context_window: true     # Fallback on context exceeded
+    on_error: true              # Fallback on other errors
+
+  # Router settings
+  router:
+    num_retries: 3
+    timeout: 120
+    retry_after_seconds: 60
+```
+
+**API Keys:** Use `${ENV_VAR}` syntax to reference environment variables. Set them in your shell or in `~/.config/agentbox/.env`.
+
+**Usage:** Once enabled, the proxy is available at `http://127.0.0.1:4000/v1` inside the container. Use the `litellm` MCP server for tool-based access.
 
 ### Timeouts
 
@@ -399,6 +456,24 @@ mcp/<server-name>/
   }
 }
 ```
+
+**MCP-level .env files:**
+
+MCPs can include a `.env` file in their directory for default environment variables:
+
+```
+mcp/<server-name>/
+├── config.json
+├── .env              # Optional: default env vars
+└── server.py
+```
+
+When an MCP is added to a project, variables from `.env` are merged into the config's `env` section. This is useful for:
+- API keys that should be shared across all projects
+- Default configuration values
+- Secrets that shouldn't be committed to git (add `.env` to `.gitignore`)
+
+Variables defined in `config.json`'s `env` section take precedence over `.env` values.
 
 **Usage:** Add to `.agentbox.yml`:
 ```yaml
@@ -532,11 +607,11 @@ Example customizations:
 
 Dynamic context is generated at runtime and appended to agent instructions. You don't edit this directly—it's assembled from your configuration:
 
-**MCP Servers:** Lists all MCP servers configured in `.agentbox/claude/mcp.json`. Agents use this to know what tools they have.
+**MCP Servers:** Lists all MCP servers configured in `.agentbox/mcp-meta.json` (deployed to `~/.mcp.json`). Agents use this to know what tools they have.
 
 **Workspace Mounts:** Shows additional directories mounted at `/context/`. Helps agents know what external files they can access.
 
-**Skills:** Lists available skills from `.agentbox/claude/skills/`. Tells agents to use the Skill tool to invoke them.
+**Skills:** Lists available skills from `.agentbox/skills/`. Tells agents to use the Skill tool to invoke them.
 
 **Slash Commands:** Lists available `/commands` from `.claude/commands/`. Tells agents when to use them.
 
@@ -567,9 +642,10 @@ These files are generated/managed automatically:
 |------|---------|----------|
 | `agents.md` | Base agent instructions | Yes (template) |
 | `superagents.md` | Super agent instructions | Yes (template) |
-| `claude/mcp.json` | Active MCP config for Claude | No (generated) |
+| `skills/` | Installed skills (shared by all agents) | No (managed) |
 | `mcp/` | Installed MCP server code | No (managed) |
-| `mcp-meta.json` | Tracks MCP installations | No (managed) |
+| `mcp-meta.json` | Tracks MCP installations (deployed to ~/.mcp.json) | No (managed) |
+| `config/` | Project-level agent config overrides | Yes (optional) |
 | `LOG.md` | Development log | Yes (append) |
 | `workspaces.json` | Workspace mount tracking | No (managed) |
 

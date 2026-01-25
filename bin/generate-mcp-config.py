@@ -86,10 +86,86 @@ def load_json(path: Path) -> Dict[str, Any]:
     return {}
 
 
+def load_env_files() -> Dict[str, str]:
+    """Load environment variables from MCP .env files.
+
+    Loads from:
+    - /workspace/.agentbox/.env
+    - /workspace/.agentbox/.env.local
+    - /home/abox/.config/agentbox/mcp/*/.env (custom MCP credentials)
+    """
+    import os
+    from pathlib import Path
+
+    env_vars = {}
+
+    def load_env_file(path: Path):
+        if not path.exists():
+            return
+        try:
+            with open(path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, _, value = line.partition('=')
+                        key = key.strip()
+                        value = value.strip().strip('"').strip("'")
+                        if key:
+                            env_vars[key] = value
+        except Exception as e:
+            logger.debug(f"Could not load {path}: {e}")
+
+    # Project env files
+    load_env_file(Path("/workspace/.agentbox/.env"))
+    load_env_file(Path("/workspace/.agentbox/.env.local"))
+
+    # Custom MCP env files
+    mcp_dir = Path("/home/abox/.config/agentbox/mcp")
+    if mcp_dir.exists():
+        for mcp_path in mcp_dir.iterdir():
+            if mcp_path.is_dir():
+                load_env_file(mcp_path / ".env")
+
+    return env_vars
+
+
+def resolve_env_vars(env_dict: Dict[str, str], loaded_env: Dict[str, str]) -> Dict[str, str]:
+    """Resolve ${VAR} references in env values.
+
+    Uses loaded_env first, then falls back to os.environ.
+    If a value is "${VAR}" and VAR is found, replace it.
+    Otherwise, keep the original value (allows runtime resolution by Claude).
+    """
+    import os
+    import re
+
+    resolved = {}
+    for key, value in env_dict.items():
+        if isinstance(value, str):
+            # Match ${VAR} pattern
+            match = re.fullmatch(r'\$\{(\w+)\}', value)
+            if match:
+                var_name = match.group(1)
+                # Check loaded env files first, then os.environ
+                env_value = loaded_env.get(var_name) or os.environ.get(var_name)
+                if env_value:
+                    resolved[key] = env_value
+                    logger.debug(f"Resolved {key} from environment")
+                else:
+                    # Keep original - maybe user wants runtime resolution
+                    resolved[key] = value
+            else:
+                resolved[key] = value
+        else:
+            resolved[key] = value
+    return resolved
+
+
 def generate_mcp_config(
     meta: Dict[str, Any],
     ports: Dict[str, Any],
-    existing_config: Dict[str, Any]
+    existing_config: Dict[str, Any],
+    loaded_env: Dict[str, str]
 ) -> Dict[str, Any]:
     """Generate MCP config with SSE for available servers, STDIO for others."""
 
@@ -106,10 +182,14 @@ def generate_mcp_config(
             logger.info(f"Configured '{name}' with SSE: {port_info['url']}")
         elif "config" in server_meta:
             # Use stored config from mcp-meta.json
-            mcp_servers[name] = server_meta["config"]
+            config = server_meta["config"].copy()
+            # Resolve ${VAR} references in env using loaded env files
+            if "env" in config and isinstance(config["env"], dict):
+                config["env"] = resolve_env_vars(config["env"], loaded_env)
+            mcp_servers[name] = config
             logger.info(f"Configured '{name}' from stored config")
         elif name in STDIO_CONFIGS:
-            # Fallback to hardcoded STDIO config (legacy support)
+            # Fallback to hardcoded STDIO config
             config = STDIO_CONFIGS[name].copy()
             mcp_servers[name] = config
             logger.info(f"Configured '{name}' with STDIO fallback")
@@ -141,8 +221,8 @@ def main():
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("/workspace/.mcp.json"),
-        help="Path to output .mcp.json (project-scoped MCP config)"
+        default=Path("/home/abox/.mcp.json"),
+        help="Path to output .mcp.json (Claude reads from home dir)"
     )
 
     args = parser.parse_args()
@@ -160,8 +240,11 @@ def main():
             logger.info(f"Removed {args.output} (no servers)")
         return
 
+    # Load environment variables from .env files
+    loaded_env = load_env_files()
+
     # Generate new config
-    new_config = generate_mcp_config(meta, ports, existing_config)
+    new_config = generate_mcp_config(meta, ports, existing_config, loaded_env)
     mcp_servers = new_config.get("mcpServers", {})
 
     if not mcp_servers:
@@ -171,17 +254,10 @@ def main():
             logger.info(f"Removed {args.output} (no servers)")
         return
 
-    # Write to .mcp.json (project-scoped config that Claude reads directly)
+    # Write to ~/.mcp.json (Claude reads MCP config from home dir)
     with open(args.output, "w") as f:
         json.dump(new_config, f, indent=2)
     logger.info(f"Generated MCP config: {args.output}")
-
-    # Also write to .agentbox/claude/mcp.json (used by superclaude sessions)
-    agentbox_config = Path("/workspace/.agentbox/claude/mcp.json")
-    if agentbox_config.parent.exists():
-        with open(agentbox_config, "w") as f:
-            json.dump(new_config, f, indent=2)
-        logger.info(f"Also wrote to: {agentbox_config}")
 
     # Summary
     sse_count = sum(1 for cfg in mcp_servers.values() if cfg.get("type") == "sse")

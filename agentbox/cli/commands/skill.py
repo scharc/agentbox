@@ -28,17 +28,10 @@ def _get_installed_skills(agentbox_dir: Path) -> Set[str]:
     """Get set of currently installed skill names."""
     installed = set()
 
-    # Check Claude skills
-    claude_skills_dir = agentbox_dir / "claude" / "skills"
-    if claude_skills_dir.exists():
-        for skill_dir in claude_skills_dir.iterdir():
-            if skill_dir.is_dir():
-                installed.add(skill_dir.name)
-
-    # Check Codex skills
-    codex_skills_dir = agentbox_dir / "codex" / "skills"
-    if codex_skills_dir.exists():
-        for skill_dir in codex_skills_dir.iterdir():
+    # Skills are now project-level at .agentbox/skills/
+    skills_dir = agentbox_dir / "skills"
+    if skills_dir.exists():
+        for skill_dir in skills_dir.iterdir():
             if skill_dir.is_dir():
                 installed.add(skill_dir.name)
 
@@ -60,21 +53,14 @@ def _add_skill(name: str, lib_manager: LibraryManager, agentbox_dir: Path, proje
     if not (skill_source_dir / "SKILL.md").exists():
         return False
 
-    # Copy to Claude skills directory
-    claude_skills_dir = agentbox_dir / "claude" / "skills"
-    claude_skills_dir.mkdir(parents=True, exist_ok=True)
-    claude_target = claude_skills_dir / name
-
-    # Copy to Codex skills directory
-    codex_skills_dir = agentbox_dir / "codex" / "skills"
-    codex_skills_dir.mkdir(parents=True, exist_ok=True)
-    codex_target = codex_skills_dir / name
+    # Copy to project skills directory (shared by all agents)
+    skills_dir = agentbox_dir / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    skill_target = skills_dir / name
 
     # Copy if not exists
-    if not claude_target.exists():
-        shutil.copytree(skill_source_dir, claude_target)
-    if not codex_target.exists():
-        shutil.copytree(skill_source_dir, codex_target)
+    if not skill_target.exists():
+        shutil.copytree(skill_source_dir, skill_target)
 
     # Copy slash commands if the skill has any
     _copy_commands(skill_source_dir, project_dir, "skill", name)
@@ -84,22 +70,12 @@ def _add_skill(name: str, lib_manager: LibraryManager, agentbox_dir: Path, proje
 
 def _remove_skill(name: str, agentbox_dir: Path, project_dir: Path) -> bool:
     """Remove a skill from the project. Returns True if removed."""
-    removed = False
-
     # Remove slash commands associated with this skill
     _remove_commands(project_dir, "skill", name)
 
-    # Remove from Claude skills
-    claude_skill_dir = agentbox_dir / "claude" / "skills" / name
-    if safe_rmtree(claude_skill_dir):
-        removed = True
-
-    # Remove from Codex skills
-    codex_skill_dir = agentbox_dir / "codex" / "skills" / name
-    if safe_rmtree(codex_skill_dir):
-        removed = True
-
-    return removed
+    # Remove from project skills directory
+    skill_dir = agentbox_dir / "skills" / name
+    return safe_rmtree(skill_dir)
 
 
 @cli.group(invoke_without_command=True)
@@ -213,7 +189,7 @@ def skill_list():
 @click.argument("name", shell_complete=_complete_skill_names)
 @handle_errors
 def skill_add(name: str):
-    """Add a skill from the library to both Claude and Codex."""
+    """Add a skill from the library to the project."""
     project_dir = resolve_project_dir()
     agentbox_dir = get_agentbox_dir(project_dir)
     if not agentbox_dir.exists():
@@ -222,7 +198,7 @@ def skill_add(name: str):
     lib_manager = LibraryManager()
 
     if _add_skill(name, lib_manager, agentbox_dir, project_dir):
-        console.print(f"[green]✓ Added '{name}' skill to both Claude and Codex[/green]")
+        console.print(f"[green]✓ Added '{name}' skill[/green]")
     else:
         raise click.ClickException(f"Skill '{name}' not found or missing SKILL.md")
 
@@ -231,11 +207,11 @@ def skill_add(name: str):
 @click.argument("name", shell_complete=_complete_skill_names)
 @handle_errors
 def skill_remove(name: str):
-    """Remove a skill from both Claude and Codex."""
+    """Remove a skill from the project."""
     project_dir = resolve_project_dir()
     agentbox_dir = get_agentbox_dir(project_dir)
 
     if _remove_skill(name, agentbox_dir, project_dir):
-        console.print(f"[green]✓ Removed '{name}' skill from both Claude and Codex[/green]")
+        console.print(f"[green]✓ Removed '{name}' skill[/green]")
     else:
         console.print(f"[yellow]Skill '{name}' not found in project[/yellow]")

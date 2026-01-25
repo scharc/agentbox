@@ -15,7 +15,8 @@ from agentbox.agentctl.helpers import (
     capture_pane,
     get_agent_command,
     kill_session as kill_session_helper,
-    detach_client as detach_client_helper
+    detach_client as detach_client_helper,
+    _tmux_cmd,
 )
 from agentbox.agentctl.worktree import worktree_group
 from agentbox.utils.terminal import reset_terminal
@@ -101,8 +102,8 @@ def attach(agent: str):
 
     try:
         if session_exists(session_name):
-            # Session exists, attach to it
-            result = subprocess.run(["tmux", "attach", "-t", session_name])
+            # Session exists, attach to it (use = prefix for exact matching)
+            result = subprocess.run(_tmux_cmd(["attach", "-t", f"={session_name}"]))
             sys.exit(result.returncode)
         else:
             # Session doesn't exist, create it
@@ -122,16 +123,16 @@ def attach(agent: str):
             if ssh_auth_sock:
                 # Set SSH_AUTH_SOCK in tmux global environment before creating session
                 subprocess.run(
-                    ["tmux", "set-environment", "-g", "SSH_AUTH_SOCK", ssh_auth_sock],
+                    _tmux_cmd(["set-environment", "-g", "SSH_AUTH_SOCK", ssh_auth_sock]),
                     check=False
                 )
 
             # Create new tmux session with standard agentbox config
-            result = subprocess.run([
-                "tmux", "new-session", "-s", session_name,
+            result = subprocess.run(_tmux_cmd([
+                "new-session", "-s", session_name,
                 "-c", working_dir,
                 cmd
-            ])
+            ]))
             sys.exit(result.returncode)
     finally:
         # Reset terminal to disable mouse mode when tmux exits
@@ -241,9 +242,8 @@ def kill(agent: str, force: bool):
         sys.exit(1)
 
 
-# Add worktree command group (main command) and wt alias
+# Add worktree command group
 cli.add_command(worktree_group)
-cli.add_command(worktree_group, name="wt")
 
 
 if __name__ == "__main__":

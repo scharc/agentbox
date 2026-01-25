@@ -76,7 +76,11 @@ Same pattern for OpenAI Codex.
 
 ### abox gemini / supergemini [project] [args...]
 
-Same pattern for Google Gemini. (Untested)
+Same pattern for Google Gemini.
+
+### abox qwen / superqwen [project] [args...]
+
+Same pattern for Alibaba Qwen Code.
 
 ### abox shell [project]
 
@@ -200,14 +204,23 @@ Manage multiple agent sessions in a container. Sessions are tmux windows that pe
 
 **Why sessions?** You might want multiple agents working in the same container—one doing research, another implementing. Or you might want to check on a running agent without interrupting it. Sessions let you multiplex.
 
-### abox session new TYPE [name]
+### abox session add [NAME]
 
-Create new session. TYPE: `claude`, `superclaude`, `codex`, `supercodex`, `gemini`, `supergemini`, `shell`.
+Create a shell session (no AI agent). Auto-numbers if NAME omitted.
+
+```bash
+abox session add                       # Creates shell-1
+abox session add debug                 # Creates shell-debug
+```
+
+### abox session new AGENT [NAME]
+
+Create new agent session. AGENT: `claude`, `superclaude`, `codex`, `supercodex`, `gemini`, `supergemini`, `qwen`, `superqwen`, `shell`. Auto-numbers if NAME omitted.
 
 ```bash
 abox session new superclaude           # Creates superclaude-1
 abox session new superclaude feature   # Creates superclaude-feature
-abox session new shell debug           # Creates shell-debug
+abox session new claude bugfix         # Creates claude-bugfix
 ```
 
 ### abox session list [all]
@@ -240,14 +253,34 @@ abox session remove superclaude-1
 Rename session identifier.
 
 ```bash
-abox session rename superclaude-1 superclaude-feature
+abox session rename superclaude-1 feature-auth
+# Results in: superclaude-feature-auth
 ```
 
 ---
 
 ## Worktrees
 
-Work on multiple git branches in parallel. Commands run inside container via `docker exec`.
+Work on multiple git branches in parallel. Each worktree is an isolated git checkout.
+
+### abox worktree add BRANCH
+
+Create worktree (shell access only). Creates branch if it doesn't exist.
+
+```bash
+abox worktree add feature-auth
+abox worktree add bugfix-123
+```
+
+### abox worktree new AGENT BRANCH
+
+Create worktree and run agent in it. AGENT: `claude`, `superclaude`, `codex`, `supercodex`, `gemini`, `supergemini`, `qwen`, `superqwen`, `shell`.
+
+```bash
+abox worktree new superclaude feature-auth
+abox worktree new claude bugfix-123
+abox worktree new shell hotfix          # Shell only
+```
 
 ### abox worktree list [json]
 
@@ -255,17 +288,7 @@ List worktrees.
 
 ```bash
 abox worktree list
-abox wt list                           # Alias
-abox wt list json                      # JSON output
-```
-
-### abox worktree add BRANCH
-
-Create worktree. Creates branch if it doesn't exist.
-
-```bash
-abox worktree add feature-auth
-abox wt add bugfix-123
+abox worktree list json                # JSON output
 ```
 
 ### abox worktree remove BRANCH [force]
@@ -273,8 +296,8 @@ abox wt add bugfix-123
 Remove worktree.
 
 ```bash
-abox wt remove feature-auth
-abox wt remove feature-auth force      # Discard uncommitted changes
+abox worktree remove feature-auth
+abox worktree remove feature-auth force      # Discard uncommitted changes
 ```
 
 ### abox worktree prune
@@ -282,32 +305,7 @@ abox wt remove feature-auth force      # Discard uncommitted changes
 Clean stale worktree metadata.
 
 ```bash
-abox wt prune
-```
-
-### abox worktree shell BRANCH
-
-Shell in worktree directory.
-
-```bash
-abox wt shell feature-auth
-```
-
-### abox worktree claude BRANCH [args...]
-
-Run Claude in worktree.
-
-```bash
-abox wt claude feature-auth
-abox wt claude feature-auth "implement OAuth"
-```
-
-### abox worktree superclaude BRANCH [args...]
-
-Run superclaude in worktree.
-
-```bash
-abox wt superclaude feature-auth
+abox worktree prune
 ```
 
 ---
@@ -486,13 +484,16 @@ abox network disconnect postgres-dev
 
 Forward ports via SSH tunnel (no Docker port bindings needed).
 
-### abox ports list
+### abox ports list [SCOPE]
 
-List configured ports.
+List configured ports for current project, or all containers.
 
 ```bash
-abox ports list
+abox ports list                        # Current project only
+abox ports list all                    # All containers with ports
 ```
+
+The `all` scope shows ports across all agentbox containers with status indicators (● running, ○ stopped) and whether tunnels are active.
 
 ### abox ports status
 
@@ -828,7 +829,6 @@ abox fix-terminal
 | `agentbox` | `abox` |
 | `abox list` | `abox ps` |
 | `abox quick` | `abox q` |
-| `abox worktree` | `abox wt` |
 | `abox base rebuild` | `abox rebuild` |
 | `abox mcp` | `abox mcps` |
 | `abox skill` | `abox skills` |

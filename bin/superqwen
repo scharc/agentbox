@@ -1,0 +1,42 @@
+#!/bin/bash
+# Run Qwen Code with super agent settings (auto-approve mode)
+#
+# Qwen reads instructions from ~/.qwen/QWEN.md
+# For super mode, we swap the symlink to include superagents.md content
+#
+# Required environment variables:
+#   OPENAI_API_KEY - API key for OpenAI-compatible provider
+#   OPENAI_BASE_URL - Base URL for OpenAI-compatible provider (optional)
+#   QWEN_MODEL - Model to use (optional, defaults to qwen3-coder)
+
+AGENTS_MD="/workspace/.agentbox/agents.md"
+SUPER_MD="/workspace/.agentbox/superagents.md"
+COMBINED="/tmp/agentbox-super-instructions.md"
+QWEN_MD="${HOME}/.qwen/QWEN.md"
+
+# Create combined instructions file
+if [[ -f "${AGENTS_MD}" ]] && [[ -f "${SUPER_MD}" ]]; then
+    cat "${AGENTS_MD}" "${SUPER_MD}" > "${COMBINED}"
+    # Update symlink to point to combined file
+    ln -sf "${COMBINED}" "${QWEN_MD}"
+fi
+
+# Export env var so MCP can also detect super mode
+export AGENTBOX_SUPER_MODE=true
+
+# Load .env files if they exist
+for envfile in ~/.env .env /workspace/.agentbox/.env; do
+    [[ -f "$envfile" ]] && source "$envfile"
+done
+
+if [[ -z "$OPENAI_API_KEY" ]]; then
+    echo "Error: OPENAI_API_KEY not set" >&2
+    echo "Add to ~/.env, .env, or /workspace/.agentbox/.env" >&2
+    exit 1
+fi
+
+exec qwen \
+    --auth-type openai \
+    --model "${QWEN_MODEL:-qwen3-coder}" \
+    --yolo \
+    "$@"

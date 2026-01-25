@@ -32,6 +32,74 @@ from fastmcp import FastMCP
 # Maximum summary length in characters (~200 words)
 MAX_SUMMARY_LENGTH = 1200
 
+# Default timeouts per tool (in seconds)
+DEFAULT_TIMEOUTS = {
+    "analyze": 600,      # 10 minutes
+    "review_commit": 300,  # 5 minutes
+    "suggest_tests": 300,  # 5 minutes
+    "quick_check": 180,    # 3 minutes
+    "verify_plan": 300,    # 5 minutes
+}
+
+
+def _resolve_timeout(tool_name: str, param_value: Optional[int] = None) -> int:
+    """Resolve timeout with priority: parameter > per-tool env > global env > default.
+
+    Environment variables:
+        AGENTBOX_ANALYST_TIMEOUT: Global default timeout for all tools
+        AGENTBOX_ANALYST_TIMEOUT_<TOOL>: Per-tool override (e.g., AGENTBOX_ANALYST_TIMEOUT_ANALYZE)
+        AGENTBOX_ANALYST_TIMEOUT_MULTIPLIER: Multiplier for final timeout (e.g., 1.5 = 50% longer)
+
+    Args:
+        tool_name: Name of the tool (e.g., "analyze", "review_commit")
+        param_value: Timeout passed as tool parameter (takes highest priority if set)
+
+    Returns:
+        Resolved timeout in seconds
+    """
+    # Get default for this tool
+    default = DEFAULT_TIMEOUTS.get(tool_name, 300)
+
+    # Priority 1: Explicit parameter (if provided and not default)
+    # Note: We need to detect if user explicitly passed the param vs using default
+    # Since we can't distinguish, we check if param matches the default
+    # If param_value is explicitly provided and different from default, use it
+
+    # Priority 2: Per-tool environment variable
+    tool_env = f"AGENTBOX_ANALYST_TIMEOUT_{tool_name.upper()}"
+    tool_timeout = os.getenv(tool_env)
+
+    # Priority 3: Global environment variable
+    global_timeout = os.getenv("AGENTBOX_ANALYST_TIMEOUT")
+
+    # Resolve base timeout
+    if param_value is not None:
+        base_timeout = param_value
+    elif tool_timeout:
+        try:
+            base_timeout = int(tool_timeout)
+        except ValueError:
+            base_timeout = default
+    elif global_timeout:
+        try:
+            base_timeout = int(global_timeout)
+        except ValueError:
+            base_timeout = default
+    else:
+        base_timeout = default
+
+    # Apply multiplier if set
+    multiplier = os.getenv("AGENTBOX_ANALYST_TIMEOUT_MULTIPLIER")
+    if multiplier:
+        try:
+            mult = float(multiplier)
+            if mult > 0:
+                base_timeout = int(base_timeout * mult)
+        except ValueError:
+            pass  # Ignore invalid multiplier
+
+    return base_timeout
+
 
 mcp = FastMCP(
     name="agentbox-analyst",
@@ -44,8 +112,9 @@ mcp = FastMCP(
 )
 
 
-# Supported agents (gemini not currently supported)
-SUPPORTED_AGENTS = ("claude", "codex")
+# Supported agents for analysis
+SUPPORTED_AGENTS = ("claude", "codex", "gemini", "qwen")
+
 
 
 def _extract_summary(output: str, fallback: str = "See full output for details") -> str:
@@ -166,15 +235,14 @@ def _detect_caller_agent() -> str:
     if caller in SUPPORTED_AGENTS:
         return caller
 
-    # Check parent process
+    # Check parent process name
     try:
         ppid = os.getppid()
         with open(f"/proc/{ppid}/comm", "r") as f:
             parent = f.read().strip().lower()
-            if "claude" in parent:
-                return "claude"
-            elif "codex" in parent:
-                return "codex"
+            for agent in SUPPORTED_AGENTS:
+                if agent in parent:
+                    return agent
     except Exception:
         pass
 
@@ -184,23 +252,183 @@ def _detect_caller_agent() -> str:
 def _get_peer_superagent(caller: str) -> str:
     """Get the peer superagent (opposite of caller).
 
-    - claude/superclaude → supercodex
-    - codex/supercodex → superclaude
+    Primary peers:
+    - claude → codex
+    - codex → claude
+    - gemini → codex
+    - qwen → claude
     """
-    return "codex" if caller == "claude" else "claude"
+    if caller == "claude":
+        return "codex"
+    elif caller == "codex":
+        return "claude"
+    elif caller == "gemini":
+        return "codex"
+    elif caller == "qwen":
+        return "claude"
+    else:
+        return "codex"
 
 
-def _invoke_superagent(agent: str, prompt: str, timeout: Optional[int] = None) -> dict:
-    """Invoke a superagent for analysis.
+def _is_rate_limited(output: str, stderr: str) -> bool:
+    """Check if output indicates rate limiting or usage limit reached."""
+    combined = f"{output} {stderr}".lower()
+    rate_limit_indicators = [
+        "usage_limit_reached",
+        "usage limit",
+        "rate limit",
+        "too many requests",
+        "429",
+        "quota exceeded",
+        "try again at",
+    ]
+    return any(indicator in combined for indicator in rate_limit_indicators)
+
+
+def _get_fallback_agents(failed_agent: str, caller: str) -> list[str]:
+    """Get list of fallback agents to try after primary fails.
+
+    Fallback order: gemini → self (caller) → qwen
+    Qwen is last resort (weakest for general analysis).
+    """
+    # Build fallback chain: gemini, self, qwen - excluding already failed
+    fallbacks = []
+    for agent in ["gemini", caller, "qwen"]:
+        if agent != failed_agent and agent not in fallbacks:
+            fallbacks.append(agent)
+    return fallbacks
+
+
+def _execute_qwen_tool_calls(output: str) -> int:
+    """Parse qwen's tool call output and execute write_file calls.
+
+    Qwen outputs tool calls as XML instead of executing them.
+    This function parses and executes write_file calls.
+
+    Returns number of files written.
+    """
+    files_written = 0
+
+    # Pattern for qwen's tool call format:
+    # <function=write_file>
+    # <parameter=file_path>...</parameter>
+    # <parameter=content>...</parameter>
+    # </function>
+    pattern = r'<function=write_file>\s*<parameter=file_path>\s*(.*?)\s*</parameter>\s*<parameter=content>\s*(.*?)\s*</parameter>'
+
+    for match in re.finditer(pattern, output, re.DOTALL):
+        file_path = match.group(1).strip()
+        content = match.group(2).strip()
+
+        # Security: only allow writes to /tmp/
+        if not file_path.startswith("/tmp/"):
+            continue
+
+        try:
+            Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(file_path, "w") as f:
+                f.write(content)
+            files_written += 1
+        except Exception:
+            pass
+
+    return files_written
+
+
+def _invoke_single_agent(agent: str, prompt: str, timeout: Optional[int], env: dict, workspace: str) -> dict:
+    """Invoke a single superagent (no fallback logic).
+
+    Returns dict with success, output, error, stderr, agent_used.
+    """
+    import shutil
+
+    # Superagent commands - full permissions for thorough analysis
+    # Run directly inside the container (no docker exec needed)
+    #
+    # CLI compatibility:
+    # - claude: -p enables print mode, reads prompt from stdin
+    # - codex: exec with "-" reads prompt from stdin
+    # - gemini: --yolo for auto-approve, prompt as positional arg
+    # - qwen: --yolo for auto-approve, -p for prompt (appended to stdin)
+    superagent_commands = {
+        "claude": ["claude", "--dangerously-skip-permissions", "-p"],
+        "codex": ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "-"],
+        "gemini": ["gemini", "--yolo", "-o", "text"],  # prompt added separately
+        "qwen": ["qwen", "--yolo"],  # prompt added separately via -p flag
+    }
+
+    # Agents that need prompt as argument, not stdin
+    prompt_as_arg = (agent in ("gemini", "qwen"))
+
+    if agent not in superagent_commands:
+        return {"success": False, "error": f"Unknown agent: {agent}", "output": "", "stderr": None, "agent_used": agent}
+
+    # Check if agent is available
+    agent_bin = agent if agent != "codex" else "codex"
+    if not shutil.which(agent_bin):
+        return {
+            "success": False,
+            "error": f"Agent '{agent_bin}' not found on PATH. Is this running inside an agentbox container?",
+            "output": "",
+            "stderr": None,
+            "agent_used": agent,
+        }
+
+    cmd = superagent_commands[agent]
+
+    # Handle prompt passing - some agents need it as argument, not stdin
+    if prompt_as_arg:
+        if agent == "gemini":
+            cmd = cmd + [prompt]
+        elif agent == "qwen":
+            cmd = cmd + ["-p", prompt]
+        input_data = None
+    else:
+        input_data = prompt
+
+    try:
+        result = subprocess.run(
+            cmd,
+            input=input_data,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=workspace,
+            env=env,
+        )
+        stderr = result.stderr.strip() if result.stderr else ""
+        stdout = result.stdout.strip() if result.stdout else ""
+
+        # Qwen outputs tool calls as text - parse and execute them
+        if agent == "qwen" and stdout:
+            _execute_qwen_tool_calls(stdout)
+
+        return {
+            "success": result.returncode == 0,
+            "output": stdout,
+            "error": stderr if result.returncode != 0 else None,
+            "stderr": stderr,
+            "agent_used": agent,
+        }
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": f"Timed out after {timeout}s", "output": "", "stderr": None, "agent_used": agent}
+    except Exception as e:
+        return {"success": False, "error": str(e), "output": "", "stderr": None, "agent_used": agent}
+
+
+def _invoke_superagent(agent: str, prompt: str, timeout: Optional[int] = None, caller: str = "") -> dict:
+    """Invoke a superagent for analysis with fallback support.
 
     Uses superagent mode for full read access:
     - superclaude: claude --dangerously-skip-permissions
     - supercodex: codex --dangerously-bypass-approvals-and-sandbox
+    - supergemini: gemini --non-interactive
+
+    If the primary agent fails due to rate limiting, falls back to:
+    codex → gemini → claude (in that order, skipping caller)
 
     Agents are available directly inside the agentbox container.
     """
-    import shutil
-
     # Parse depth safely
     try:
         depth = int(os.getenv("AGENTBOX_INVOCATION_DEPTH", "0"))
@@ -214,55 +442,40 @@ def _invoke_superagent(agent: str, prompt: str, timeout: Optional[int] = None) -
             "output": "",
         }
 
-    # Superagent commands - full permissions for thorough analysis
-    # Run directly inside the container (no docker exec needed)
-    # Prompt is passed via stdin (matching abox-notify pattern)
-    #
-    # CLI compatibility (tested with claude-code 1.x, codex 0.x):
-    # - claude: -p enables print mode, reads prompt from stdin
-    # - codex: exec with "-" reads prompt from stdin
-    superagent_commands = {
-        "claude": ["claude", "--dangerously-skip-permissions", "-p"],
-        "codex": ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "-"],
-    }
-
-    if agent not in superagent_commands:
-        return {"success": False, "error": f"Unknown agent: {agent}", "output": ""}
-
-    # Check if agent is available
-    agent_bin = "claude" if agent == "claude" else "codex"
-    if not shutil.which(agent_bin):
-        return {
-            "success": False,
-            "error": f"Agent '{agent_bin}' not found on PATH. Is this running inside an agentbox container?",
-            "output": "",
-        }
-
-    cmd = superagent_commands[agent]
     env = os.environ.copy()
     env["AGENTBOX_INVOCATION_DEPTH"] = "1"
 
-    try:
-        result = subprocess.run(
-            cmd,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd="/workspace",
-            env=env,
-        )
-        stderr = result.stderr.strip() if result.stderr else None
-        return {
-            "success": result.returncode == 0,
-            "output": result.stdout.strip(),
-            "error": stderr if result.returncode != 0 else None,
-            "stderr": stderr,  # Always include for diagnostics
-        }
-    except subprocess.TimeoutExpired:
-        return {"success": False, "error": f"Timed out after {timeout}s", "output": "", "stderr": None}
-    except Exception as e:
-        return {"success": False, "error": str(e), "output": "", "stderr": None}
+    # Use workspace from env var, or current directory, or fallback to /workspace
+    workspace = os.getenv("AGENTBOX_WORKSPACE") or os.getcwd() or "/workspace"
+
+    # Try primary agent first
+    result = _invoke_single_agent(agent, prompt, timeout, env, workspace)
+
+    # If successful, return immediately
+    if result["success"]:
+        return result
+
+    # Primary agent failed - try fallbacks
+    # We try all fallbacks regardless of error type to maximize chances of success
+    failed_agents = [agent]
+    fallbacks = _get_fallback_agents(agent, caller)
+
+    for fallback_agent in fallbacks:
+        fallback_result = _invoke_single_agent(fallback_agent, prompt, timeout, env, workspace)
+
+        if fallback_result["success"]:
+            # Add note about fallback
+            fallback_result["fallback_from"] = agent
+            fallback_result["fallback_reason"] = "primary_failed"
+            return fallback_result
+
+        # This fallback failed too, try next
+        failed_agents.append(fallback_agent)
+
+    # All agents failed
+    result["error"] = f"All agents failed. Tried: {', '.join(failed_agents)}. Last error: {result.get('error', 'unknown')}"
+
+    return result
 
 
 @mcp.tool()
@@ -270,7 +483,7 @@ def analyze(
     subject: str,
     prompt: str,
     report_file: str = "",
-    timeout: int = 600,
+    timeout: Optional[int] = None,
 ) -> dict:
     """Request deep analysis from peer agent.
 
@@ -288,6 +501,7 @@ def analyze(
     Returns:
         Path to the report file and summary
     """
+    resolved_timeout = _resolve_timeout("analyze", timeout)
     caller = _detect_caller_agent()
     peer = _get_peer_superagent(caller)
 
@@ -344,7 +558,7 @@ SUMMARY:
 <your summary here>
 """
 
-    result = _invoke_superagent(peer, full_prompt, timeout)
+    result = _invoke_superagent(peer, full_prompt, resolved_timeout, caller=caller)
 
     if not result["success"]:
         return {
@@ -352,6 +566,12 @@ SUMMARY:
             "error": result.get("error", "Analysis failed"),
             "report_file": None,
         }
+
+    # Track which agent actually performed the analysis
+    agent_used = result.get("agent_used", peer)
+    fallback_info = ""
+    if result.get("fallback_from"):
+        fallback_info = f" (fallback from {result['fallback_from']} due to {result.get('fallback_reason', 'error')})"
 
     # Check if report was created - fail if missing
     report_exists = Path(report_file).exists()
@@ -369,7 +589,7 @@ SUMMARY:
 
     return {
         "success": True,
-        "superagent": f"super{peer}",
+        "superagent": f"super{agent_used}{fallback_info}",
         "subject": subject,
         "report_file": report_file,
         "summary": summary,
@@ -402,13 +622,14 @@ def _validate_commit_ref(commit: str) -> tuple[bool, str]:
         return False, f"Invalid characters in commit reference: {commit}"
 
     # Verify it's a valid git ref (use -- to separate ref from options)
+    workspace = os.getenv("AGENTBOX_WORKSPACE") or os.getcwd() or "/workspace"
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--verify", "--", commit],
             capture_output=True,
             text=True,
             timeout=5,
-            cwd="/workspace",
+            cwd=workspace,
         )
         if result.returncode != 0:
             return False, f"Not a valid git reference: {commit}"
@@ -421,7 +642,7 @@ def _validate_commit_ref(commit: str) -> tuple[bool, str]:
 def review_commit(
     commit: str = "HEAD",
     focus: str = "",
-    timeout: int = 300,
+    timeout: Optional[int] = None,
 ) -> dict:
     """Find issues with a commit.
 
@@ -435,6 +656,8 @@ def review_commit(
     Returns:
         Issues found and suggestions
     """
+    resolved_timeout = _resolve_timeout("review_commit", timeout)
+
     # Validate commit reference to prevent injection
     is_valid, validated = _validate_commit_ref(commit)
     if not is_valid:
@@ -488,7 +711,7 @@ SUMMARY:
 Be specific with file paths and line numbers. Only report real issues, not style preferences.
 """
 
-    result = _invoke_superagent(peer, prompt, timeout)
+    result = _invoke_superagent(peer, prompt, resolved_timeout, caller=caller)
 
     if not result["success"]:
         return {
@@ -496,6 +719,12 @@ Be specific with file paths and line numbers. Only report real issues, not style
             "error": result.get("error", "Review failed"),
             "review": None,
         }
+
+    # Track which agent actually performed the review
+    agent_used = result.get("agent_used", peer)
+    fallback_info = ""
+    if result.get("fallback_from"):
+        fallback_info = f" (fallback from {result['fallback_from']} due to {result.get('fallback_reason', 'error')})"
 
     # Extract summary for user
     output = result["output"]
@@ -513,7 +742,7 @@ Be specific with file paths and line numbers. Only report real issues, not style
 
     return {
         "success": True,
-        "superagent": f"super{peer}",
+        "superagent": f"super{agent_used}{fallback_info}",
         "commit": commit,
         "summary": summary,
         "review": output,
@@ -524,7 +753,7 @@ Be specific with file paths and line numbers. Only report real issues, not style
 def suggest_tests(
     subject: str,
     test_type: str = "unit",
-    timeout: int = 300,
+    timeout: Optional[int] = None,
 ) -> dict:
     """Suggest tests for code or find gaps in existing tests.
 
@@ -538,6 +767,7 @@ def suggest_tests(
     Returns:
         Test suggestions with example code
     """
+    resolved_timeout = _resolve_timeout("suggest_tests", timeout)
     caller = _detect_caller_agent()
     peer = _get_peer_superagent(caller)
 
@@ -593,7 +823,7 @@ Focus on:
 Be practical - suggest tests that catch real bugs, not trivial ones.
 """
 
-    result = _invoke_superagent(peer, prompt, timeout)
+    result = _invoke_superagent(peer, prompt, resolved_timeout, caller=caller)
 
     if not result["success"]:
         return {
@@ -601,6 +831,12 @@ Be practical - suggest tests that catch real bugs, not trivial ones.
             "error": result.get("error", "Test suggestion failed"),
             "suggestions": None,
         }
+
+    # Track which agent actually performed the analysis
+    agent_used = result.get("agent_used", peer)
+    fallback_info = ""
+    if result.get("fallback_from"):
+        fallback_info = f" (fallback from {result['fallback_from']} due to {result.get('fallback_reason', 'error')})"
 
     # Extract summary for user
     output = result["output"]
@@ -617,7 +853,7 @@ Be practical - suggest tests that catch real bugs, not trivial ones.
 
     return {
         "success": True,
-        "superagent": f"super{peer}",
+        "superagent": f"super{agent_used}{fallback_info}",
         "subject": subject,
         "test_type": test_type,
         "summary": summary,
@@ -629,7 +865,7 @@ Be practical - suggest tests that catch real bugs, not trivial ones.
 def quick_check(
     subject: str,
     question: str,
-    timeout: int = 180,
+    timeout: Optional[int] = None,
 ) -> dict:
     """Quick question to peer agent - no report file, direct answer.
 
@@ -643,6 +879,7 @@ def quick_check(
     Returns:
         Direct answer from peer
     """
+    resolved_timeout = _resolve_timeout("quick_check", timeout)
     caller = _detect_caller_agent()
     peer = _get_peer_superagent(caller)
 
@@ -664,7 +901,7 @@ SUMMARY:
 <your summary here>
 """
 
-    result = _invoke_superagent(peer, prompt, timeout)
+    result = _invoke_superagent(peer, prompt, resolved_timeout, caller=caller)
 
     if not result["success"]:
         return {
@@ -672,6 +909,12 @@ SUMMARY:
             "error": result.get("error", "Check failed"),
             "answer": None,
         }
+
+    # Track which agent actually performed the check
+    agent_used = result.get("agent_used", peer)
+    fallback_info = ""
+    if result.get("fallback_from"):
+        fallback_info = f" (fallback from {result['fallback_from']} due to {result.get('fallback_reason', 'error')})"
 
     # Extract summary for user
     output = result["output"]
@@ -685,7 +928,7 @@ SUMMARY:
 
     return {
         "success": True,
-        "superagent": f"super{peer}",
+        "superagent": f"super{agent_used}{fallback_info}",
         "question": question,
         "summary": summary,
         "answer": output,
@@ -697,7 +940,7 @@ def verify_plan(
     plan: str,
     context: str = "",
     concerns: str = "",
-    timeout: int = 300,
+    timeout: Optional[int] = None,
 ) -> dict:
     """Get a second opinion on an implementation plan.
 
@@ -713,6 +956,7 @@ def verify_plan(
     Returns:
         Peer's assessment with approval/concerns/alternatives
     """
+    resolved_timeout = _resolve_timeout("verify_plan", timeout)
     caller = _detect_caller_agent()
     peer = _get_peer_superagent(caller)
 
@@ -765,7 +1009,7 @@ SUMMARY:
 <your summary here>
 """
 
-    result = _invoke_superagent(peer, prompt, timeout)
+    result = _invoke_superagent(peer, prompt, resolved_timeout, caller=caller)
 
     if not result["success"]:
         return {
@@ -773,6 +1017,12 @@ SUMMARY:
             "error": result.get("error", "Plan verification failed"),
             "assessment": None,
         }
+
+    # Track which agent actually performed the verification
+    agent_used = result.get("agent_used", peer)
+    fallback_info = ""
+    if result.get("fallback_from"):
+        fallback_info = f" (fallback from {result['fallback_from']} due to {result.get('fallback_reason', 'error')})"
 
     # Extract summary and verdict for user
     output = result["output"]
@@ -787,11 +1037,136 @@ SUMMARY:
 
     return {
         "success": True,
-        "superagent": f"super{peer}",
+        "superagent": f"super{agent_used}{fallback_info}",
         "verdict": verdict,
         "summary": summary,
         "assessment": output,
     }
+
+
+@mcp.tool()
+def discuss(
+    topic: str,
+    agents: str = "claude,gemini",
+    max_turns: int = 2,
+    timeout: Optional[int] = None,
+) -> dict:
+    """Get multiple AI perspectives on a topic via multi-agent discussion.
+
+    Runs a conversation between multiple AI agents using AgentPipe.
+    Useful for brainstorming, comparing viewpoints, or exploring trade-offs.
+
+    Args:
+        topic: What to discuss (question, problem, or context)
+        agents: Comma-separated agent list (default: claude,gemini)
+        max_turns: Conversation rounds per agent (default: 2)
+        timeout: Timeout in seconds (default 120 = 2 minutes)
+
+    Returns:
+        Discussion transcript with all agent responses
+    """
+    import shutil
+
+    resolved_timeout = timeout or 120
+
+    # Check if agentpipe is available
+    if not shutil.which("agentpipe"):
+        return {
+            "success": False,
+            "error": "agentpipe not installed. Run 'abox rebuild' on host.",
+            "discussion": None,
+        }
+
+    # Parse agents
+    agent_list = [a.strip() for a in agents.split(",") if a.strip()]
+    if len(agent_list) < 2:
+        return {
+            "success": False,
+            "error": "Need at least 2 agents for discussion",
+            "discussion": None,
+        }
+
+    # Build agentpipe command
+    cmd = ["agentpipe", "run"]
+    for agent in agent_list:
+        cmd.extend(["-a", agent])
+    cmd.extend([
+        "-p", topic,
+        "--max-turns", str(max_turns),
+        "--json",
+        "--no-log",
+        "--no-summary",
+    ])
+
+    workspace = os.getenv("AGENTBOX_WORKSPACE") or os.getcwd() or "/workspace"
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=resolved_timeout,
+            cwd=workspace,
+        )
+
+        # Parse JSONL output for messages
+        messages = []
+        for line in result.stdout.strip().split("\n"):
+            if not line:
+                continue
+            try:
+                import json
+                event = json.loads(line)
+                if event.get("type") == "message.created":
+                    data = event.get("data", {})
+                    content = data.get("content", "").strip()
+                    # Clean up MCP noise from gemini
+                    content = "\n".join(
+                        line for line in content.split("\n")
+                        if not line.startswith("MCP server")
+                        and not line.startswith("Server '")
+                        and "Listening for changes" not in line
+                    ).strip()
+                    if content:
+                        messages.append({
+                            "agent": data.get("agent_name", "Unknown"),
+                            "content": content,
+                        })
+            except (json.JSONDecodeError, KeyError):
+                continue
+
+        if not messages:
+            return {
+                "success": False,
+                "error": "No messages in discussion",
+                "raw_output": result.stdout[-500:] if result.stdout else result.stderr[-500:],
+            }
+
+        # Format discussion transcript
+        transcript = []
+        for msg in messages:
+            transcript.append(f"**{msg['agent']}:** {msg['content']}")
+
+        return {
+            "success": True,
+            "agents": agent_list,
+            "turns": max_turns,
+            "message_count": len(messages),
+            "discussion": "\n\n".join(transcript),
+        }
+
+    except subprocess.TimeoutExpired:
+        return {
+            "success": False,
+            "error": f"Discussion timed out after {resolved_timeout}s",
+            "discussion": None,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "discussion": None,
+        }
 
 
 if __name__ == "__main__":

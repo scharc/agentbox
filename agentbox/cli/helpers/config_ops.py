@@ -11,32 +11,32 @@ from agentbox.container import ContainerManager
 
 
 def _load_workspaces_config(agentbox_dir: Path) -> list[dict]:
-    """Load workspaces from .agentbox.yml."""
+    """Load workspaces from .agentbox/config.yml."""
     from agentbox.config import ProjectConfig
     config = ProjectConfig(agentbox_dir.parent)
     return config.workspaces
 
 
 def _save_workspaces_config(agentbox_dir: Path, workspaces: list[dict]) -> None:
-    """Save workspaces to .agentbox.yml."""
+    """Save workspaces to .agentbox/config.yml."""
     from agentbox.config import ProjectConfig
     config = ProjectConfig(agentbox_dir.parent)
-    config.config["workspaces"] = workspaces
+    config.workspaces = workspaces
     config.save()
 
 
 def _load_containers_config(agentbox_dir: Path) -> list[dict]:
-    """Load container connections from .agentbox.yml."""
+    """Load container connections from .agentbox/config.yml."""
     from agentbox.config import ProjectConfig
     config = ProjectConfig(agentbox_dir.parent)
     return config.containers
 
 
 def _save_containers_config(agentbox_dir: Path, connections: list[dict]) -> None:
-    """Save container connections to .agentbox.yml."""
+    """Save container connections to .agentbox/config.yml."""
     from agentbox.config import ProjectConfig
     config = ProjectConfig(agentbox_dir.parent)
-    config.config["containers"] = connections
+    config.containers = connections
     config.save()
 
 
@@ -56,7 +56,7 @@ def _validate_connection(manager: ContainerManager, connection: dict) -> bool:
 
 
 def _load_packages_config(agentbox_dir: Path) -> dict:
-    """Load packages from .agentbox.yml."""
+    """Load packages from .agentbox/config.yml."""
     from agentbox.config import ProjectConfig
 
     config = ProjectConfig(agentbox_dir.parent)
@@ -64,11 +64,11 @@ def _load_packages_config(agentbox_dir: Path) -> dict:
 
 
 def _save_packages_config(agentbox_dir: Path, packages: dict) -> None:
-    """Save packages to .agentbox.yml."""
+    """Save packages to .agentbox/config.yml."""
     from agentbox.config import ProjectConfig
 
     config = ProjectConfig(agentbox_dir.parent)
-    config.config["packages"] = packages
+    config.packages = packages
     config.save()
 
 

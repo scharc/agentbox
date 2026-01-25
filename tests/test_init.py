@@ -18,7 +18,11 @@ def test_init_creates_agentbox_dir(test_project):
 
     # Check for expected subdirectories
     assert (agentbox_dir / "claude").exists(), ".agentbox/claude should exist"
-    assert (agentbox_dir / "codex").exists(), ".agentbox/codex should exist"
+    assert (agentbox_dir / "skills").exists(), ".agentbox/skills should exist"
+
+    # Note: codex/, gemini/, qwen/ are created at runtime by container-init.sh
+    # mcp.json is at root level (unified for all agents)
+    assert (agentbox_dir / "mcp.json").exists(), ".agentbox/mcp.json should exist"
 
 
 def test_init_creates_claude_config(test_project):
@@ -41,26 +45,22 @@ def test_init_creates_claude_config(test_project):
         config_super = json.load(f)
     assert isinstance(config_super, dict), "config-super.json should be valid JSON"
 
-    # Check mcp.json
-    mcp_file = claude_dir / "mcp.json"
-    assert mcp_file.exists(), "claude/mcp.json should exist"
+
+def test_init_creates_unified_mcp(test_project):
+    """Test that 'abox init' creates unified mcp.json at root level."""
+    agentbox_dir = test_project / ".agentbox"
+    mcp_file = agentbox_dir / "mcp.json"
+
+    assert mcp_file.exists(), "mcp.json should exist at root"
 
     with open(mcp_file) as f:
         mcp_config = json.load(f)
     assert isinstance(mcp_config, dict), "mcp.json should be valid JSON"
     assert "mcpServers" in mcp_config, "mcp.json should have mcpServers key"
 
-
-def test_init_creates_codex_config(test_project):
-    """Test that 'abox init' creates Codex config."""
-    codex_dir = test_project / ".agentbox" / "codex"
-    config_file = codex_dir / "config.toml"
-
-    assert config_file.exists(), "codex/config.toml should exist"
-
-    # Read and verify it's valid TOML-like content
-    content = config_file.read_text()
-    assert len(content) > 0, "config.toml should not be empty"
+    # claude/mcp.json should NOT exist after init (symlink created at runtime)
+    claude_mcp = agentbox_dir / "claude" / "mcp.json"
+    assert not claude_mcp.exists(), "claude/mcp.json should not exist (symlink created at runtime)"
 
 
 def test_init_idempotent(tmp_path, docker_available):

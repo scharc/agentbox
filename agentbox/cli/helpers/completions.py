@@ -6,15 +6,46 @@
 
 These functions provide fast tab-completion by querying the agentboxd service
 when available. Falls back to direct Docker API calls when the service isn't running.
+
+Performance optimized with TTL cache to avoid repeated Docker API calls during
+rapid tab completion sequences.
 """
 
 import json
 import os
 import socket
+import threading
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, List, Any
 
 import click
+
+from agentbox import container_naming
+
+# =============================================================================
+# Completion cache for fallback functions (avoids repeated Docker API calls)
+# =============================================================================
+_completion_cache: Dict[str, List[str]] = {}
+_completion_cache_time: Dict[str, float] = {}
+_completion_cache_lock = threading.Lock()
+_COMPLETION_CACHE_TTL = 5.0  # 5 seconds - short enough to stay fresh
+
+
+def _get_cached_completion(cache_key: str) -> Optional[List[str]]:
+    """Get completion results from cache if fresh."""
+    with _completion_cache_lock:
+        if cache_key in _completion_cache:
+            if time.time() - _completion_cache_time.get(cache_key, 0) < _COMPLETION_CACHE_TTL:
+                return _completion_cache[cache_key]
+    return None
+
+
+def _set_cached_completion(cache_key: str, results: List[str]) -> None:
+    """Store completion results in cache."""
+    with _completion_cache_lock:
+        _completion_cache[cache_key] = results
+        _completion_cache_time[cache_key] = time.time()
 
 
 def _get_agentboxd_socket() -> Path:
@@ -52,7 +83,17 @@ def _query_agentboxd(action: str, **params) -> Optional[dict]:
 # =============================================================================
 
 def _complete_project_name_fallback(incomplete: str) -> list[str]:
-    """Fallback: complete project names via Docker API (slow)."""
+    """Fallback: complete project names via Docker API (slow).
+
+    Performance optimized: Uses TTL cache (5 seconds) to avoid repeated Docker calls.
+    """
+    cache_key = "project_names"
+
+    # Check cache first (regardless of incomplete prefix)
+    cached = _get_cached_completion(cache_key)
+    if cached is not None:
+        return [n for n in cached if n.startswith(incomplete)]
+
     try:
         from agentbox.container import ContainerManager
         manager = ContainerManager()
@@ -60,46 +101,73 @@ def _complete_project_name_fallback(incomplete: str) -> list[str]:
         project_names = []
         for container in containers:
             name = container.get("name", "")
-            if name.startswith("agentbox-"):
-                project_names.append(name[9:])
+            project_name = container_naming.extract_project_name(name)
+            if project_name:
+                project_names.append(project_name)
+
+        # Cache full list
+        _set_cached_completion(cache_key, project_names)
         return [n for n in project_names if n.startswith(incomplete)]
     except Exception:
         return []
 
 
 def _complete_session_name_fallback(incomplete: str, project: str = None) -> list[str]:
-    """Fallback: complete session names via Docker exec (slow)."""
+    """Fallback: complete session names via Docker exec (slow).
+
+    Performance optimized: Uses TTL cache (5 seconds) to avoid repeated docker exec calls.
+    """
     try:
         from agentbox.container import ContainerManager
         from agentbox.cli.helpers.tmux_ops import _get_tmux_sessions
 
         manager = ContainerManager()
         if project:
-            project_name = manager.sanitize_project_name(project)
+            # Explicit project - use simple name generation
+            project_name = container_naming.sanitize_name(project)
+            container_name = f"{container_naming.CONTAINER_PREFIX}{project_name}"
         else:
-            project_name = manager.get_project_name()
+            # No project - use collision-aware resolution based on current directory
+            container_name = container_naming.resolve_container_name()
 
-        container_name = manager.get_container_name(project_name)
         if not manager.is_running(container_name):
             return []
 
+        # Check cache first
+        cache_key = f"sessions:{container_name}"
+        cached = _get_cached_completion(cache_key)
+        if cached is not None:
+            return [n for n in cached if n.startswith(incomplete)]
+
         sessions = _get_tmux_sessions(manager, container_name)
         names = [session["name"] for session in sessions]
+
+        # Cache full list
+        _set_cached_completion(cache_key, names)
         return [n for n in names if n.startswith(incomplete)]
     except Exception:
         return []
 
 
 def _complete_worktree_fallback(incomplete: str) -> list[str]:
-    """Fallback: complete worktree branches via Docker exec (slow)."""
+    """Fallback: complete worktree branches via Docker exec (slow).
+
+    Performance optimized: Uses TTL cache (5 seconds) to avoid repeated docker exec calls.
+    """
     try:
         from agentbox.container import ContainerManager, get_abox_environment
 
         manager = ContainerManager()
-        project_name = manager.get_project_name()
-        container_name = manager.get_container_name(project_name)
+        # Use collision-aware resolution based on current directory
+        container_name = container_naming.resolve_container_name()
         if not manager.is_running(container_name):
             return []
+
+        # Check cache first
+        cache_key = f"worktrees:{container_name}"
+        cached = _get_cached_completion(cache_key)
+        if cached is not None:
+            return [b for b in cached if b.startswith(incomplete)]
 
         exit_code, output = manager.exec_command(
             container_name,
@@ -119,6 +187,9 @@ def _complete_worktree_fallback(incomplete: str) -> list[str]:
             branch = wt.get("branch", "")
             if path != "/workspace" and branch:
                 branches.append(branch)
+
+        # Cache full list
+        _set_cached_completion(cache_key, branches)
         return [b for b in branches if b.startswith(incomplete)]
     except Exception:
         return []
@@ -130,11 +201,10 @@ def _complete_worktree_fallback(incomplete: str) -> list[str]:
 
 def _complete_session_name(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
     """Complete session names for current project."""
-    # Get current project name for context
+    # Get current project name for context (used for agentboxd query filtering)
     try:
-        from agentbox.container import ContainerManager
-        manager = ContainerManager()
-        project = manager.get_project_name()
+        project_dir = container_naming.resolve_project_dir()
+        project = container_naming.sanitize_name(project_dir.name)
     except Exception:
         project = None
 
@@ -169,9 +239,8 @@ def _complete_connect_session(ctx: click.Context, param: click.Parameter, incomp
     # If no project specified, try to get from current directory
     if not project:
         try:
-            from agentbox.container import ContainerManager
-            manager = ContainerManager()
-            project = manager.get_project_name()
+            project_dir = container_naming.resolve_project_dir()
+            project = container_naming.sanitize_name(project_dir.name)
         except Exception:
             pass
 
@@ -207,11 +276,10 @@ def _complete_mcp_names(ctx: click.Context, param: click.Parameter, incomplete: 
 
 def _complete_worktree_branch(ctx: click.Context, param: click.Parameter, incomplete: str) -> list[str]:
     """Complete worktree branch names from existing worktrees."""
-    # Get current project name for context
+    # Get current project name for context (used for agentboxd query filtering)
     try:
-        from agentbox.container import ContainerManager
-        manager = ContainerManager()
-        project = manager.get_project_name()
+        project_dir = container_naming.resolve_project_dir()
+        project = container_naming.sanitize_name(project_dir.name)
     except Exception:
         project = None
 

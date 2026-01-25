@@ -43,6 +43,7 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-venv \
     python3-dev \
+    python-is-python3 \
     # System tools
     jq \
     tree \
@@ -91,17 +92,19 @@ RUN apt-get update && apt-get install -y \
 # Configure locales
 RUN locale-gen en_US.UTF-8
 
-# Remove default ubuntu user (UID 1000) to avoid conflicts with abox user
-# The container-init.sh creates 'abox' user with HOST_UID (typically 1000)
+# Create abox user with UID 1000 (replacing default ubuntu user)
+# container-init.sh will adjust UID/GID at runtime to match the host user
 RUN userdel -r ubuntu 2>/dev/null || true \
-    && groupdel ubuntu 2>/dev/null || true
+    && groupdel ubuntu 2>/dev/null || true \
+    && groupadd -g 1000 abox \
+    && useradd -m -u 1000 -g 1000 -s /bin/bash abox
 
-# Install GitHub CLI
+# Install GitHub CLI and GitLab CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
     && apt-get update \
-    && apt-get install -y gh \
+    && apt-get install -y gh glab \
     && rm -rf /var/lib/apt/lists/*
 
 # Install websocat (WebSocket debugging tool)
@@ -120,21 +123,6 @@ RUN LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygi
 RUN ARCH=$(dpkg --print-architecture) \
     && curl -fsSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${ARCH}" -o /usr/local/bin/yq \
     && chmod +x /usr/local/bin/yq
-
-# Install eza (modern ls replacement)
-RUN ARCH=$(dpkg --print-architecture) \
-    && curl -fsSL "https://github.com/eza-community/eza/releases/latest/download/eza_${ARCH}-unknown-linux-gnu.tar.gz" | tar xzf - -C /usr/local/bin
-
-# Install delta (better git diff)
-RUN ARCH=$(dpkg --print-architecture) \
-    && if [ "$ARCH" = "amd64" ]; then DELTA_ARCH="x86_64"; else DELTA_ARCH="aarch64"; fi \
-    && curl -fsSL "https://github.com/dandavison/delta/releases/latest/download/delta-${DELTA_ARCH}-unknown-linux-gnu.tar.gz" \
-    | tar xzf - --strip-components=1 -C /usr/local/bin --wildcards '*/delta'
-
-# Install glow (markdown renderer)
-RUN ARCH=$(dpkg --print-architecture) \
-    && if [ "$ARCH" = "amd64" ]; then GLOW_ARCH="x86_64"; else GLOW_ARCH="arm64"; fi \
-    && curl -fsSL "https://github.com/charmbracelet/glow/releases/latest/download/glow_Linux_${GLOW_ARCH}.tar.gz" | tar xzf - -C /usr/local/bin glow
 
 # Install Docker CLI
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \
@@ -162,13 +150,24 @@ RUN npm install -g \
     yarn \
     pnpm
 
-# Install Claude Code via npm
-RUN npm install -g @anthropic-ai/claude-code
+# Install Claude Code via native installer as abox user
+# Installs to /home/abox/.local/bin/claude (already in PATH)
+USER abox
+RUN curl -fsSL https://claude.ai/install.sh | bash
+USER root
 
-# Install OpenAI Codex and Gemini CLIs via npm
+# Install OpenAI Codex, Gemini, and Qwen CLIs via npm
 RUN npm install -g \
     @openai/codex \
-    @google/gemini-cli
+    @google/gemini-cli \
+    @qwen-code/qwen-code
+
+# Install AgentPipe (multi-agent orchestration)
+RUN ARCH=$(dpkg --print-architecture) \
+    && curl -fsSL "https://github.com/kevinelliott/agentpipe/releases/latest/download/agentpipe_linux_${ARCH}.tar.gz" \
+    | tar xzf - -C /usr/local/bin \
+    && mv /usr/local/bin/agentpipe_linux_${ARCH} /usr/local/bin/agentpipe \
+    && chmod +x /usr/local/bin/agentpipe
 
 # Install VSCode CLI for /ide integration
 # This allows claude --ide to connect to host VSCode
@@ -183,13 +182,15 @@ RUN curl -sSL https://install.python-poetry.org | python3 - \
     && ln -s /usr/local/poetry/bin/poetry /usr/local/bin/poetry \
     && chmod -R a+rx /usr/local/poetry
 
-# Install uv
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && ln -s /root/.local/bin/uv /usr/local/bin/uv \
-    && ln -s /root/.local/bin/uvx /usr/local/bin/uvx
+# Install uv as abox user
+# Installs to /home/abox/.local/bin/ (already in PATH)
+USER abox
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+USER root
 
 # Install common Python packages
-RUN pip3 install --no-cache-dir --break-system-packages \
+# --ignore-installed handles conflicts with system-installed packages (e.g., rich)
+RUN pip3 install --no-cache-dir --break-system-packages --ignore-installed \
     pipenv \
     virtualenv \
     black \
@@ -201,7 +202,10 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     "uvicorn[standard]" \
     websockets \
     starlette \
-    sse-starlette
+    sse-starlette \
+    "litellm[proxy]" \
+    httpx \
+    fastmcp
 
 # Copy and install agentbox package (needed for agentctl)
 COPY agentbox /tmp/agentbox-build/agentbox
@@ -209,7 +213,8 @@ COPY pyproject.toml /tmp/agentbox-build/pyproject.toml
 COPY README.md /tmp/agentbox-build/README.md
 RUN pip3 install --no-cache-dir --break-system-packages poetry-core \
     && pip3 install --no-cache-dir --break-system-packages /tmp/agentbox-build \
-    && rm -rf /tmp/agentbox-build
+    && rm -rf /tmp/agentbox-build \
+    && rm -f /usr/local/bin/abox /usr/local/bin/agentbox  # Host-only CLIs
 
 # Create directory structure
 RUN mkdir -p /workspace \
@@ -230,14 +235,16 @@ COPY bin/abox-notify /usr/local/bin/abox-notify
 COPY bin/superclaude /usr/local/bin/superclaude
 COPY bin/supercodex /usr/local/bin/supercodex
 COPY bin/supergemini /usr/local/bin/supergemini
+COPY bin/superqwen /usr/local/bin/superqwen
 COPY bin/agentctl /usr/local/bin/agentctl
 COPY bin/abox-clipboard /usr/local/bin/abox-clipboard
+COPY bin/start-litellm.py /usr/local/bin/start-litellm.py
 RUN chmod 755 /usr/local/bin/container-init.sh /usr/local/bin/install-packages.py \
     /usr/local/bin/start-mcp-servers.py /usr/local/bin/generate-mcp-config.py \
     /usr/local/bin/mcp-bridge.py /usr/local/bin/container-healthcheck.sh \
     /usr/local/bin/abox-notify /usr/local/bin/superclaude \
-    /usr/local/bin/supercodex /usr/local/bin/supergemini /usr/local/bin/agentctl \
-    /usr/local/bin/abox-clipboard
+    /usr/local/bin/supercodex /usr/local/bin/supergemini /usr/local/bin/superqwen \
+    /usr/local/bin/agentctl /usr/local/bin/abox-clipboard /usr/local/bin/start-litellm.py
 
 # Install bash completions for agentbox and bundled CLIs
 COPY bin/completions/*.bash /etc/bash_completion.d/

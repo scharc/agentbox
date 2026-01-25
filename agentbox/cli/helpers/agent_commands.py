@@ -14,9 +14,16 @@ from rich.console import Console
 
 from agentbox.container import ContainerManager
 from agentbox.cli.helpers.tmux_ops import _sanitize_tmux_name, _resolve_tmux_prefix, _warn_if_base_outdated
-from agentbox.cli.helpers.utils import _sync_library_mcps
+from agentbox.cli.helpers.utils import _sync_library_mcps, ContainerError
+from agentbox.cli.helpers.port_utils import (
+    check_configured_ports,
+    format_conflict_message,
+    release_port_from_container,
+    PortConflict,
+)
 from agentbox.utils.terminal import reset_terminal
 from agentbox.utils.project import resolve_project_dir, get_agentbox_dir
+from agentbox import container_naming
 
 console = Console()
 
@@ -26,18 +33,22 @@ def _resolve_container_and_args(
     project: Optional[str],
     args: tuple,
 ) -> tuple[str, tuple]:
-    if project and not manager.container_exists(
-        manager.get_container_name(manager.sanitize_project_name(project))
-    ):
-        args = (project,) + args
-        project = None
+    if project:
+        # Check if explicit project container exists
+        project_name = container_naming.sanitize_name(project)
+        test_container = f"{container_naming.CONTAINER_PREFIX}{project_name}"
+        if not manager.container_exists(test_container):
+            args = (project,) + args
+            project = None
 
     if project is None:
-        project_name = manager.get_project_name()
+        # Use collision-aware resolution based on current directory
+        container_name = container_naming.resolve_container_name()
     else:
-        project_name = manager.sanitize_project_name(project)
+        # Explicit project name - use simple name generation
+        project_name = container_naming.sanitize_name(project)
+        container_name = f"{container_naming.CONTAINER_PREFIX}{project_name}"
 
-    container_name = manager.get_container_name(project_name)
     return container_name, args
 
 
@@ -91,15 +102,15 @@ def _build_agent_command(
         f"{tmux_prefix_option}tmux set-option -t {shlex.quote(session_name)} status on; "
         f"tmux set-option -t {shlex.quote(session_name)} status-position top; "
         f"tmux set-option -t {shlex.quote(session_name)} status-style 'bg=colour226,fg=colour232'; "
-        f"tmux set-option -t {shlex.quote(session_name)} mouse on; "
-        f"tmux set-option -t {shlex.quote(session_name)} set-clipboard on; "
+        # Mouse mode disabled - let terminal (foot) handle selection directly to PRIMARY buffer
+        f"tmux set-option -t {shlex.quote(session_name)} mouse off; "
         f"tmux set-option -t {shlex.quote(session_name)} history-limit 50000; "
-        # Auto-copy mouse selection to host clipboard via abox-clipboard (uses host's wl-copy/xclip)
-        # Use copy-pipe-and-cancel to properly exit selection mode after copying
-        f"tmux bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel 'abox-clipboard'; "
-        f"tmux bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel 'abox-clipboard'; "
-        # Enable mouse wheel scrolling (ensure default bindings work)
-        f"tmux bind-key -T root WheelUpPane if-shell -F -t = '{{mouse_any_flag}}' 'send-keys -M' 'if-shell -F -t = \"{{pane_in_mode}}\" \"send-keys -M\" \"copy-mode -e\"'; "
+        # PageUp/PageDown for scrolling without prefix key
+        f"tmux bind-key -n PPage copy-mode -eu; "  # PageUp enters copy mode and scrolls up
+        f"tmux bind-key -T copy-mode PPage send-keys -X page-up; "
+        f"tmux bind-key -T copy-mode NPage send-keys -X page-down; "
+        f"tmux bind-key -T copy-mode-vi PPage send-keys -X page-up; "
+        f"tmux bind-key -T copy-mode-vi NPage send-keys -X page-down; "
         f"tmux set-option -t {shlex.quote(session_name)} status-left "
         f"{shlex.quote(' AGENTBOX ' + container_name + ' | ' + display + ' ')}; "
         f"tmux set-option -t {shlex.quote(session_name)} status-right ''; "
@@ -109,16 +120,20 @@ def _build_agent_command(
         f"{shlex.quote(' AGENTBOX ' + container_name + ' | ' + display + ' ')}; "
     )
 
+    # Use = prefix for exact session matching (prevents tmux prefix matching)
+    exact_session = f"={session_name}"
     if reuse_tmux_session:
         tmux_setup = (
-            f"if tmux has-session -t {shlex.quote(session_name)} 2>/dev/null; then "
+            # Use exact_session for has-session check too, to prevent prefix matching
+            # (e.g., "superclaude" matching "superclaude-1234567890")
+            f"if tmux has-session -t {shlex.quote(exact_session)} 2>/dev/null; then "
             f"{tmux_options}"
-            f"tmux attach -t {shlex.quote(session_name)}; "
+            f"tmux attach -t {shlex.quote(exact_session)}; "
             f"else "
             f"tmux new-session -d -s {shlex.quote(session_name)} "
             f"/bin/bash -lc {shlex.quote(inner_cmd)}; "
             f"{tmux_options}"
-            f"tmux attach -t {shlex.quote(session_name)}; "
+            f"tmux attach -t {shlex.quote(exact_session)}; "
             f"fi"
         )
     else:
@@ -126,7 +141,7 @@ def _build_agent_command(
             f"tmux new-session -d -s {shlex.quote(session_name)} "
             f"/bin/bash -lc {shlex.quote(inner_cmd)}; "
             f"{tmux_options}"
-            f"tmux attach -t {shlex.quote(session_name)}"
+            f"tmux attach -t {shlex.quote(exact_session)}"
         )
 
     agent_cmd = [
@@ -194,7 +209,7 @@ def _require_config_migrated(project_dir: Path) -> bool:
 
     # Show what needs to be migrated
     console.print("\n[red bold]Config migration required[/red bold]")
-    console.print("[yellow]Your .agentbox.yml uses deprecated settings:[/yellow]\n")
+    console.print("[yellow]Your .agentbox/config.yml uses deprecated settings:[/yellow]\n")
 
     for result in applicable:
         migration = get_migration(result.migration_id)
@@ -206,24 +221,212 @@ def _require_config_migrated(project_dir: Path) -> bool:
     return False
 
 
-def _ensure_container_running(manager: ContainerManager, container_name: str) -> bool:
+def _handle_port_conflicts(project_dir: Path, container_name: str) -> bool:
+    """Check for port conflicts and handle them interactively.
+
+    Args:
+        project_dir: Path to the project directory
+        container_name: Name of the container being started
+
+    Returns:
+        True if we should proceed with container start, False to abort
+    """
+    import click
+
+    conflicts = check_configured_ports(project_dir, container_name)
+    if not conflicts:
+        return True
+
+    console.print("\n[yellow]Port conflicts detected:[/yellow]")
+    for conflict in conflicts:
+        console.print(f"  • {format_conflict_message(conflict)}")
+    console.print()
+
+    # Group by blocker type for resolution
+    agentbox_conflicts = [c for c in conflicts if c.blocker_type == "agentbox"]
+    external_conflicts = [c for c in conflicts if c.blocker_type == "external"]
+
+    # Handle agentbox conflicts - offer to release
+    for conflict in agentbox_conflicts:
+        msg = format_conflict_message(conflict)
+        display_name = container_naming.extract_project_name(conflict.blocker_container) or conflict.blocker_container
+
+        console.print(f"\n[bold]{msg}[/bold]")
+        console.print(f"  0. Abort")
+        console.print(f"  1. Release port {conflict.port} from {display_name}")
+        console.print(f"  2. Use different port for {conflict.port}")
+        console.print(f"  3. Skip this port")
+
+        choice = click.prompt("Choose option", type=int, default=1)
+
+        if choice == 0:
+            console.print("[red]Aborted[/red]")
+            return False
+        elif choice == 1:
+            # Release the port
+            success = release_port_from_container(
+                conflict.blocker_container,
+                conflict.port,
+                conflict.direction,
+            )
+            if success:
+                console.print(f"[green]Released port {conflict.port}[/green]")
+            else:
+                console.print(f"[red]Failed to release port {conflict.port}[/red]")
+                return False
+        elif choice == 2:
+            # Use different port
+            new_port = click.prompt(f"Enter new host port for container:{conflict.container_port}", type=int)
+            _update_port_config(project_dir, conflict, new_port)
+            console.print(f"[green]Updated config: host:{new_port} → container:{conflict.container_port}[/green]")
+        elif choice == 3:
+            # Skip - remove from config temporarily
+            console.print(f"[yellow]Skipping port {conflict.port}[/yellow]")
+            _remove_port_from_config(project_dir, conflict)
+            return False
+
+    # Handle external conflicts - can only skip or use different port
+    for conflict in external_conflicts:
+        msg = format_conflict_message(conflict)
+
+        console.print(f"\n[bold]{msg}[/bold]")
+        console.print(f"  0. Abort")
+        console.print(f"  1. Use different port for {conflict.port}")
+        console.print(f"  2. Skip this port")
+
+        choice = click.prompt("Choose option", type=int, default=1)
+
+        if choice == 0:
+            console.print("[red]Aborted[/red]")
+            return False
+        elif choice == 1:
+            # Use different port
+            new_port = click.prompt(f"Enter new host port for container:{conflict.container_port}", type=int)
+            _update_port_config(project_dir, conflict, new_port)
+            console.print(f"[green]Updated config: host:{new_port} → container:{conflict.container_port}[/green]")
+        elif choice == 2:
+            # Skip
+            console.print(f"[yellow]Skipping port {conflict.port}[/yellow]")
+            _remove_port_from_config(project_dir, conflict)
+
+    return True
+
+
+def _update_port_config(project_dir: Path, conflict: PortConflict, new_port: int) -> None:
+    """Update the port config to use a different host port."""
+    from agentbox.config import ProjectConfig
+
+    config = ProjectConfig(project_dir)
+
+    if conflict.direction == "exposed":
+        # Update ports.host
+        new_ports = []
+        for port_spec in config.ports_host:
+            host_port, container_port = _parse_port_spec_simple(port_spec)
+            if host_port == conflict.port:
+                new_ports.append(f"{new_port}:{container_port}")
+            else:
+                new_ports.append(port_spec)
+        config.ports = {"host": new_ports, "container": config.ports_container}
+    else:
+        # Update ports.container
+        new_ports = []
+        for port_config in config.ports_container:
+            if isinstance(port_config, dict):
+                if port_config.get("port") == conflict.port:
+                    port_config = dict(port_config)
+                    port_config["port"] = new_port
+                new_ports.append(port_config)
+            else:
+                host_port, container_port = _parse_port_spec_simple(port_config)
+                if host_port == conflict.port:
+                    new_ports.append({"port": new_port, "container_port": container_port})
+                else:
+                    new_ports.append(port_config)
+        config.ports = {"host": config.ports_host, "container": new_ports}
+
+    config.save()
+
+
+def _remove_port_from_config(project_dir: Path, conflict: PortConflict) -> None:
+    """Remove a conflicting port from config."""
+    from agentbox.config import ProjectConfig
+
+    config = ProjectConfig(project_dir)
+
+    if conflict.direction == "exposed":
+        new_ports = []
+        for port_spec in config.ports_host:
+            host_port, _ = _parse_port_spec_simple(port_spec)
+            if host_port != conflict.port:
+                new_ports.append(port_spec)
+        config.ports = {"host": new_ports, "container": config.ports_container}
+    else:
+        new_ports = []
+        for port_config in config.ports_container:
+            if isinstance(port_config, dict):
+                if port_config.get("port") != conflict.port:
+                    new_ports.append(port_config)
+            else:
+                host_port, _ = _parse_port_spec_simple(port_config)
+                if host_port != conflict.port:
+                    new_ports.append(port_config)
+        config.ports = {"host": config.ports_host, "container": new_ports}
+
+    config.save()
+
+
+def _parse_port_spec_simple(port_spec) -> tuple:
+    """Simple port spec parser returning (host_port, container_port)."""
+    try:
+        if isinstance(port_spec, int):
+            return (port_spec, port_spec)
+        parts = str(port_spec).split(":")
+        if len(parts) == 1:
+            port = int(parts[0])
+            return (port, port)
+        elif len(parts) == 2:
+            return (int(parts[0]), int(parts[1]))
+        elif len(parts) == 3:
+            return (int(parts[1]), int(parts[2]))
+    except (ValueError, IndexError):
+        pass
+    return (None, None)
+
+
+def _ensure_container_running(manager: ContainerManager, container_name: str) -> None:
     """Ensure the container exists and is running, auto-starting if needed.
 
     When creating a new container, this function:
-    1. Syncs MCP servers from library
-    2. Creates the container
-    3. Applies config (packages) after container starts
+    1. Checks for port conflicts and handles them interactively
+    2. Syncs MCP servers from library
+    3. Creates the container
+    4. Applies config (packages) after container starts
+
+    Raises:
+        ContainerError: If container creation or startup fails.
+        SystemExit: If user aborts due to port conflicts.
     """
     if manager.is_running(container_name):
-        return True
+        return
+
+    # Check for port conflicts before starting
+    project_dir = resolve_project_dir()
+    if not _handle_port_conflicts(project_dir, container_name):
+        raise SystemExit(1)
 
     if manager.container_exists(container_name):
         console.print(f"[blue]Container {container_name} is not running. Starting...[/blue]")
-        manager.start_container(container_name)
-        return True
+        try:
+            manager.start_container(container_name)
+            return
+        except Exception as exc:
+            raise ContainerError(
+                f"Failed to start container {container_name}",
+                hint=f"docker logs {container_name}  # Check container logs",
+            ) from exc
 
     console.print(f"[blue]Container {container_name} doesn't exist. Creating and starting...[/blue]")
-    project_dir = resolve_project_dir()
     project_name = manager.get_project_name(project_dir)
     agentbox_dir = get_agentbox_dir(project_dir)
 
@@ -245,10 +448,11 @@ def _ensure_container_running(manager: ContainerManager, container_name: str) ->
             config.rebuild(manager, container_name)
 
         console.print(f"[green]Container {container_name} created and started[/green]")
-        return True
     except Exception as exc:
-        console.print(f"[red]Failed to create container: {exc}[/red]")
-        return False
+        raise ContainerError(
+            f"Failed to create container {container_name}\n\nError: {exc}",
+            hint="docker ps  # Check if Docker is running",
+        ) from exc
 
 
 def _run_agent_command(
@@ -274,9 +478,8 @@ def _run_agent_command(
     if not _require_config_migrated(project_dir):
         raise SystemExit(1)
 
-    if not _ensure_container_running(manager, container_name):
-        console.print(f"[red]Failed to start container {container_name}[/red]")
-        raise SystemExit(1)
+    # Ensure container is running (raises ContainerError on failure)
+    _ensure_container_running(manager, container_name)
 
     _warn_if_base_outdated(manager, container_name, project_dir)
 

@@ -18,8 +18,8 @@ class WebServerConfig(BaseModel):
     """Web server configuration."""
 
     enabled: bool = True
-    host: str = "127.0.0.1"  # Legacy single host (used if hosts is empty)
-    hosts: List[str] = Field(default_factory=list)  # Empty = use legacy host
+    host: str = "127.0.0.1"  # Single host (used if hosts is empty)
+    hosts: List[str] = Field(default_factory=list)  # Empty = use single host
     port: int = 8080
     log_level: str = "info"
 
@@ -31,14 +31,21 @@ class NotificationsConfig(BaseModel):
     timeout_enhanced: float = 60.0
     deduplication_window: float = 10.0
     hook_timeout: float = 5.0
+    auto_dismiss: bool = True  # Auto-dismiss notifications on session activity
 
 
 class HostTaskAgentsConfig(BaseModel):
-    """Task agents configuration for host."""
+    """Task agents configuration for host.
+
+    Model aliases (work with any agent):
+        - fast: Quick responses (claude: haiku, codex: gpt-4o-mini)
+        - balanced: Good quality (claude: sonnet, codex: gpt-4o)
+        - powerful: Best quality (claude: opus, codex: o3)
+    """
 
     enabled: bool = False
     agent: str = "claude"
-    model: str = "haiku"
+    model: str = "fast"  # Use alias for cross-agent compatibility
     timeout: int = 30
     buffer_lines: int = 50
 
@@ -92,6 +99,47 @@ class NetworkConfig(BaseModel):
     bind_addresses: List[str] = Field(default_factory=lambda: ["127.0.0.1", "tailscale"])
 
 
+class LiteLLMProviderConfig(BaseModel):
+    """Configuration for a single LLM provider."""
+
+    api_key: Optional[str] = None  # Can use ${ENV_VAR} syntax
+    api_base: Optional[str] = None
+
+
+class LiteLLMModelDeployment(BaseModel):
+    """A model deployment in a fallback chain."""
+
+    provider: str
+    model: str
+
+
+class LiteLLMFallbackConfig(BaseModel):
+    """Fallback behavior settings."""
+
+    on_rate_limit: bool = True
+    on_context_window: bool = True
+    on_error: bool = True
+
+
+class LiteLLMRouterConfig(BaseModel):
+    """Router settings for LiteLLM."""
+
+    num_retries: int = 3
+    timeout: int = 120
+    retry_after_seconds: int = 60
+
+
+class LiteLLMConfig(BaseModel):
+    """LiteLLM proxy configuration for multi-provider LLM access."""
+
+    enabled: bool = False
+    port: int = 4000
+    providers: Dict[str, LiteLLMProviderConfig] = Field(default_factory=dict)
+    models: Dict[str, List[LiteLLMModelDeployment]] = Field(default_factory=dict)
+    fallbacks: LiteLLMFallbackConfig = Field(default_factory=LiteLLMFallbackConfig)
+    router: LiteLLMRouterConfig = Field(default_factory=LiteLLMRouterConfig)
+
+
 class HostConfigModel(BaseModel):
     """Main host configuration model for ~/.config/agentbox/config.yml."""
 
@@ -106,5 +154,6 @@ class HostConfigModel(BaseModel):
     terminal: TerminalConfig = Field(default_factory=TerminalConfig)
     tailscale_monitor: TailscaleMonitorConfig = Field(default_factory=TailscaleMonitorConfig)
     network: NetworkConfig = Field(default_factory=NetworkConfig)
+    litellm: LiteLLMConfig = Field(default_factory=LiteLLMConfig)
 
     model_config = ConfigDict(extra="allow")  # Allow extra fields for forward compatibility

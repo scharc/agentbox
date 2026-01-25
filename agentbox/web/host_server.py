@@ -35,8 +35,8 @@ from agentbox.web.tmux_manager import (
     get_cursor_position,
 )
 from agentbox.web.pty_manager import get_pty_manager
-from agentbox.sessions import create_session
-from agentbox.agentboxd import get_cached_buffer, send_input, get_tunnel_stats, get_connected_containers
+from agentbox.core.sessions import create_agent_session as create_session
+from agentbox.agentboxd import get_cached_buffer, send_input, get_tunnel_stats, get_connected_containers, get_session_metadata, get_usage_status
 from agentbox.host_config import get_config
 from agentbox.container import ContainerManager
 
@@ -146,26 +146,91 @@ async def decisions():
 async def get_sessions() -> Dict[str, List[Dict]]:
     """Get all tmux sessions across containers.
 
+    Performance optimized: Uses asyncio to parallelize preview capture
+    across all sessions (reduces N sequential docker exec calls to parallel).
+
     Returns:
         JSON with sessions list including previews
     """
+    import concurrent.futures
+
     sessions = get_all_sessions()
 
-    # Add preview for each session
-    for session in sessions:
+    if not sessions:
+        return {"sessions": []}
+
+    # Capture previews in parallel using thread pool
+    def capture_preview(session: Dict) -> tuple[Dict, str]:
+        """Capture preview for a single session (runs in thread pool)."""
         container_name = session.get("container", "")
         session_name = session.get("name", "")
-        # Capture last 5 lines as preview (uses docker exec)
-        preview_output = capture_session_output(container_name, session_name)
-        if preview_output:
-            # Get last 5 lines
-            lines = preview_output.strip().split('\n')
-            preview_lines = lines[-5:] if len(lines) > 5 else lines
-            session["preview"] = '\n'.join(preview_lines)
-        else:
-            session["preview"] = ""
+        try:
+            preview_output = capture_session_output(container_name, session_name)
+            if preview_output:
+                lines = preview_output.strip().split('\n')
+                preview_lines = lines[-5:] if len(lines) > 5 else lines
+                return (session, '\n'.join(preview_lines))
+        except Exception:
+            pass
+        return (session, "")
+
+    # Run all preview captures in parallel
+    loop = asyncio.get_event_loop()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(sessions), 10)) as executor:
+        futures = [loop.run_in_executor(executor, capture_preview, s) for s in sessions]
+        results = await asyncio.gather(*futures)
+
+    # Apply previews to sessions
+    for session, preview in results:
+        session["preview"] = preview
 
     return {"sessions": sessions}
+
+
+@app.get("/api/sessions/metadata")
+async def get_sessions_metadata() -> Dict:
+    """Get all sessions with full metadata from daemon cache.
+
+    This is a fast endpoint that returns cached session metadata pushed
+    by containers, avoiding docker exec calls. Use this for CLI tools.
+
+    Returns:
+        JSON with sessions list and source indicator
+    """
+    from agentbox import container_naming
+
+    metadata = get_session_metadata(max_age=30.0)
+
+    if metadata is None:
+        return {"sessions": [], "source": "daemon", "stale": True}
+
+    # Enrich with project info from container names
+    sessions = []
+    try:
+        manager = ContainerManager()
+        containers = {c["name"]: c for c in manager.list_containers(all_containers=False)}
+    except Exception:
+        containers = {}
+
+    for container_name, sess_list in metadata.items():
+        # Get project info
+        container_info = containers.get(container_name, {})
+        project = container_info.get("project") or container_naming.extract_project_name(container_name) or ""
+        project_path = container_info.get("project_path", "")
+
+        for sess in sess_list:
+            sessions.append({
+                "container_name": container_name,
+                "project": project,
+                "project_path": project_path,
+                "session_name": sess.get("name", ""),
+                "windows": sess.get("windows", 1),
+                "attached": sess.get("attached", False),
+                "agent_type": sess.get("agent_type"),
+                "identifier": sess.get("identifier"),
+            })
+
+    return {"sessions": sessions, "source": "daemon"}
 
 
 @app.post("/api/sessions", status_code=201)
@@ -418,6 +483,23 @@ async def get_status() -> Dict:
         "tunnels": tunnel_stats,
         "containers": containers,
     }
+
+
+@app.get("/api/usage")
+async def get_usage() -> Dict:
+    """Get agent rate limit status.
+
+    Returns status of all agents including:
+    - available: Whether the agent can be used
+    - limited: Whether the agent is currently rate-limited
+    - resets_at: ISO timestamp when limit resets
+    - resets_in_seconds: Seconds until limit resets
+    - error_type: Type of rate limit error
+    """
+    status = get_usage_status()
+    if status is None:
+        return {"agents": {}, "note": "daemon not running or no data"}
+    return {"agents": status}
 
 
 @app.post("/api/service/restart")

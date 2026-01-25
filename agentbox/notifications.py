@@ -4,11 +4,7 @@
 
 """Notification client for sending alerts via agentboxd.
 
-Supports two modes:
-1. SSH control channel (preferred) - uses the container client's SSH connection
-2. Legacy Unix socket (fallback) - direct connection to agentboxd socket
-
-The SSH mode is preferred as it uses the unified SSH connection for all communication.
+Uses SSH control channel to communicate with the host daemon.
 """
 
 import json
@@ -20,6 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from agentbox.host_config import get_config
+from agentbox.paths import HostPaths
 
 
 def _get_ssh_socket_path() -> Optional[Path]:
@@ -30,12 +27,12 @@ def _get_ssh_socket_path() -> Optional[Path]:
         if path.exists():
             return path
 
-    uid = os.getuid()
-    path = Path(f"/run/user/{uid}/agentboxd/ssh.sock")
-    if path.exists():
-        return path
+    # Try XDG runtime location
+    ssh_socket = HostPaths.ssh_socket()
+    if ssh_socket.exists():
+        return ssh_socket
 
-    # Container mount location
+    # Container mount location (fallback)
     container_path = Path("/run/agentboxd/ssh.sock")
     if container_path.exists():
         return container_path
@@ -43,23 +40,29 @@ def _get_ssh_socket_path() -> Optional[Path]:
     return None
 
 
-def _get_legacy_socket_path() -> Optional[Path]:
-    """Find the legacy agentboxd socket path."""
-    config = get_config()
-    socket_path = Path(str(config.socket_path))
-    if socket_path.exists():
-        return socket_path
-    return None
-
-
-def _send_via_ssh(
+def send_notification(
     title: str,
     message: str,
-    urgency: str,
-    metadata: Optional[dict],
-    timeout: float,
+    urgency: str = "normal",
+    container: Optional[str] = None,
+    session: Optional[str] = None,
+    buffer: Optional[str] = None,
+    enhance: bool = False
 ) -> bool:
-    """Send notification via SSH control channel."""
+    """Send a notification via the agentboxd daemon.
+
+    Args:
+        title: Notification title
+        message: Notification message
+        urgency: Urgency level (normal, low, critical)
+        container: Container name (for task agent enhancement)
+        session: Session name (for task agent enhancement)
+        buffer: Session buffer content (for task agent enhancement)
+        enhance: Enable task agent analysis
+
+    Returns:
+        True if notification sent successfully, False otherwise
+    """
     try:
         import asyncssh
     except ImportError:
@@ -68,6 +71,19 @@ def _send_via_ssh(
     ssh_socket = _get_ssh_socket_path()
     if not ssh_socket:
         return False
+
+    # Build metadata if enhancement requested
+    metadata = None
+    if enhance:
+        metadata = {
+            "container": container,
+            "session": session,
+            "buffer": buffer,
+        }
+
+    # Determine timeout
+    config = get_config()
+    timeout = config.get("notifications", "timeout_enhanced" if enhance else "timeout")
 
     container_name = os.environ.get("AGENTBOX_CONTAINER") or socket.gethostname()
 
@@ -159,89 +175,3 @@ def _send_via_ssh(
 
     except Exception:
         return False
-
-
-def _send_via_legacy_socket(
-    title: str,
-    message: str,
-    urgency: str,
-    metadata: Optional[dict],
-    timeout: float,
-) -> bool:
-    """Send notification via legacy Unix socket."""
-    socket_path = _get_legacy_socket_path()
-    if not socket_path:
-        return False
-
-    payload_dict = {
-        "action": "notify",
-        "title": title,
-        "message": message,
-        "urgency": urgency,
-    }
-
-    if metadata:
-        payload_dict["enhance"] = True
-        payload_dict["metadata"] = metadata
-
-    payload = json.dumps(payload_dict).encode("utf-8")
-
-    try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-            sock.settimeout(timeout)
-            sock.connect(str(socket_path))
-            sock.sendall(payload + b"\n")
-            sock.shutdown(socket.SHUT_WR)
-            response = sock.recv(4096).decode("utf-8")
-
-        response_data = json.loads(response.strip().splitlines()[-1])
-        return response_data.get("ok") is True
-
-    except Exception:
-        return False
-
-
-def send_notification(
-    title: str,
-    message: str,
-    urgency: str = "normal",
-    socket_path: Optional[str] = None,
-    container: Optional[str] = None,
-    session: Optional[str] = None,
-    buffer: Optional[str] = None,
-    enhance: bool = False
-) -> bool:
-    """Send a notification via the agentboxd daemon.
-
-    Args:
-        title: Notification title
-        message: Notification message
-        urgency: Urgency level (normal, low, critical)
-        socket_path: Path to Unix socket (for legacy mode, ignored in SSH mode)
-        container: Container name (for task agent enhancement)
-        session: Session name (for task agent enhancement)
-        buffer: Session buffer content (for task agent enhancement)
-        enhance: Enable task agent analysis
-
-    Returns:
-        True if notification sent successfully, False otherwise
-    """
-    # Build metadata if enhancement requested
-    metadata = None
-    if enhance:
-        metadata = {
-            "container": container,
-            "session": session,
-            "buffer": buffer,
-        }
-
-    # Determine timeout
-    config = get_config()
-    timeout = config.get("notifications", "timeout_enhanced" if enhance else "timeout")
-
-    # Try SSH first (preferred)
-    if _send_via_ssh(title, message, urgency, metadata, timeout):
-        return True
-
-    # Fall back to legacy socket
-    return _send_via_legacy_socket(title, message, urgency, metadata, timeout)

@@ -27,9 +27,9 @@ agentbox worktree list                 # See all worktrees
 Inside the container, agents can create them too:
 
 ```bash
-agentctl wt add feature-auth           # Create worktree
-agentctl wt add new-feature -c         # Create branch AND worktree
-agentctl wt list                       # See worktrees
+agentctl worktree add feature-auth           # Create worktree
+agentctl worktree add new-feature -c         # Create branch AND worktree
+agentctl worktree list                       # See worktrees
 ```
 
 Worktrees appear at `/git-worktrees/worktree-<branch>/` inside the container.
@@ -39,13 +39,13 @@ Worktrees appear at `/git-worktrees/worktree-<branch>/` inside the container.
 From the host:
 
 ```bash
-agentbox worktree superclaude feature-auth    # Start agent in that worktree
+agentbox worktree new superclaude feature-auth    # Create worktree + start agent
 ```
 
 From inside the container, agents switch themselves:
 
 ```bash
-agentctl wt switch feature-auth superclaude   # Switch to worktree, start agent
+agentctl worktree switch feature-auth superclaude   # Switch to worktree, start agent
 ```
 
 When an agent switches worktrees, it sends a warning to any existing session ("I'm leaving, stop what you're doing") and then moves to the new location.
@@ -80,11 +80,8 @@ Three agents, three branches, no conflicts. All in one container, all isolated f
 You're working on main, and an idea strikes - a refactoring that would make everything cleaner. But you're in the middle of something else.
 
 ```bash
-# Create a worktree for the refactoring
-agentbox worktree add refactor-cleanup
-
-# Start an agent there
-agentbox worktree superclaude refactor-cleanup
+# Create a worktree and start an agent there
+agentbox worktree new superclaude refactor-cleanup
 ```
 
 Now you have two agents: one continuing your current work on main, one exploring the refactoring on a separate branch. They don't interfere.
@@ -103,8 +100,8 @@ agentbox worktree prune                  # Clean up stale metadata
 From inside the container:
 
 ```bash
-agentctl wt remove feature-auth
-agentctl wt prune
+agentctl worktree remove feature-auth
+agentctl worktree prune
 ```
 
 You can't remove the main `/workspace` - that's your primary checkout.

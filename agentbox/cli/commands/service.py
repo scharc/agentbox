@@ -99,47 +99,12 @@ def service():
     pass
 
 
-def _migrate_legacy_service() -> bool:
-    """Migrate from legacy agentbox-proxy.service if it exists.
-
-    Returns True if migration was performed.
-    """
-    legacy_path = Path.home() / ".config" / "systemd" / "user" / "agentbox-proxy.service"
-    if not legacy_path.exists():
-        return False
-
-    console.print("[yellow]Found legacy agentbox-proxy.service, migrating...[/yellow]")
-
-    try:
-        # Stop and disable old service
-        subprocess.run(["systemctl", "--user", "stop", "agentbox-proxy"],
-                      check=False, timeout=SYSTEMCTL_TIMEOUT, capture_output=True)
-        subprocess.run(["systemctl", "--user", "disable", "agentbox-proxy"],
-                      check=False, timeout=SYSTEMCTL_TIMEOUT, capture_output=True)
-
-        # Remove old service file
-        legacy_path.unlink()
-
-        # Reload daemon
-        subprocess.run(["systemctl", "--user", "daemon-reload"],
-                      check=False, timeout=SYSTEMCTL_TIMEOUT, capture_output=True)
-
-        console.print("[green]Migrated from agentbox-proxy.service[/green]")
-        return True
-    except Exception as e:
-        console.print(f"[yellow]Migration warning: {e}[/yellow]")
-        return False
-
-
 @service.command("install")
 @handle_errors
 def service_install():
     """Install and start the systemd service."""
     unit_path = _get_service_unit_path()
     config_path = _get_config_path()
-
-    # Migrate from legacy service if needed
-    _migrate_legacy_service()
 
     # Create config directory
     config_path.parent.mkdir(parents=True, exist_ok=True)

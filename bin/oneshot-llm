@@ -1,0 +1,281 @@
+#!/usr/bin/env python3
+# Copyright (c) 2025 Marc Schütze <scharc@gmail.com>
+# SPDX-License-Identifier: MIT
+#
+# One-shot LLM provider for agentbox
+# Supports: claude, codex, gemini CLIs + any OpenAI-compatible API
+#
+# Usage: echo "prompt" | oneshot-llm [--provider X] [--model Y] [--max-tokens Z]
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import urllib.request
+import urllib.error
+
+
+def load_config():
+    """Load task_agents config from .agentbox/config.yml"""
+    config = {
+        "provider": "claude",
+        "model": "fast",
+        "openai_api": {
+            "endpoint": "https://api.openai.com/v1/chat/completions",
+            "api_key_env": "OPENAI_API_KEY",
+            "model": None,  # Override model for this endpoint
+        }
+    }
+
+    try:
+        import yaml
+        config_path = "/workspace/.agentbox/config.yml"
+        if os.path.exists(config_path):
+            with open(config_path) as f:
+                data = yaml.safe_load(f) or {}
+                task_agents = data.get("task_agents", {})
+
+                if "provider" in task_agents:
+                    config["provider"] = task_agents["provider"]
+                if "model" in task_agents:
+                    config["model"] = task_agents["model"]
+                if "openai_api" in task_agents:
+                    api_config = task_agents["openai_api"]
+                    if isinstance(api_config, dict):
+                        config["openai_api"].update(api_config)
+    except Exception:
+        pass
+
+    return config
+
+
+def _check_rate_limit(output: str, provider: str) -> None:
+    """Check output for rate limit errors and report if found.
+
+    Args:
+        output: Combined stdout/stderr from agent CLI
+        provider: Provider name (claude, codex, gemini)
+    """
+    output_lower = output.lower()
+
+    # Check for rate limit indicators
+    is_limited = any(
+        phrase in output_lower
+        for phrase in [
+            "rate limit",
+            "usage limit",
+            "quota exceeded",
+            "too many requests",
+            "usage_limit_reached",
+        ]
+    )
+
+    if not is_limited:
+        return
+
+    # Try to extract resets_in_seconds from codex-style JSON error
+    resets_in_seconds = None
+    resets_match = re.search(r'"resets_in_seconds"\s*:\s*(\d+)', output)
+    if resets_match:
+        resets_in_seconds = int(resets_match.group(1))
+
+    # Determine error type
+    error_type = None
+    if "usage_limit_reached" in output_lower:
+        error_type = "usage_limit_reached"
+    elif "rate limit" in output_lower:
+        error_type = "rate_limit"
+    elif "quota exceeded" in output_lower:
+        error_type = "quota_exceeded"
+
+    # Map provider to agent name
+    agent_map = {
+        "claude": "superclaude",  # Assume super variant for task agents
+        "codex": "supercodex",
+        "gemini": "supergemini",
+    }
+    agent = agent_map.get(provider, provider)
+
+    # Report the rate limit
+    try:
+        from agentbox.usage.client import report_rate_limit
+        report_rate_limit(agent, resets_in_seconds, error_type)
+        print(f"[oneshot-llm] Reported rate limit for {agent}", file=sys.stderr)
+    except ImportError:
+        # Usage module not available, skip reporting
+        pass
+    except Exception as e:
+        # Don't fail the call if reporting fails
+        print(f"[oneshot-llm] Failed to report rate limit: {e}", file=sys.stderr)
+
+
+def call_claude(prompt: str, model: str, max_tokens: int) -> str:
+    """Call Claude via CLI"""
+    # Map model aliases
+    model_map = {"fast": "haiku", "balanced": "sonnet", "powerful": "opus"}
+    model = model_map.get(model, model)
+
+    try:
+        result = subprocess.run(
+            ["claude", "-p", "--model", model],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={**os.environ, "AGENTBOX_INVOCATION_DEPTH": "1"}
+        )
+
+        # Check for rate limit in stderr
+        if result.stderr:
+            _check_rate_limit(result.stderr, "claude")
+
+        return result.stdout.strip()
+    except Exception as e:
+        print(f"Claude CLI error: {e}", file=sys.stderr)
+        return ""
+
+
+def call_codex(prompt: str, model: str, max_tokens: int) -> str:
+    """Call Codex/OpenAI via CLI"""
+    # Map model aliases
+    model_map = {"fast": "gpt-4o-mini", "balanced": "gpt-4o", "powerful": "o3"}
+    model = model_map.get(model, model)
+
+    try:
+        result = subprocess.run(
+            ["codex", "-p", "--model", model],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={**os.environ, "AGENTBOX_INVOCATION_DEPTH": "1"}
+        )
+
+        # Check for rate limit in stdout (codex returns JSON errors) and stderr
+        combined_output = f"{result.stdout}\n{result.stderr}"
+        _check_rate_limit(combined_output, "codex")
+
+        return result.stdout.strip()
+    except Exception as e:
+        print(f"Codex CLI error: {e}", file=sys.stderr)
+        return ""
+
+
+def call_gemini(prompt: str, model: str, max_tokens: int) -> str:
+    """Call Gemini via CLI"""
+    try:
+        result = subprocess.run(
+            ["gemini", "-p"],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={**os.environ, "AGENTBOX_INVOCATION_DEPTH": "1"}
+        )
+
+        # Check for rate limit in stderr
+        if result.stderr:
+            _check_rate_limit(result.stderr, "gemini")
+
+        return result.stdout.strip()
+    except Exception as e:
+        print(f"Gemini CLI error: {e}", file=sys.stderr)
+        return ""
+
+
+def call_openai_api(prompt: str, model: str, max_tokens: int, config: dict) -> str:
+    """Call any OpenAI-compatible API endpoint"""
+    api_config = config.get("openai_api", {})
+    endpoint = api_config.get("endpoint", "https://api.openai.com/v1/chat/completions")
+    api_key_env = api_config.get("api_key_env", "OPENAI_API_KEY")
+
+    api_key = os.environ.get(api_key_env, "")
+    if not api_key:
+        print(f"No API key found in {api_key_env}", file=sys.stderr)
+        return ""
+
+    # Use model override from openai_api config if specified
+    model_override = api_config.get("model")
+    if model_override:
+        model = model_override
+    else:
+        # Map model aliases for OpenAI
+        model_map = {"fast": "gpt-4o-mini", "balanced": "gpt-4o", "powerful": "gpt-4o"}
+        model = model_map.get(model, model)
+
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": 0.3,
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    try:
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(endpoint, data=data, headers=headers, method="POST")
+
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            return result["choices"][0]["message"]["content"].strip()
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode()
+        print(f"API error {e.code}: {error_body}", file=sys.stderr)
+
+        # Check for rate limit in API error response
+        _check_rate_limit(error_body, "openai_api")
+
+        return ""
+    except Exception as e:
+        print(f"OpenAI API error: {e}", file=sys.stderr)
+        return ""
+
+
+def main():
+    parser = argparse.ArgumentParser(description="One-shot LLM call")
+    parser.add_argument("--provider", "-p", help="Provider: claude, codex, gemini, openai_api")
+    parser.add_argument("--model", "-m", help="Model name or alias (fast, balanced, powerful)")
+    parser.add_argument("--max-tokens", "-t", type=int, default=500, help="Max tokens (default: 500)")
+    args = parser.parse_args()
+
+    # Load config
+    config = load_config()
+
+    # CLI args override config
+    provider = args.provider or config["provider"]
+    model = args.model or config["model"]
+    max_tokens = args.max_tokens
+
+    # Read prompt from stdin
+    prompt = sys.stdin.read().strip()
+    if not prompt:
+        print("No prompt provided on stdin", file=sys.stderr)
+        sys.exit(1)
+
+    # Dispatch to provider
+    if provider == "claude":
+        result = call_claude(prompt, model, max_tokens)
+    elif provider == "codex":
+        result = call_codex(prompt, model, max_tokens)
+    elif provider == "gemini":
+        result = call_gemini(prompt, model, max_tokens)
+    elif provider == "openai_api":
+        result = call_openai_api(prompt, model, max_tokens, config)
+    else:
+        print(f"Unknown provider: {provider}", file=sys.stderr)
+        sys.exit(1)
+
+    if result:
+        print(result)
+    else:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

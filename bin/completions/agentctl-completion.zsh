@@ -2,6 +2,15 @@
 
 # Zsh completion for agentctl
 
+# Helper to use correct tmux server (respects TMUX env var for custom sockets)
+_agentctl_tmux() {
+    if [[ -n "${TMUX:-}" ]]; then
+        tmux -S "${TMUX%%,*}" "$@"
+    else
+        tmux "$@"
+    fi
+}
+
 _agentctl() {
     local -a commands
     commands=(
@@ -47,7 +56,7 @@ _agentctl() {
                 attach)
                     # Complete with existing sessions first, then agent names as fallback
                     local -a sessions
-                    sessions=(${(f)"$(tmux list-sessions -F "#{session_name}" 2>/dev/null)"})
+                    sessions=(${(f)"$(_agentctl_tmux list-sessions -F "#{session_name}" 2>/dev/null)"})
                     if [[ ${#sessions} -gt 0 ]]; then
                         _describe 'session' sessions
                     fi
@@ -56,7 +65,7 @@ _agentctl() {
                 peek|kill)
                     # Get list of current tmux sessions
                     local -a sessions
-                    sessions=(${(f)"$(tmux list-sessions -F "#{session_name}" 2>/dev/null)"})
+                    sessions=(${(f)"$(_agentctl_tmux list-sessions -F "#{session_name}" 2>/dev/null)"})
                     if [[ ${#sessions} -gt 0 ]]; then
                         _describe 'session' sessions
                     fi

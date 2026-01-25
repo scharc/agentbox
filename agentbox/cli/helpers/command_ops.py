@@ -160,15 +160,6 @@ def _remove_commands(
             except (OSError, ValueError):
                 pass
 
-        # Also check for legacy non-prefixed symlinks
-        legacy_symlink_path = commands_dir / original_name
-        if legacy_symlink_path.is_symlink():
-            try:
-                if legacy_symlink_path.resolve().name == cmd_file.name:
-                    legacy_symlink_path.unlink()
-            except (OSError, ValueError):
-                pass
-
         # Remove the prefixed file
         cmd_file.unlink()
         removed.append(cmd_name)
@@ -293,15 +284,6 @@ def _remove_stale_commands(
                 try:
                     if ab_symlink.resolve().name == cmd_file.name:
                         ab_symlink.unlink()
-                except (OSError, ValueError):
-                    pass
-
-            # Remove legacy symlink if it points to this file
-            legacy_symlink = commands_dir / f"{cmd_name}.md"
-            if legacy_symlink.is_symlink():
-                try:
-                    if legacy_symlink.resolve().name == cmd_file.name:
-                        legacy_symlink.unlink()
                 except (OSError, ValueError):
                     pass
 

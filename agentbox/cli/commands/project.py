@@ -51,68 +51,69 @@ def _check_worktree_uncommitted_changes(manager, container_name: str) -> list[di
     """Check if any worktrees have uncommitted changes.
 
     Returns list of worktrees with uncommitted work.
+
+    Performance optimized: Single docker exec call that:
+    1. Lists all worktrees
+    2. Checks status for each /git-worktrees/ path
+    3. Returns combined results
+
+    This replaces the previous 2-call approach (list + batch status).
     """
     from agentbox.container import get_abox_environment
 
     if not manager.is_running(container_name):
         return []
 
-    # Get list of worktrees
+    # Single combined script that lists worktrees AND checks their status
+    # This combines what was previously 2 docker exec calls into 1
+    combined_script = '''
+# Get worktree paths from /git-worktrees/
+git -C /workspace worktree list --porcelain 2>/dev/null | while read line; do
+    case "$line" in
+        "worktree /git-worktrees/"*)
+            path="${line#worktree }"
+            if [ -d "$path" ]; then
+                echo "PATH:$path"
+                branch=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+                echo "BRANCH:$branch"
+                count=$(git -C "$path" status --porcelain 2>/dev/null | wc -l)
+                echo "COUNT:$count"
+            fi
+            ;;
+    esac
+done
+'''
+
     exit_code, output = manager.exec_command(
         container_name,
-        ["git", "-C", "/workspace", "worktree", "list", "--porcelain"],
+        ["bash", "-c", combined_script],
         environment=get_abox_environment(include_tmux=False, container_name=container_name),
         user="abox",
     )
 
-    if exit_code != 0:
+    if exit_code != 0 or not output.strip():
         return []
 
-    # Parse worktree list
-    worktrees_with_changes = []
-    current_path = None
-    current_branch = None
-
+    # Parse results using markers (handles edge cases reliably)
+    results = []
+    current = {}
     for line in output.strip().split("\n"):
-        if line.startswith("worktree "):
-            current_path = line[9:]
-        elif line.startswith("branch "):
-            current_branch = line[7:].replace("refs/heads/", "")
-        elif line == "":
-            # End of worktree entry - check if it's in /git-worktrees/
-            if current_path and current_path.startswith("/git-worktrees/"):
-                # Check for uncommitted changes
-                exit_code, status_output = manager.exec_command(
-                    container_name,
-                    ["git", "-C", current_path, "status", "--porcelain"],
-                    environment=get_abox_environment(include_tmux=False, container_name=container_name),
-                    user="abox",
-                )
-                if exit_code == 0 and status_output.strip():
-                    worktrees_with_changes.append({
-                        "path": current_path,
-                        "branch": current_branch or "unknown",
-                        "changes": len(status_output.strip().split("\n")),
-                    })
-            current_path = None
-            current_branch = None
+        if line.startswith("PATH:"):
+            if current.get("path") and current.get("changes", 0) > 0:
+                results.append(current)
+            current = {"path": line[5:]}
+        elif line.startswith("BRANCH:"):
+            current["branch"] = line[7:]
+        elif line.startswith("COUNT:"):
+            try:
+                current["changes"] = int(line[6:].strip())
+            except ValueError:
+                current["changes"] = 0
+    # Don't forget last entry
+    if current.get("path") and current.get("changes", 0) > 0:
+        results.append(current)
 
-    # Handle last entry if no trailing newline
-    if current_path and current_path.startswith("/git-worktrees/"):
-        exit_code, status_output = manager.exec_command(
-            container_name,
-            ["git", "-C", current_path, "status", "--porcelain"],
-            environment=get_abox_environment(include_tmux=False, container_name=container_name),
-            user="abox",
-        )
-        if exit_code == 0 and status_output.strip():
-            worktrees_with_changes.append({
-                "path": current_path,
-                "branch": current_branch or "unknown",
-                "changes": len(status_output.strip().split("\n")),
-            })
-
-    return worktrees_with_changes
+    return results
 
 
 def _require_config_migrated(project_dir: Path) -> bool:
@@ -145,7 +146,7 @@ def _require_config_migrated(project_dir: Path) -> bool:
 
     # Show what needs to be migrated
     console.print("\n[red bold]Config migration required[/red bold]")
-    console.print("[yellow]Your .agentbox.yml uses deprecated settings:[/yellow]\n")
+    console.print("[yellow]Your .agentbox/config.yml uses deprecated settings:[/yellow]\n")
 
     from agentbox.migrations import get_migration
     for result in applicable:
@@ -158,7 +159,7 @@ def _require_config_migrated(project_dir: Path) -> bool:
     return False
 
 
-@project.command()
+@project.command(options_metavar="")
 @handle_errors
 def init():
     """Initialize .agentbox/ directory structure (non-interactive).
@@ -177,7 +178,9 @@ def init():
     console.print(f"[green]Initializing .agentbox/ in {project_dir}...[/green]")
 
     # Create directory structure
-    for subdir in ["claude/skills", "claude/state", "codex/skills", "codex/state", "mcp"]:
+    # Agent configs are created in home dirs at container startup
+    # Only project-level files go in .agentbox/
+    for subdir in ["skills", "mcp"]:
         (agentbox_dir / subdir).mkdir(parents=True, exist_ok=True)
 
     # Copy/update MCP servers and skills from library
@@ -189,30 +192,26 @@ def init():
     # Copy/update MCPs
     _sync_library_mcps(agentbox_dir)
 
-    # Copy/update default skills
+    # Copy/update default skills to root skills/ directory
+    # Agent subdirs symlink to this at runtime
     if lib_manager.skills_dir.exists():
         for skill_path in lib_manager.skills_dir.iterdir():
             if skill_path.is_dir():
-                # Copy to both claude and codex skills directories
-                for agent in ["claude", "codex"]:
-                    target_path = agentbox_dir / agent / "skills" / skill_path.name
-                    # safe_rmtree handles symlinks securely
-                    if safe_rmtree(target_path):
-                        console.print(f"  [yellow]Updated skill ({agent}): {skill_path.name}[/yellow]")
-                    else:
-                        console.print(f"  [green]Copied skill ({agent}): {skill_path.name}[/green]")
-                    shutil.copytree(skill_path, target_path)
+                target_path = agentbox_dir / "skills" / skill_path.name
+                # safe_rmtree handles symlinks securely
+                if safe_rmtree(target_path):
+                    console.print(f"  [yellow]Updated skill: {skill_path.name}[/yellow]")
+                else:
+                    console.print(f"  [green]Copied skill: {skill_path.name}[/green]")
+                shutil.copytree(skill_path, target_path)
 
     # Copy config templates from library
     package_root = Path(__file__).resolve().parents[3]
     templates_dir = package_root / "library" / "config" / "default"
 
     # Templates to copy: (source_relative_path, dest_relative_path)
+    # Note: Agent configs (claude/config.json etc) are created in home dirs at container startup
     template_copies = [
-        ("claude/config.json", "claude/config.json"),
-        ("claude/config-super.json", "claude/config-super.json"),
-        ("claude/mcp.json", "claude/mcp.json"),
-        ("codex/config.toml", "codex/config.toml"),
         ("agents.md", "agents.md"),
         ("superagents.md", "superagents.md"),
     ]
@@ -230,13 +229,16 @@ def init():
 
     # Gitignore
     gitignore_path = agentbox_dir / ".gitignore"
-    gitignore_content = """# Runtime state (auto-generated)
-claude/state/
-codex/state/
+    gitignore_content = """# Runtime files (auto-generated)
+mcp.json
+install-manifest.json
 
 # Environment secrets (if used)
 .env
 .env.local
+
+# Logs
+logs/
 """
     gitignore_path.write_text(gitignore_content)
 
@@ -262,9 +264,9 @@ codex/state/
             console.print(f"  [green]Added default MCP: {mcp_name}[/green]")
 
     # Copy slash commands for all installed skills
-    claude_skills_dir = agentbox_dir / "claude" / "skills"
-    if claude_skills_dir.exists():
-        for skill_dir in claude_skills_dir.iterdir():
+    skills_dir = agentbox_dir / "skills"
+    if skills_dir.exists():
+        for skill_dir in skills_dir.iterdir():
             if skill_dir.is_dir() and not skill_dir.name.startswith("."):
                 # Find source in library
                 skill_source = lib_manager.skills_dir / skill_dir.name
@@ -275,28 +277,23 @@ codex/state/
                     if copied:
                         console.print(f"  [green]Added commands for skill: {skill_dir.name}[/green]")
 
-    # Create .agentbox.yml template if it doesn't exist
+    # Create .agentbox/config.yml template if it doesn't exist
     project_config = ProjectConfig(project_dir)
     if not project_config.exists():
         project_config.create_template()
 
     console.print("\n[green]✓ Initialized .agentbox/[/green]")
     console.print("\n[blue]Created:[/blue]")
-    console.print("  .agentbox.yml (project config)")
-    console.print("  .agentbox/mcp/ (MCP servers)")
-    console.print("  .agentbox/claude/config.json")
-    console.print("  .agentbox/claude/config-super.json")
-    console.print("  .agentbox/claude/mcp.json (with agentctl, agentbox-analyst)")
-    console.print("  .agentbox/claude/skills/")
-    console.print("  .agentbox/codex/config.toml")
-    console.print("  .agentbox/codex/skills/")
-    console.print("  .agentbox/agents.md")
-    console.print("  .agentbox/superagents.md")
-    console.print("  .agentbox/workspaces.json")
+    console.print("  .agentbox/config.yml (project config)")
+    console.print("  .agentbox/agents.md (agent instructions)")
+    console.print("  .agentbox/superagents.md (super agent instructions)")
+    console.print("  .agentbox/mcp/ (MCP server code)")
+    console.print("  .agentbox/mcp-meta.json (MCP tracking)")
+    console.print("  .agentbox/skills/ (installed skills)")
     console.print("  .agentbox/LOG.md")
     console.print("  .agentbox/.gitignore")
-    console.print("  .claude/commands/ (slash commands)")
-    console.print("\n[yellow]Tip: Edit .agentbox.yml to configure ports, volumes, etc.[/yellow]")
+    console.print("\n[dim]Agent configs created at container startup in ~/.claude/, ~/.codex/, etc.[/dim]")
+    console.print("\n[yellow]Tip: Edit .agentbox/config.yml to configure ports, volumes, etc.[/yellow]")
     console.print("[yellow]Tip: Create PLAN.md in project root for planning context[/yellow]")
     console.print("\n[blue]Next: agentbox start[/blue]")
 
@@ -308,10 +305,14 @@ def _prompt_choice(prompt: str, choices: list[str], default: str = None) -> str:
         marker = " [dim](current)[/dim]" if choice == default else ""
         console.print(f"  [yellow]{i})[/yellow] {choice}{marker}")
     console.print(f"  [yellow]0)[/yellow] [dim]Keep current[/dim]")
+    console.print(f"  [yellow]q)[/yellow] [dim]Quit[/dim]")
 
     while True:
         try:
-            response = input("\nSelect [0-{}]: ".format(len(choices))).strip()
+            response = input("\nSelect [0-{}, q]: ".format(len(choices))).strip()
+            if response.lower() in ("q", "quit", "exit"):
+                console.print("\n[yellow]Aborted[/yellow]")
+                sys.exit(130)
             if response == "" or response == "0":
                 return default
             idx = int(response)
@@ -327,9 +328,12 @@ def _prompt_choice(prompt: str, choices: list[str], default: str = None) -> str:
 
 def _prompt_bool(prompt: str, default: bool) -> bool:
     """Prompt user for yes/no. Empty or '0' keeps current value."""
-    default_str = "Y/n" if default else "y/N"
+    default_str = "Y/n/q" if default else "y/N/q"
     try:
         response = input(f"\n{prompt} [{default_str}]: ").strip().lower()
+        if response in ("q", "quit", "exit"):
+            console.print("\n[yellow]Aborted[/yellow]")
+            sys.exit(130)
         if response == "" or response == "0":
             return default
         return response in ("y", "yes", "true", "1")
@@ -380,12 +384,12 @@ def _send_test_notification(project_name: str) -> None:
         console.print(f"[red]✗ Failed to send notification: {e}[/red]")
 
 
-@project.command()
+@project.command(options_metavar="")
 def reconfigure():
     """Interactively reconfigure agent and project settings.
 
     Walks through common configuration options for Claude configs
-    and project settings (.agentbox.yml).
+    and project settings (.agentbox/config.yml).
     """
     project_dir = resolve_project_dir()
     agentbox_dir = get_agentbox_dir(project_dir)
@@ -398,9 +402,13 @@ def reconfigure():
     console.print("[bold cyan]Agentbox Configuration[/bold cyan]")
     console.print(f"[dim]Project: {project_dir}[/dim]\n")
 
-    # Load current configs
-    claude_config_path = agentbox_dir / "claude" / "config.json"
-    claude_super_path = agentbox_dir / "claude" / "config-super.json"
+    # Load current configs (project-level config templates)
+    # These are copied to ~/.claude/ at container startup
+    config_dir = agentbox_dir / "config" / "claude"
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    claude_config_path = config_dir / "settings.json"
+    claude_super_path = config_dir / "settings-super.json"
 
     claude_config = {}
     claude_super = {}
@@ -521,7 +529,7 @@ def reconfigure():
     console.print("\n[bold]─── Notification Settings ───[/bold]")
 
     # AI-enhanced notifications (task agents)
-    current_task_agents = config.config.get("task_agents", {})
+    current_task_agents = config.task_agents
     current_ai_enabled = current_task_agents.get("enabled", False)
     console.print(f"\n[dim]AI-enhanced notifications analyze terminal output to provide[/dim]")
     console.print(f"[dim]context-aware summaries (uses ~0.01$ per notification)[/dim]")
@@ -545,7 +553,7 @@ def reconfigure():
             ai_changed = True
 
     # Stall detection
-    current_stall = config.config.get("stall_detection", {})
+    current_stall = config.stall_detection
     current_stall_enabled = current_stall.get("enabled", True)  # Default is enabled
     new_stall_enabled = _prompt_bool(
         f"Enable stall detection notifications? (current: {current_stall_enabled})",
@@ -602,7 +610,7 @@ def reconfigure():
     console.print("\n[bold]─── Docker Settings ───[/bold]")
 
     # Check current docker status
-    current_docker_enabled = config.config.get("docker", {}).get("enabled", False)
+    current_docker_enabled = config.docker_enabled
     console.print(f"\n[dim]Docker socket access allows the container to run Docker commands.[/dim]")
     console.print(f"[dim]Current: {'enabled' if current_docker_enabled else 'disabled'}[/dim]")
     new_docker_enabled = _prompt_bool(
@@ -625,27 +633,23 @@ def reconfigure():
     if ssh_changed or stall_changed or ai_changed or docker_changed or project_config_changed:
         console.print("\n[bold]─── Saving project config ───[/bold]")
         if ssh_changed:
-            if "ssh" not in config.config:
-                config.config["ssh"] = {}
-            config.config["ssh"]["mode"] = new_ssh_mode
-            config.config["ssh"]["forward_agent"] = new_forwarding
+            config.ssh_mode = new_ssh_mode
+            config.ssh_forward_agent = new_forwarding
         if stall_changed:
-            config.config["stall_detection"] = {
+            config.stall_detection = {
                 "enabled": new_stall_enabled,
                 "threshold_seconds": new_threshold,
             }
         if ai_changed:
-            config.config["task_agents"] = {
+            config.task_agents = {
                 "enabled": new_ai_enabled,
                 "agent": "claude",
                 "model": new_ai_model,
             }
         if docker_changed:
-            if "docker" not in config.config:
-                config.config["docker"] = {}
-            config.config["docker"]["enabled"] = new_docker_enabled
+            config.docker_enabled = new_docker_enabled
         config.save()
-        console.print(f"  [green]✓[/green] .agentbox.yml")
+        console.print(f"  [green]✓[/green] .agentbox/config.yml")
 
     if not changes_made and not ssh_changed and not stall_changed and not ai_changed and not docker_changed and not project_config_changed:
         console.print("\n[dim]No changes made.[/dim]")
@@ -654,7 +658,7 @@ def reconfigure():
         console.print("[yellow]Note: Restart container for changes to take effect[/yellow]")
 
 
-@project.command()
+@project.command(options_metavar="")
 def setup():
     """Initialize and configure agentbox for this project.
 
@@ -667,7 +671,7 @@ def setup():
     ctx.invoke(reconfigure)
 
 
-@project.command()
+@project.command(options_metavar="")
 @handle_errors
 def start():
     """Start container for current project."""
@@ -705,7 +709,7 @@ def start():
     console.print("  agentbox info     - Get container details")
 
 
-@project.command()
+@project.command(options_metavar="")
 @click.argument("project_name", required=False, shell_complete=_complete_project_name)
 @handle_errors
 def stop(project_name: Optional[str]):
@@ -717,7 +721,7 @@ def stop(project_name: Optional[str]):
     pctx.manager.stop_container(pctx.container_name)
 
 
-@project.command()
+@project.command(options_metavar="")
 @click.argument("show_all", required=False)
 @handle_errors
 def list(show_all: Optional[str]):
@@ -734,7 +738,7 @@ def list(show_all: Optional[str]):
     manager.print_containers_table(all_containers=all_containers)
 
 
-@project.command()
+@project.command(options_metavar="")
 @click.argument("project_name", required=False, shell_complete=_complete_project_name)
 @handle_errors
 def shell(project_name: Optional[str]):
@@ -760,7 +764,7 @@ def shell(project_name: Optional[str]):
     )
 
 
-@project.command()
+@project.command(options_metavar="")
 @click.argument("project_name", required=False, shell_complete=_complete_project_name)
 @click.argument("session", required=False, shell_complete=_complete_connect_session)
 @handle_errors
@@ -811,7 +815,7 @@ def connect(project_name: Optional[str], session: Optional[str]):
     ])
 
 
-@project.command()
+@project.command(options_metavar="")
 @click.argument("project_name", required=False, shell_complete=_complete_project_name)
 @handle_errors
 def info(project_name: Optional[str]):
@@ -849,7 +853,7 @@ def info(project_name: Optional[str]):
                 console.print(f"  - {sess['name']} ({status})")
 
 
-@project.command()
+@project.command(options_metavar="")
 @click.argument("project_name", required=False, shell_complete=_complete_project_name)
 @click.argument("force_remove", required=False)
 @handle_errors
@@ -868,7 +872,7 @@ def remove(project_name: Optional[str], force_remove: Optional[str]):
     pctx.manager.remove_container(pctx.container_name, force=force)
 
 
-@project.command()
+@project.command(options_metavar="")
 @handle_errors
 def cleanup():
     """Remove all stopped agentbox containers."""
@@ -876,7 +880,7 @@ def cleanup():
     manager.cleanup_stopped()
 
 
-@project.command(name="rebase")
+@project.command(name="rebase", options_metavar="")
 @click.argument("scope", required=False)
 @handle_errors
 def rebase(scope: Optional[str]):
@@ -1053,7 +1057,7 @@ def config_migrate(dry_run: bool, auto: bool):
     config = ProjectConfig(project_dir)
 
     if not config.exists():
-        raise click.ClickException("No .agentbox.yml found")
+        raise click.ClickException("No .agentbox/config.yml found")
 
     runner = MigrationRunner(
         raw_config=config.config,

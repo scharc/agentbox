@@ -57,6 +57,23 @@ def _get_container_name() -> str:
     return _get_project_context().container_name
 
 
+def _get_active_ports() -> dict:
+    """Get all active ports from all connected containers.
+
+    Returns:
+        Dict with 'host_ports' and 'container_ports' lists, each containing
+        dicts with 'host_port', 'container_port', and 'container' keys.
+        Returns empty lists if daemon is not running.
+    """
+    response = _send_agentboxd_command({"action": "get_active_ports"})
+    if response.get("ok"):
+        return {
+            "host_ports": response.get("host_ports", []),
+            "container_ports": response.get("container_ports", []),
+        }
+    return {"host_ports": [], "container_ports": []}
+
+
 @cli.group()
 def ports():
     """Manage port forwarding (list, add, remove).
@@ -72,29 +89,71 @@ def ports():
     pass
 
 
-@ports.command(name="list")
+@ports.command(name="list", options_metavar="")
+@click.argument("scope", required=False, default=None)
 @handle_errors
-def ports_list():
-    """List all port forwarding configurations."""
+def ports_list(scope: str):
+    """List port forwarding configurations.
+
+    SCOPE can be 'all' to show ports from all containers.
+    Without SCOPE, shows ports for the current project only.
+    """
+    if scope == "all":
+        _list_all_containers_ports()
+    elif scope is not None:
+        raise click.ClickException(f"Unknown scope: {scope}. Use 'all' or omit for current project.")
+    else:
+        _list_current_project_ports()
+
+
+def _list_current_project_ports():
+    """List ports for the current project only, showing live status."""
     project_dir = resolve_project_dir()
+    pctx = _get_project_context()
+    container_name = pctx.container_name
 
     config = ProjectConfig(project_dir)
 
-    # Get configured ports from .agentbox.yml
+    # Get configured ports from .agentbox/config.yml
     host_ports = config.ports_host
     container_ports = config.ports_container
 
-    console.print("[bold]Port Configuration[/bold]\n")
+    # Get active ports from daemon
+    active_ports = _get_active_ports()
+
+    # Build sets of active ports for this container
+    active_exposed = set()  # (host_port, container_port)
+    active_forwarded = set()  # (host_port, container_port)
+
+    for port_info in active_ports.get("host_ports", []):
+        if port_info["container"] == container_name:
+            active_exposed.add((port_info["host_port"], port_info["container_port"]))
+
+    for port_info in active_ports.get("container_ports", []):
+        if port_info["container"] == container_name:
+            active_forwarded.add((port_info["host_port"], port_info["container_port"]))
+
+    # Check container status
+    from agentbox.container import ContainerManager
+    cm = ContainerManager()
+    is_running = cm.is_running(container_name)
+
+    console.print("[bold]Port Configuration[/bold]")
+    status_text = "[green]running[/green]" if is_running else "[yellow]stopped[/yellow]"
+    console.print(f"Container: {container_name} ({status_text})\n")
+
+    # Legend
+    console.print("[dim]● = active (bound)  ○ = configured (not bound)[/dim]\n")
 
     # Exposed ports (container -> host)
     console.print("[cyan]Exposed Ports[/cyan] (container → host)")
     if host_ports:
         for spec in host_ports:
             parsed = parse_port_spec(spec)
-            if parsed["host_port"] == parsed["container_port"]:
-                console.print(f"  container:{parsed['container_port']} → host:{parsed['host_port']}")
-            else:
-                console.print(f"  container:{parsed['container_port']} → host:{parsed['host_port']}")
+            hp, cp = parsed["host_port"], parsed["container_port"]
+            is_active = (hp, cp) in active_exposed
+            icon = "[green]●[/green]" if is_active else "[yellow]○[/yellow]"
+            console.print(f"  {icon} container:{cp} → host:{hp}")
     else:
         console.print("  [dim]No exposed ports[/dim]")
 
@@ -114,7 +173,9 @@ def ports_list():
                     host_port, container_port = int(parts[0]), int(parts[1])
                 else:
                     host_port = container_port = int(parts[0])
-            console.print(f"  host:{host_port} → container:{container_port}")
+            is_active = (host_port, container_port) in active_forwarded
+            icon = "[green]●[/green]" if is_active else "[yellow]○[/yellow]"
+            console.print(f"  {icon} host:{host_port} → container:{container_port}")
     else:
         console.print("  [dim]No forwarded ports[/dim]")
 
@@ -122,7 +183,140 @@ def ports_list():
     console.print("[dim]Add ports: abox ports expose <port> or abox ports forward <port>[/dim]")
 
 
-@ports.command(name="expose")
+def _list_all_containers_ports():
+    """List ports from all agentbox containers."""
+    from agentbox.container import ContainerManager
+
+    cm = ContainerManager()
+    containers = cm.list_containers(all_containers=True)
+
+    if not containers:
+        console.print("[dim]No agentbox containers found[/dim]")
+        return
+
+    # Get active tunnel ports from daemon
+    active_ports = _get_active_ports()
+    active_exposed = {}  # container -> [(host, container)]
+    active_forwarded = {}  # container -> [(host, container)]
+
+    for port_info in active_ports.get("host_ports", []):
+        container = port_info["container"]
+        if container not in active_exposed:
+            active_exposed[container] = []
+        active_exposed[container].append((port_info["host_port"], port_info["container_port"]))
+
+    for port_info in active_ports.get("container_ports", []):
+        container = port_info["container"]
+        if container not in active_forwarded:
+            active_forwarded[container] = []
+        active_forwarded[container].append((port_info["host_port"], port_info["container_port"]))
+
+    console.print("[bold]Port Configuration (All Containers)[/bold]\n")
+
+    found_any = False
+    for container_info in sorted(containers, key=lambda x: x["project"]):
+        project_name = container_info["project"]
+        container_name = container_info["name"]
+        status = container_info["status"]
+        project_path = container_info.get("project_path")
+
+        # Status indicator
+        status_color = "green" if status == "running" else "yellow"
+        status_icon = "●" if status == "running" else "○"
+
+        # Get configured ports from project config
+        config_exposed = []
+        config_forwarded = []
+        if project_path:
+            try:
+                config = ProjectConfig(Path(project_path))
+                for spec in config.ports_host:
+                    parsed = parse_port_spec(spec)
+                    config_exposed.append((parsed["host_port"], parsed["container_port"]))
+                for entry in config.ports_container:
+                    if isinstance(entry, dict):
+                        h = entry.get("port", 0)
+                        c = entry.get("container_port", h)
+                    else:
+                        parts = str(entry).split(":")
+                        if len(parts) == 2:
+                            h, c = int(parts[0]), int(parts[1])
+                        else:
+                            h = c = int(parts[0])
+                    config_forwarded.append((h, c))
+            except Exception:
+                pass
+
+        # Get Docker port bindings
+        docker_ports = _get_docker_port_bindings(container_name)
+
+        # Get active tunnel ports for this container
+        tunnel_exposed = active_exposed.get(container_name, [])
+        tunnel_forwarded = active_forwarded.get(container_name, [])
+
+        has_ports = config_exposed or config_forwarded or docker_ports
+
+        if not has_ports:
+            continue  # Skip containers with no ports
+
+        found_any = True
+        console.print(f"[{status_color}]{status_icon}[/{status_color}] [bold cyan]{project_name}[/bold cyan] [dim]({status})[/dim]")
+
+        # Show Docker port bindings
+        if docker_ports:
+            console.print("  [dim]Docker ports:[/dim]")
+            for host_port, container_port in sorted(docker_ports):
+                console.print(f"    [green]●[/green] container:{container_port} → host:{host_port}")
+
+        # Show configured exposed ports
+        if config_exposed:
+            console.print("  [dim]Exposed (config):[/dim]")
+            for host_port, container_port in sorted(config_exposed):
+                # Check if active
+                is_active = (host_port, container_port) in tunnel_exposed
+                icon = "[green]●[/green]" if is_active else "[yellow]○[/yellow]"
+                console.print(f"    {icon} container:{container_port} → host:{host_port}")
+
+        # Show configured forwarded ports
+        if config_forwarded:
+            console.print("  [dim]Forwarded (config):[/dim]")
+            for host_port, container_port in sorted(config_forwarded):
+                is_active = (host_port, container_port) in tunnel_forwarded
+                icon = "[green]●[/green]" if is_active else "[yellow]○[/yellow]"
+                console.print(f"    {icon} host:{host_port} → container:{container_port}")
+
+        console.print()
+
+    if not found_any:
+        console.print("[dim]No containers have ports configured[/dim]")
+
+
+def _get_docker_port_bindings(container_name: str) -> list:
+    """Get Docker port bindings for a container.
+
+    Returns list of (host_port, container_port) tuples.
+    """
+    try:
+        import docker
+        client = docker.from_env()
+        container = client.containers.get(container_name)
+        port_bindings = container.attrs.get("NetworkSettings", {}).get("Ports", {})
+
+        result = []
+        if port_bindings:
+            for port_key, bindings in port_bindings.items():
+                if bindings:  # Only if actually bound
+                    container_port = int(port_key.split("/")[0])
+                    for binding in bindings:
+                        host_port = int(binding.get("HostPort", 0))
+                        if host_port:
+                            result.append((host_port, container_port))
+        return result
+    except Exception:
+        return []
+
+
+@ports.command(name="expose", options_metavar="")
 @click.argument("port_spec")
 @handle_errors
 def expose(port_spec: str):
@@ -155,9 +349,9 @@ def expose(port_spec: str):
 
     config = ProjectConfig(project_dir)
     if not config.exists():
-        raise click.ClickException("No .agentbox.yml found. Run: agentbox init")
+        raise click.ClickException("No .agentbox/config.yml found. Run: agentbox init")
 
-    # Check if already configured (config stores host:container format internally)
+    # Check if already configured in this project
     current_ports = config.ports_host
     for existing in current_ports:
         existing_parsed = parse_port_spec(existing)
@@ -165,10 +359,17 @@ def expose(port_spec: str):
             console.print(f"[yellow]Host port {host_port} already exposed[/yellow]")
             return
 
+    # Check if port is in use by another agentbox container
+    container_name = _get_container_name()
+    active_ports = _get_active_ports()
+    for port_info in active_ports["host_ports"]:
+        if port_info["host_port"] == host_port and port_info["container"] != container_name:
+            other_project = port_info["container"].replace("agentbox-", "", 1)
+            console.print(f"[red]Error: Host port {host_port} is already exposed by project '{other_project}'[/red]")
+            return
+
     # Update config - store in host:container format for backward compatibility
-    raw_ports = config.config.get("ports", {})
-    if isinstance(raw_ports, list):
-        raw_ports = {"host": raw_ports, "container": []}
+    raw_ports = config.ports.copy()
 
     if "host" not in raw_ports:
         raw_ports["host"] = []
@@ -179,11 +380,10 @@ def expose(port_spec: str):
     else:
         storage_spec = f"{host_port}:{container_port}"
     raw_ports["host"].append(storage_spec)
-    config.config["ports"] = raw_ports
+    config.ports = raw_ports
     config.save()
 
     # Try to add to running proxy (dynamically, no rebuild needed)
-    container_name = _get_container_name()
     response = _send_agentboxd_command({
         "action": "add_host_port",
         "container": container_name,
@@ -205,12 +405,12 @@ def expose(port_spec: str):
         # Provide helpful guidance for Docker conflicts
         if "Docker" in error or "in use" in error.lower():
             console.print("\n[bold]To fix this:[/bold]")
-            console.print("  1. Add 'mode: tunnel' under 'ports:' in .agentbox.yml")
+            console.print("  1. Add 'mode: tunnel' under 'ports:' in .agentbox/config.yml")
             console.print("  2. Run: abox rebuild")
             console.print("  3. The port will be exposed via tunnel instead of Docker")
 
 
-@ports.command(name="forward")
+@ports.command(name="forward", options_metavar="")
 @click.argument("port_spec")
 @handle_errors
 def forward(port_spec: str):
@@ -240,9 +440,9 @@ def forward(port_spec: str):
 
     config = ProjectConfig(project_dir)
     if not config.exists():
-        raise click.ClickException("No .agentbox.yml found. Run: agentbox init")
+        raise click.ClickException("No .agentbox/config.yml found. Run: agentbox init")
 
-    # Check if already configured
+    # Check if already configured in this project
     current_ports = config.ports_container
     for entry in current_ports:
         existing_port = entry.get("port") if isinstance(entry, dict) else int(str(entry).split(":")[0])
@@ -250,23 +450,29 @@ def forward(port_spec: str):
             console.print(f"[yellow]Port {port} already forwarded[/yellow]")
             return
 
+    # Check if port is in use by another agentbox container
+    container_name = _get_container_name()
+    active_ports = _get_active_ports()
+    for port_info in active_ports["container_ports"]:
+        if port_info["host_port"] == port and port_info["container"] != container_name:
+            other_project = port_info["container"].replace("agentbox-", "", 1)
+            console.print(f"[red]Error: Host port {port} is already forwarded by project '{other_project}'[/red]")
+            return
+
     # Update config - store as simple port spec string (like host ports)
-    raw_ports = config.config.get("ports", {})
-    if isinstance(raw_ports, list):
-        raw_ports = {"host": raw_ports, "container": []}
+    raw_ports = config.ports.copy()
 
     if "container" not in raw_ports:
         raw_ports["container"] = []
 
     # Store as "port" or "host:container" string
     raw_ports["container"].append(port_spec)
-    config.config["ports"] = raw_ports
+    config.ports = raw_ports
     config.save()
 
     console.print(f"[green]✓ Forwarding host:{port} → container:{container_port}[/green]")
 
     # Try to dynamically add the listener via proxy socket
-    container_name = _get_container_name()
     response = _send_agentboxd_command({
         "action": "add_container_port",
         "container": container_name,
@@ -282,7 +488,7 @@ def forward(port_spec: str):
         console.print("[yellow]Could not add listener dynamically. Will be active on container restart.[/yellow]")
 
 
-@ports.command(name="unexpose")
+@ports.command(name="unexpose", options_metavar="")
 @click.argument("port", type=int)
 @handle_errors
 def unexpose(port: int):
@@ -294,12 +500,10 @@ def unexpose(port: int):
 
     config = ProjectConfig(project_dir)
     if not config.exists():
-        raise click.ClickException("No .agentbox.yml found")
+        raise click.ClickException("No .agentbox/config.yml found")
 
     # Find and remove matching port spec
-    raw_ports = config.config.get("ports", {})
-    if isinstance(raw_ports, list):
-        raw_ports = {"host": raw_ports, "container": []}
+    raw_ports = config.ports.copy()
 
     host_ports = raw_ports.get("host", [])
     found = False
@@ -317,7 +521,7 @@ def unexpose(port: int):
         return
 
     raw_ports["host"] = new_host_ports
-    config.config["ports"] = raw_ports
+    config.ports = raw_ports
     config.save()
 
     # Try to remove from running proxy
@@ -340,7 +544,7 @@ def unexpose(port: int):
             console.print(f"[green]✓ Unexposed port {port} (config updated)[/green]")
 
 
-@ports.command(name="unforward")
+@ports.command(name="unforward", options_metavar="")
 @click.argument("port", type=int)
 @handle_errors
 def unforward(port: int):
@@ -352,12 +556,10 @@ def unforward(port: int):
 
     config = ProjectConfig(project_dir)
     if not config.exists():
-        raise click.ClickException("No .agentbox.yml found")
+        raise click.ClickException("No .agentbox/config.yml found")
 
     # Find and remove matching entry
-    raw_ports = config.config.get("ports", {})
-    if isinstance(raw_ports, list):
-        raw_ports = {"host": raw_ports, "container": []}
+    raw_ports = config.ports.copy()
 
     container_ports = raw_ports.get("container", [])
     found = False
@@ -380,7 +582,7 @@ def unforward(port: int):
         return
 
     raw_ports["container"] = new_container_ports
-    config.config["ports"] = raw_ports
+    config.ports = raw_ports
     config.save()
 
     console.print(f"[green]✓ Unforwarded port {port}[/green]")
@@ -401,151 +603,69 @@ def unforward(port: int):
         console.print("[yellow]Listener will stop on container restart.[/yellow]")
 
 
-@ports.command(name="status")
+@ports.command(name="status", options_metavar="")
 @handle_errors
 def ports_status():
     """Show active port tunnels (runtime status)."""
-    import json
-    import urllib.request
-    import urllib.error
-    from agentbox.host_config import HostConfig
+    # Get active ports from daemon
+    active_ports = _get_active_ports()
 
-    # Try to get status from web API
-    try:
-        host_config = HostConfig()
-        web_config = host_config._config.get("web_server", {})
-        port = web_config.get("port", 8080)
-
-        url = f"http://localhost:{port}/api/status"
-        req = urllib.request.Request(url, headers={"Accept": "application/json"})
-
-        with urllib.request.urlopen(req, timeout=2) as response:
-            status = json.loads(response.read().decode())
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, Exception):
-        console.print("[yellow]Could not connect to agentboxd. Is the service running?[/yellow]")
-        console.print("[dim]Start with: agentbox service start[/dim]")
-        return
+    # Check if daemon is running
+    if not active_ports["host_ports"] and not active_ports["container_ports"]:
+        # Try to verify daemon is actually running
+        response = _send_agentboxd_command({"action": "get_active_ports"})
+        if not response.get("ok"):
+            console.print("[yellow]Could not connect to agentboxd. Is the service running?[/yellow]")
+            console.print("[dim]Start with: agentbox service start[/dim]")
+            return
 
     console.print("[bold]Active Port Tunnels[/bold]\n")
 
-    # SSH tunnel stats
-    tunnels = status.get("tunnels", {})
-    ssh_stats = tunnels.get("ssh_tunnel", {})
-    connected = ssh_stats.get("connected_containers", 0)
-    forwards = ssh_stats.get("total_forwards", 0)
+    # Group ports by container
+    exposed_by_container = {}  # container -> list of (host_port, container_port)
+    forwarded_by_container = {}  # container -> list of (host_port, container_port)
 
-    console.print("[cyan]SSH Tunnel Status[/cyan]")
-    if connected > 0:
-        console.print(f"  [green]●[/green] {connected} container(s) connected")
-        console.print(f"    {forwards} active port forward(s)")
-    else:
-        console.print("  [dim]No containers connected[/dim]")
+    for port_info in active_ports["host_ports"]:
+        container = port_info["container"]
+        if container not in exposed_by_container:
+            exposed_by_container[container] = []
+        exposed_by_container[container].append((port_info["host_port"], port_info["container_port"]))
 
-    console.print()
+    for port_info in active_ports["container_ports"]:
+        container = port_info["container"]
+        if container not in forwarded_by_container:
+            forwarded_by_container[container] = []
+        forwarded_by_container[container].append((port_info["host_port"], port_info["container_port"]))
 
-    # Connected containers
-    service = status.get("service", {})
-    containers = service.get("connected_containers", [])
-    if containers:
-        console.print("[cyan]Connected Containers[/cyan]")
-        for name in containers:
-            console.print(f"  [green]●[/green] {name}")
-        console.print()
+    # Get all unique containers
+    all_containers = set(exposed_by_container.keys()) | set(forwarded_by_container.keys())
 
-    # Show configured ports from containers
-    container_list = status.get("containers", [])
-    console.print("[cyan]Container Ports[/cyan]")
-    has_ports = False
-    for c in container_list:
-        if c.get("status") != "running":
-            continue
-        project_path = c.get("project_path", "")
-        if project_path:
-            from agentbox.config import ProjectConfig
-            config = ProjectConfig(Path(project_path))
-            if config.exists():
-                host_ports = config.ports_host
-                if host_ports:
-                    has_ports = True
-                    name = c.get("project", c.get("name", "?"))
-                    console.print(f"  [bold]{name}[/bold]")
-                    for spec in host_ports:
-                        try:
-                            parsed = parse_port_spec(spec)
-                            console.print(f"    :{parsed['host_port']} ← container:{parsed['container_port']}")
-                        except (ValueError, KeyError):
-                            console.print(f"    [dim]{spec} (invalid)[/dim]")
-    if not has_ports:
-        console.print("  [dim]No exposed ports configured[/dim]")
-
-
-# Backward compatibility aliases (hidden from help)
-@ports.group(name="add", hidden=True)
-def ports_add():
-    """[Deprecated] Use 'expose' or 'forward' instead."""
-    pass
-
-
-@ports_add.command(name="host")
-@click.argument("port_spec")
-@handle_errors
-def add_host(port_spec: str):
-    """[Deprecated] Use 'abox ports expose' instead."""
-    console.print("[yellow]Note: 'abox ports add host' is deprecated. Use 'abox ports expose' instead.[/yellow]\n")
-    # Parse old format (host:container) and convert to new format (container:host)
-    parsed = parse_port_spec(port_spec)
-    if parsed["host_port"] == parsed["container_port"]:
-        new_spec = str(parsed["container_port"])
-    else:
-        new_spec = f"{parsed['container_port']}:{parsed['host_port']}"
-    ctx = click.get_current_context()
-    ctx.invoke(expose, port_spec=new_spec)
-
-
-@ports_add.command(name="container")
-@click.argument("name")
-@click.argument("port", type=int)
-@click.argument("container_port", type=int, required=False)
-@handle_errors
-def add_container(name: str, port: int, container_port: int = None):
-    """[Deprecated] Use 'abox ports forward' instead."""
-    console.print("[yellow]Note: 'abox ports add container' is deprecated. Use 'abox ports forward' instead.[/yellow]\n")
-    # Convert old format to new port_spec format
-    if container_port and container_port != port:
-        port_spec = f"{port}:{container_port}"
-    else:
-        port_spec = str(port)
-    ctx = click.get_current_context()
-    ctx.invoke(forward, port_spec=port_spec)
-
-
-@ports.group(name="remove", hidden=True)
-def ports_remove():
-    """[Deprecated] Use 'unexpose' or 'unforward' instead."""
-    pass
-
-
-@ports_remove.command(name="host")
-@click.argument("port", type=int)
-@handle_errors
-def remove_host(port: int):
-    """[Deprecated] Use 'abox ports unexpose' instead."""
-    console.print("[yellow]Note: 'abox ports remove host' is deprecated. Use 'abox ports unexpose' instead.[/yellow]\n")
-    ctx = click.get_current_context()
-    ctx.invoke(unexpose, port=port)
-
-
-@ports_remove.command(name="container")
-@click.argument("name_or_port")
-@handle_errors
-def remove_container(name_or_port: str):
-    """[Deprecated] Use 'abox ports unforward' instead."""
-    console.print("[yellow]Note: 'abox ports remove container' is deprecated. Use 'abox ports unforward' instead.[/yellow]\n")
-    # Try to parse as port number
-    try:
-        port = int(name_or_port)
-    except ValueError:
-        console.print(f"[red]Port must be a number, got: {name_or_port}[/red]")
+    if not all_containers:
+        console.print("[dim]No active port tunnels[/dim]")
         return
-    ctx = click.get_current_context()
-    ctx.invoke(unforward, port=port)
+
+    # Show ports grouped by container
+    for container in sorted(all_containers):
+        project_name = container.replace("agentbox-", "", 1) if container.startswith("agentbox-") else container
+        console.print(f"[cyan]{project_name}[/cyan]")
+
+        exposed = exposed_by_container.get(container, [])
+        forwarded = forwarded_by_container.get(container, [])
+
+        if exposed:
+            console.print("  [dim]Exposed (container → host):[/dim]")
+            for host_port, container_port in sorted(exposed):
+                if host_port == container_port:
+                    console.print(f"    [green]●[/green] :{host_port}")
+                else:
+                    console.print(f"    [green]●[/green] container:{container_port} → host:{host_port}")
+
+        if forwarded:
+            console.print("  [dim]Forwarded (host → container):[/dim]")
+            for host_port, container_port in sorted(forwarded):
+                if host_port == container_port:
+                    console.print(f"    [green]●[/green] :{host_port}")
+                else:
+                    console.print(f"    [green]●[/green] host:{host_port} → container:{container_port}")
+
+        console.print()

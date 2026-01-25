@@ -129,7 +129,7 @@ def test_skill_files_accessible_in_container(test_project, test_skill):
     # Check if skill files are accessible in container
     result = subprocess.run(
         ["docker", "exec", container_name, "test", "-d",
-         f"/workspace/.agentbox/claude/skills/{skill_name}"],
+         f"/workspace/.agentbox/skills/{skill_name}"],
         capture_output=True
     )
 

@@ -14,11 +14,41 @@ from agentbox.cli import cli
 from agentbox.container import ContainerManager
 from agentbox.cli.helpers import (
     _build_dynamic_context,
-    _complete_project_name,
     _run_agent_command,
     handle_errors,
+    require_initialized,
+    console,
 )
 from agentbox.utils.project import resolve_project_dir
+
+
+def _check_fallback(agent: str) -> Optional[str]:
+    """Check if an agent needs fallback due to rate limiting.
+
+    Uses the unified usage client which checks service first, then local state.
+
+    Args:
+        agent: The requested agent name (e.g., "superclaude")
+
+    Returns:
+        The fallback agent name if fallback is needed, None otherwise.
+        If the fallback is the same as the requested agent (no fallback available),
+        returns None to proceed with the original agent.
+    """
+    try:
+        from agentbox.usage.client import get_fallback_agent
+
+        fallback_agent, reason = get_fallback_agent(agent)
+
+        if reason and fallback_agent != agent:
+            console.print(f"[yellow]{reason}[/yellow]")
+            console.print(f"[blue]Using fallback: {fallback_agent}[/blue]")
+            return fallback_agent
+
+        return None
+    except ImportError:
+        # Usage module not available, proceed without fallback
+        return None
 
 
 def _has_vscode() -> bool:
@@ -59,11 +89,14 @@ def _read_super_prompt() -> str:
     # Read superagents.md
     superagents_md = agentbox_dir / "superagents.md"
     if not superagents_md.exists():
-        raise click.ClickException(
-            "Super agent instructions not found. Expected `.agentbox/superagents.md`. "
-            "Run 'agentbox init' to create it.",
+        # Default super agent instructions if file is missing
+        super_instructions = (
+            "# Super Agent Context\n\n"
+            "## Auto-Approve Mode Enabled\n"
+            "You are running with auto-approve permissions."
         )
-    super_instructions = superagents_md.read_text()
+    else:
+        super_instructions = superagents_md.read_text()
 
     # Add dynamic context
     dynamic_context = _build_dynamic_context(agentbox_dir)
@@ -71,41 +104,48 @@ def _read_super_prompt() -> str:
     return f"{base_instructions}\n\n{super_instructions}\n\n{dynamic_context}"
 
 
-
-
 @cli.command()
-@click.argument("project", required=False, shell_complete=_complete_project_name)
-@click.argument("args", nargs=-1)
+@click.argument("prompt", nargs=-1)
+@click.pass_context
 @handle_errors
-def claude(project: Optional[str], args: tuple):
-    """Run Claude Code in an Agentbox container.
+def claude(ctx, prompt: tuple):
+    """Run Claude Code in the current project.
 
-    If no project name is provided, runs in the current project's container.
+    Runs in the project container from current directory.
+    Use 'abox worktree BRANCH claude' for other branches.
 
     Examples:
-        agentbox claude
-        agentbox claude "implement user authentication"
-        agentbox claude my-project "fix the bug in login"
+        abox claude
+        abox claude "implement user authentication"
     """
+    require_initialized()
+
+    # Check for rate limit fallback
+    fallback = _check_fallback("claude")
+    if fallback:
+        fallback_cmd = cli.get_command(ctx, fallback)
+        if fallback_cmd:
+            ctx.invoke(fallback_cmd, prompt=prompt)
+            return
+
     manager = ContainerManager()
     instructions = _read_agent_instructions()
     extra_args = [
         "--settings",
-        "/home/abox/.claude/config.json",
+        "/home/abox/.claude/settings.json",
         "--mcp-config",
-        "/workspace/.agentbox/claude/mcp.json",
+        "/home/abox/.mcp.json",
         "--append-system-prompt",
         instructions,
     ]
 
-    # Auto-enable VSCode integration if available on host
     if _has_vscode():
         extra_args.append("--ide")
 
     _run_agent_command(
         manager,
-        project,
-        args,
+        None,  # Current project
+        prompt,
         "claude",
         extra_args=extra_args,
         label="Claude Code",
@@ -115,34 +155,48 @@ def claude(project: Optional[str], args: tuple):
 
 
 @cli.command()
-@click.argument("project", required=False, shell_complete=_complete_project_name)
-@click.argument("args", nargs=-1)
+@click.argument("prompt", nargs=-1)
+@click.pass_context
 @handle_errors
-def superclaude(project: Optional[str], args: tuple):
-    """Run Claude Code with auto-approve permissions enabled.
+def superclaude(ctx, prompt: tuple):
+    """Run Claude Code with auto-approve permissions.
 
-    If no project name is provided, runs in the current project's container.
+    Runs in the project container from current directory.
+    Use 'abox worktree BRANCH superclaude' for other branches.
+
+    Examples:
+        abox superclaude
+        abox superclaude "refactor the auth module"
     """
+    require_initialized()
+
+    # Check for rate limit fallback
+    fallback = _check_fallback("superclaude")
+    if fallback:
+        fallback_cmd = cli.get_command(ctx, fallback)
+        if fallback_cmd:
+            ctx.invoke(fallback_cmd, prompt=prompt)
+            return
+
     manager = ContainerManager()
-    prompt = _read_super_prompt()
+    prompt_text = _read_super_prompt()
     extra_args = [
         "--settings",
-        "/home/abox/.claude/config-super.json",
+        "/home/abox/.claude/settings-super.json",
         "--mcp-config",
-        "/workspace/.agentbox/claude/mcp.json",
+        "/home/abox/.mcp.json",
         "--dangerously-skip-permissions",
         "--append-system-prompt",
-        prompt,
+        prompt_text,
     ]
 
-    # Auto-enable VSCode integration if available on host
     if _has_vscode():
         extra_args.append("--ide")
 
     _run_agent_command(
         manager,
-        project,
-        args,
+        None,
+        prompt,
         "claude",
         extra_args=extra_args,
         label="Claude Code (auto-approve)",
@@ -153,21 +207,35 @@ def superclaude(project: Optional[str], args: tuple):
 
 
 @cli.command()
-@click.argument("project", required=False, shell_complete=_complete_project_name)
-@click.argument("args", nargs=-1)
+@click.argument("prompt", nargs=-1)
+@click.pass_context
 @handle_errors
-def codex(project: Optional[str], args: tuple):
-    """Run Codex in an Agentbox container.
+def codex(ctx, prompt: tuple):
+    """Run Codex in the current project.
 
-    If no project name is provided, runs in the current project's container.
+    Runs in the project container from current directory.
     Codex uses AGENTS.md files for custom instructions (auto-discovered).
+
+    Examples:
+        abox codex
+        abox codex "add tests for the API"
     """
+    require_initialized()
+
+    # Check for rate limit fallback
+    fallback = _check_fallback("codex")
+    if fallback:
+        fallback_cmd = cli.get_command(ctx, fallback)
+        if fallback_cmd:
+            ctx.invoke(fallback_cmd, prompt=prompt)
+            return
+
     manager = ContainerManager()
 
     _run_agent_command(
         manager,
-        project,
-        args,
+        None,
+        prompt,
         "codex",
         label="Codex",
         reuse_tmux_session=True,
@@ -176,15 +244,29 @@ def codex(project: Optional[str], args: tuple):
 
 
 @cli.command()
-@click.argument("project", required=False, shell_complete=_complete_project_name)
-@click.argument("args", nargs=-1)
+@click.argument("prompt", nargs=-1)
+@click.pass_context
 @handle_errors
-def supercodex(project: Optional[str], args: tuple):
-    """Run Codex with auto-approve permissions enabled.
+def supercodex(ctx, prompt: tuple):
+    """Run Codex with auto-approve permissions.
 
-    If no project name is provided, runs in the current project's container.
+    Runs in the project container from current directory.
     Codex uses AGENTS.md files for custom instructions (auto-discovered).
+
+    Examples:
+        abox supercodex
+        abox supercodex "optimize database queries"
     """
+    require_initialized()
+
+    # Check for rate limit fallback
+    fallback = _check_fallback("supercodex")
+    if fallback:
+        fallback_cmd = cli.get_command(ctx, fallback)
+        if fallback_cmd:
+            ctx.invoke(fallback_cmd, prompt=prompt)
+            return
+
     manager = ContainerManager()
 
     extra_args = [
@@ -193,8 +275,8 @@ def supercodex(project: Optional[str], args: tuple):
 
     _run_agent_command(
         manager,
-        project,
-        args,
+        None,
+        prompt,
         "codex",
         extra_args=extra_args,
         label="Codex (auto-approve)",
@@ -205,21 +287,35 @@ def supercodex(project: Optional[str], args: tuple):
 
 
 @cli.command()
-@click.argument("project", required=False, shell_complete=_complete_project_name)
-@click.argument("args", nargs=-1)
+@click.argument("prompt", nargs=-1)
+@click.pass_context
 @handle_errors
-def gemini(project: Optional[str], args: tuple):
-    """Run Gemini in an Agentbox container.
+def gemini(ctx, prompt: tuple):
+    """Run Gemini in the current project.
 
-    If no project name is provided, runs in the current project's container.
+    Runs in the project container from current directory.
     Gemini uses GEMINI.md files for custom instructions (auto-discovered).
+
+    Examples:
+        abox gemini
+        abox gemini "explain the codebase"
     """
+    require_initialized()
+
+    # Check for rate limit fallback
+    fallback = _check_fallback("gemini")
+    if fallback:
+        fallback_cmd = cli.get_command(ctx, fallback)
+        if fallback_cmd:
+            ctx.invoke(fallback_cmd, prompt=prompt)
+            return
+
     manager = ContainerManager()
 
     _run_agent_command(
         manager,
-        project,
-        args,
+        None,
+        prompt,
         "gemini",
         label="Gemini",
         reuse_tmux_session=True,
@@ -228,26 +324,119 @@ def gemini(project: Optional[str], args: tuple):
 
 
 @cli.command()
-@click.argument("project", required=False, shell_complete=_complete_project_name)
-@click.argument("args", nargs=-1)
+@click.argument("prompt", nargs=-1)
+@click.pass_context
 @handle_errors
-def supergemini(project: Optional[str], args: tuple):
-    """Run Gemini with auto-approve permissions enabled.
+def supergemini(ctx, prompt: tuple):
+    """Run Gemini with auto-approve permissions.
 
+    Runs in the project container from current directory.
     Gemini uses GEMINI.md files for custom instructions (auto-discovered).
+
+    Examples:
+        abox supergemini
+        abox supergemini "update all dependencies"
     """
+    require_initialized()
+
+    # Check for rate limit fallback
+    fallback = _check_fallback("supergemini")
+    if fallback:
+        fallback_cmd = cli.get_command(ctx, fallback)
+        if fallback_cmd:
+            ctx.invoke(fallback_cmd, prompt=prompt)
+            return
+
     manager = ContainerManager()
 
     extra_args = ["--non-interactive"]
 
     _run_agent_command(
         manager,
-        project,
-        args,
+        None,
+        prompt,
         "gemini",
         extra_args=extra_args,
         label="Gemini (auto-approve)",
         reuse_tmux_session=True,
         session_key="supergemini",
+        persist_session=False,
+    )
+
+
+@cli.command()
+@click.argument("prompt", nargs=-1)
+@click.pass_context
+@handle_errors
+def qwen(ctx, prompt: tuple):
+    """Run Qwen Code in the current project.
+
+    Runs in the project container from current directory.
+    Qwen uses QWEN.md files for custom instructions (auto-discovered).
+
+    Examples:
+        abox qwen
+        abox qwen "explain the API structure"
+    """
+    require_initialized()
+
+    # Check for rate limit fallback
+    fallback = _check_fallback("qwen")
+    if fallback:
+        fallback_cmd = cli.get_command(ctx, fallback)
+        if fallback_cmd:
+            ctx.invoke(fallback_cmd, prompt=prompt)
+            return
+
+    manager = ContainerManager()
+
+    _run_agent_command(
+        manager,
+        None,
+        prompt,
+        "qwen",
+        label="Qwen Code",
+        reuse_tmux_session=True,
+        session_key="qwen",
+    )
+
+
+@cli.command()
+@click.argument("prompt", nargs=-1)
+@click.pass_context
+@handle_errors
+def superqwen(ctx, prompt: tuple):
+    """Run Qwen Code with auto-approve permissions.
+
+    Runs in the project container from current directory.
+    Qwen uses QWEN.md files for custom instructions (auto-discovered).
+
+    Examples:
+        abox superqwen
+        abox superqwen "refactor all controllers"
+    """
+    require_initialized()
+
+    # Check for rate limit fallback
+    fallback = _check_fallback("superqwen")
+    if fallback:
+        fallback_cmd = cli.get_command(ctx, fallback)
+        if fallback_cmd:
+            ctx.invoke(fallback_cmd, prompt=prompt)
+            return
+
+    manager = ContainerManager()
+
+    extra_args = ["--yolo"]
+
+    _run_agent_command(
+        manager,
+        None,
+        prompt,
+        "qwen",
+        extra_args=extra_args,
+        label="Qwen Code (auto-approve)",
+        reuse_tmux_session=True,
+        session_key="superqwen",
         persist_session=False,
     )

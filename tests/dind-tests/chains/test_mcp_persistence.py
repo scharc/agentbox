@@ -48,10 +48,10 @@ class TestMCPPersistence:
             config_after = json.load(f)
         assert "fetch" in config_after.get("mcpServers", {})
 
-        # 5. Verify MCP config is visible in container
+        # 5. Verify MCP config is visible in container (now at ~/.mcp.json)
         result = exec_in_container(
             container_name,
-            "cat /workspace/.agentbox/claude/mcp.json",
+            "cat /home/abox/.mcp.json",
         )
         assert result.returncode == 0
         assert "fetch" in result.stdout
@@ -70,21 +70,21 @@ class TestMCPPersistence:
             # May already exist, that's fine
             assert result.returncode == 0 or "already" in result.stdout.lower()
 
-        # Verify all MCPs in config
-        mcp_file = test_project / ".agentbox" / "claude" / "mcp.json"
+        # Verify all MCPs in config (stored in mcp-meta.json on host)
+        mcp_file = test_project / ".agentbox" / "mcp-meta.json"
         with open(mcp_file) as f:
             config = json.load(f)
 
         for mcp in mcps:
             assert mcp in config.get("mcpServers", {}), f"MCP {mcp} not in config"
 
-        # Start and verify
+        # Start and verify (deployed to ~/.mcp.json in container)
         run_abox("start", cwd=test_project)
         wait_for_container_ready(container_name)
 
         result = exec_in_container(
             container_name,
-            "cat /workspace/.agentbox/claude/mcp.json",
+            "cat /home/abox/.mcp.json",
         )
         for mcp in mcps:
             assert mcp in result.stdout, f"MCP {mcp} not visible in container"
@@ -162,16 +162,15 @@ class TestMCPInWorktree:
             f"Contents: {result.stdout}"
         )
 
-        # 5. Verify MCP config is accessible from worktree context
-        # Check that the worktree has .agentbox directory (symlinked or copied)
+        # 5. Verify MCP config is accessible (now in home directory)
+        # MCP config is at ~/.mcp.json in the new architecture
         result = exec_in_container(
             container_name,
-            "cat /git-worktrees/worktree-feature-1/.agentbox/claude/mcp.json 2>/dev/null || "
-            "cat /workspace/.agentbox/claude/mcp.json",
+            "cat /home/abox/.mcp.json",
         )
         assert result.returncode == 0, f"MCP config not accessible: {result.stderr}"
         assert "fetch" in result.stdout, (
-            f"MCP 'fetch' not in config accessible from worktree. Got: {result.stdout}"
+            f"MCP 'fetch' not in config at ~/.mcp.json. Got: {result.stdout}"
         )
 
         # Cleanup

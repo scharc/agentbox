@@ -1,6 +1,15 @@
 # Bash completion for agentctl
 # Source this file or install to /etc/bash_completion.d/
 
+# Helper to use correct tmux server (respects TMUX env var for custom sockets)
+_agentctl_tmux() {
+    if [[ -n "${TMUX:-}" ]]; then
+        tmux -S "${TMUX%%,*}" "$@"
+    else
+        tmux "$@"
+    fi
+}
+
 _agentctl_completion() {
     local cur prev cmd
     COMPREPLY=()
@@ -20,7 +29,7 @@ _agentctl_completion() {
         attach)
             # Complete with existing sessions first, then known agent names as fallback
             if [[ ${COMP_CWORD} -eq 2 ]]; then
-                local sessions=$(tmux list-sessions -F "#{session_name}" 2>/dev/null)
+                local sessions=$(_agentctl_tmux list-sessions -F "#{session_name}" 2>/dev/null)
                 local agents="claude superclaude codex supercodex gemini supergemini shell"
                 COMPREPLY=( $(compgen -W "$sessions $agents" -- "$cur") )
             fi
@@ -28,7 +37,7 @@ _agentctl_completion() {
         peek)
             # Complete with existing sessions for peek
             if [[ ${COMP_CWORD} -eq 2 ]]; then
-                local sessions=$(tmux list-sessions -F "#{session_name}" 2>/dev/null)
+                local sessions=$(_agentctl_tmux list-sessions -F "#{session_name}" 2>/dev/null)
                 COMPREPLY=( $(compgen -W "$sessions" -- "$cur") )
             elif [[ ${COMP_CWORD} -eq 3 ]]; then
                 # Line count or --follow flag
@@ -38,7 +47,7 @@ _agentctl_completion() {
         kill)
             # Complete with existing sessions for kill
             if [[ ${COMP_CWORD} -eq 2 ]]; then
-                local sessions=$(tmux list-sessions -F "#{session_name}" 2>/dev/null)
+                local sessions=$(_agentctl_tmux list-sessions -F "#{session_name}" 2>/dev/null)
                 COMPREPLY=( $(compgen -W "$sessions" -- "$cur") )
             elif [[ ${COMP_CWORD} -eq 3 ]]; then
                 COMPREPLY=( $(compgen -W "--force -f" -- "$cur") )

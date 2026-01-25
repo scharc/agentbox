@@ -157,22 +157,22 @@ def packages_remove(package_type: str, package: str):
 @packages_group.command(name="init")
 @handle_errors
 def packages_init():
-    """Initialize packages section in .agentbox.yml with empty configuration."""
+    """Initialize packages section in .agentbox/config.yml with empty configuration."""
     project_dir = resolve_project_dir()
     agentbox_dir = get_agentbox_dir(project_dir)
     _require_agentbox_dir(agentbox_dir, project_dir)
 
-    config_path = project_dir / ".agentbox.yml"
+    config_path = project_dir / ".agentbox/config.yml"
     config = ProjectConfig(project_dir)
     if "packages" in config.config:
-        console.print("[yellow]packages already configured in .agentbox.yml[/yellow]")
+        console.print("[yellow]packages already configured in .agentbox/config.yml[/yellow]")
         return
 
     # Create empty packages config
     packages = {"npm": [], "pip": [], "apt": [], "cargo": [], "post": []}
     _save_packages_config(agentbox_dir, packages)
 
-    console.print("[green]✓ Initialized packages in .agentbox.yml[/green]")
+    console.print("[green]✓ Initialized packages in .agentbox/config.yml[/green]")
     console.print(f"\n[blue]Location:[/blue] {config_path}")
     console.print("\n[blue]Add packages with:[/blue]")
     console.print("  agentbox packages add npm <package>")

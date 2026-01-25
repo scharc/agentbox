@@ -26,9 +26,6 @@ from agentbox.utils.config_io import (
     save_json_config,
 )
 
-# Note: tmux functions moved to agentbox.core.tmux
-# Import from agentbox.utils.tmux for backward compatibility
-
 __all__ = [
     # Exceptions
     "AgentboxError",

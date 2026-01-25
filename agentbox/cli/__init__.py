@@ -76,7 +76,7 @@ def cli():
             ("Command Groups", [
                 ("project", "Lifecycle (init/start/stop/rebase/remove/info/list)"),
                 ("session", "Tmux sessions (new/list/attach/remove/rename)"),
-                ("worktree/wt", "Git worktrees (ls/add/remove/prune)"),
+                ("worktree", "Git worktrees (ls/add/remove/prune)"),
                 ("network", "Connect to containers (list/available/connect/disconnect)"),
                 ("base", "Base image (rebuild)"),
             ]),
@@ -89,6 +89,7 @@ def cli():
                 ("devices", "Device passthrough (list/add/remove/choose)"),
                 ("docker", "Docker socket access (enable/disable/status)"),
                 ("config", "Config utilities (migrate)"),
+                ("usage", "Agent rate limits (status/probe/reset/fallback)"),
             ]),
             ("Service", [
                 ("service", "Host daemon (install/start/stop/status/logs/serve)"),
@@ -122,6 +123,7 @@ from agentbox.cli.commands import skill  # noqa: E402,F401
 from agentbox.cli.commands import worktree  # noqa: E402,F401
 from agentbox.cli.commands import workspace  # noqa: E402,F401
 from agentbox.cli.commands import quick  # noqa: E402,F401
+from agentbox.cli.commands import usage  # noqa: E402,F401
 
 
 # Shortcut commands that delegate to command groups

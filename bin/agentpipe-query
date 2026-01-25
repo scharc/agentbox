@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# agentpipe-query - Get clean output from multi-agent conversations
+# Usage: agentpipe-query "prompt" [agent1] [agent2] [max_turns]
+#
+# Examples:
+#   agentpipe-query "What's the best approach for caching?"
+#   agentpipe-query "Review this code" claude gemini 2
+#   echo "code here" | agentpipe-query "Review this"
+
+set -euo pipefail
+
+PROMPT="${1:-}"
+AGENT1="${2:-claude}"
+AGENT2="${3:-gemini}"
+MAX_TURNS="${4:-1}"
+
+# Read from stdin if no prompt and stdin is not a terminal
+if [[ -z "$PROMPT" ]] && [[ ! -t 0 ]]; then
+    PROMPT=$(cat)
+elif [[ -z "$PROMPT" ]]; then
+    echo "Usage: agentpipe-query \"prompt\" [agent1] [agent2] [max_turns]" >&2
+    echo "  Or pipe content: echo \"code\" | agentpipe-query \"Review this\"" >&2
+    exit 1
+fi
+
+# Run agentpipe and extract clean output
+agentpipe run \
+    -a "$AGENT1" \
+    -a "$AGENT2" \
+    -p "$PROMPT" \
+    --max-turns "$MAX_TURNS" \
+    --json \
+    --no-log \
+    --no-summary \
+    2>/dev/null \
+| jq -r '
+    select(.type == "message.created") |
+    "[\(.data.agent_name)] \(.data.content)"
+' \
+| sed -E '
+    /MCP server .* failed/d
+    /MCP server .* connected/d
+    /Server .* supports/d
+    /Listening for changes/d
+    s/Arrr, matey!//g
+' \
+| sed '/^$/d'

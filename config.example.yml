@@ -29,12 +29,14 @@ notifications:
   timeout_enhanced: 60.0          # Enhanced notifications (seconds)
   deduplication_window: 10.0      # Ignore duplicates (seconds)
   hook_timeout: 5.0               # Hook execution timeout (seconds)
+  auto_dismiss: true              # Auto-dismiss notifications on session activity
 
-# Task agent settings
+# Task agent settings for AI-enhanced notifications
+# Model aliases: fast, balanced, powerful (work with any agent)
 task_agents:
   enabled: false
-  agent: claude
-  model: haiku
+  agent: claude             # claude or codex
+  model: fast               # fast=haiku/gpt-4o-mini, balanced=sonnet/gpt-4o, powerful=opus/o3
   timeout: 30
   buffer_lines: 50
 
@@ -58,3 +60,41 @@ polling:
 terminal:
   default_width: 80
   default_height: 24
+
+# LiteLLM proxy for multi-provider LLM access with fallback (experimental)
+# See: https://docs.litellm.ai/
+litellm:
+  enabled: false
+  port: 4000
+
+  # Provider configurations
+  # API keys can use ${ENV_VAR} syntax to reference environment variables
+  providers:
+    openai:
+      api_key: ${OPENAI_API_KEY}
+
+    anthropic:
+      api_key: ${ANTHROPIC_API_KEY}
+
+  # Model aliases with fallback chains
+  # First model in list is primary, others are fallbacks
+  models:
+    default:
+      - provider: openai
+        model: gpt-4o
+
+    fast:
+      - provider: openai
+        model: gpt-4o-mini
+
+  # Fallback behavior
+  fallbacks:
+    on_rate_limit: true       # Fallback on 429 errors
+    on_context_window: true   # Fallback on context exceeded
+    on_error: true            # Fallback on other errors
+
+  # Router settings
+  router:
+    num_retries: 3
+    timeout: 120
+    retry_after_seconds: 60

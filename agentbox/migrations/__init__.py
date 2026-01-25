@@ -100,9 +100,12 @@ def get_migration(migration_id: str) -> Migration:
 
 # Register migrations
 from agentbox.migrations.v0_2_0 import DockerDevicesToEnabled, SSHConfigRename
+from agentbox.migrations.v0_3_0_unified import MCPUnification, UnifiedConfigStructure
 
 register_migration(DockerDevicesToEnabled)
 register_migration(SSHConfigRename)
+register_migration(UnifiedConfigStructure)
+register_migration(MCPUnification)
 
 
 __all__ = [

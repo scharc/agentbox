@@ -11,7 +11,7 @@ You are running in an Agentbox containerized environment.
 - **Working directory:** `/workspace` (your project code)
 - **What you CAN do:**
   - Edit files in `/workspace`
-  - Run `agentctl wt` - manage git worktrees for parallel branch work
+  - Run `agentctl worktree` - manage git worktrees for parallel branch work
   - Run `notify.sh` - send desktop notifications to the host
   - Use all dev tools: git, node, python, docker CLI, etc.
 

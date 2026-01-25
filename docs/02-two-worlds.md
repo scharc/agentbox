@@ -135,14 +135,20 @@ When a container starts, Agentbox sets up these mount points:
 
 These are mounted read-write so OAuth token refresh works - when the agent refreshes a token, it updates your host credentials too.
 
-### Project-Local State
+### Agent Home Directories
 
-| Container Path | Host Path | Mode | Purpose |
-|----------------|-----------|------|---------|
-| `/home/abox/claude` | `.agentbox/claude/` | rw | This project's Claude history/cache |
-| `/home/abox/codex` | `.agentbox/codex/` | rw | This project's Codex state |
+Agent configurations are set up at container startup in the home directory:
 
-Each project gets isolated agent state. History from one project doesn't leak into another.
+| Directory | Purpose |
+|-----------|---------|
+| `~/.claude/` | Claude Code settings, CLAUDE.md instructions, skills |
+| `~/.codex/` | Codex CLI config.toml (from host mount) |
+| `~/.gemini/` | Gemini CLI settings with MCP |
+| `~/.qwen/` | Qwen Code settings with MCP |
+
+Configs are initialized from library templates, with optional project-level overrides from `.agentbox/config/`.
+
+Note: Claude state (history, todos, etc.) is stored in container-local paths. History from one project doesn't leak into another.
 
 ### SSH (Configurable)
 

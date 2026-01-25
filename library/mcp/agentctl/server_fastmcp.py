@@ -6,6 +6,7 @@ This provides worktree management, session switching, and autonomous agent opera
 """
 
 import os
+import socket
 import subprocess
 import json
 from typing import Optional
@@ -14,7 +15,11 @@ from fastmcp import FastMCP
 # Initialize FastMCP server
 mcp = FastMCP(
     name="agentctl",
-    instructions="AgentCtl MCP server for git worktree and tmux session management"
+    instructions="""AgentCtl MCP server for git worktree and tmux session management.
+
+IMPORTANT: At the start of every conversation (including after /clear),
+you MUST call the `bootstrap_context` tool to load your working environment.
+This ensures you always have the correct context about your session, branch, and workspace."""
 )
 
 
@@ -22,19 +27,47 @@ mcp = FastMCP(
 # Helper Functions
 # ============================================================================
 
+def get_tmux_socket() -> Optional[str]:
+    """Get the tmux socket path from TMUX environment variable.
+
+    TMUX env var format: /path/to/socket,pid,session_index
+    Returns the socket path or None if not in tmux.
+    """
+    tmux_env = os.environ.get("TMUX")
+    if tmux_env:
+        # Extract socket path (first comma-separated field)
+        return tmux_env.split(",")[0]
+    return None
+
+
+def tmux_cmd(args: list[str]) -> list[str]:
+    """Build tmux command with socket if available.
+
+    Ensures all tmux commands use the same server as the current session.
+    """
+    socket = get_tmux_socket()
+    if socket:
+        return ["tmux", "-S", socket] + args
+    return ["tmux"] + args
+
+
 def get_current_session_info() -> dict:
     """Get current session information"""
     info = {
         "name": None,
         "agent_type": None,
-        "working_dir": None
+        "working_dir": None,
+        "super_mode": False
     }
+
+    # Check for super mode via environment variable (set by super* wrapper scripts)
+    info["super_mode"] = os.environ.get("AGENTBOX_SUPER_MODE", "").lower() in ("true", "1", "yes")
 
     # Get session name
     if os.environ.get("TMUX"):
         try:
             result = subprocess.run(
-                ["tmux", "display-message", "-p", "#S"],
+                tmux_cmd(["display-message", "-p", "#S"]),
                 capture_output=True,
                 text=True,
                 check=True
@@ -46,9 +79,12 @@ def get_current_session_info() -> dict:
     # Infer agent type from session name
     # Check for super variants first (longer strings first for proper matching)
     if info["name"]:
-        for agent in ["superclaude", "supercodex", "supergemini", "claude", "codex", "gemini", "shell"]:
+        for agent in ["superclaude", "supercodex", "supergemini", "superqwen", "claude", "codex", "gemini", "qwen", "shell"]:
             if agent in info["name"]:
                 info["agent_type"] = agent
+                # Also infer super_mode from session name if not set via env
+                if not info["super_mode"] and agent.startswith("super"):
+                    info["super_mode"] = True
                 break
         if not info["agent_type"]:
             info["agent_type"] = "claude"  # Default
@@ -122,10 +158,10 @@ def get_worktree_for_branch(branch: str) -> Optional[str]:
 
 
 def setup_worktree_configs(worktree_path: str) -> tuple[bool, str]:
-    """Setup .agentbox for worktree with symlinks to shared configs
+    """Setup .agentbox for worktree with symlinks to shared project configs
 
-    Creates symlinks to shared config files in /workspace/.agentbox and
-    creates local state directories for session-specific data.
+    Creates symlinks to shared project files in /workspace/.agentbox.
+    Agent configs are in home directories (shared across worktrees).
 
     Args:
         worktree_path: Path to the worktree
@@ -139,19 +175,18 @@ def setup_worktree_configs(worktree_path: str) -> tuple[bool, str]:
         dest_agentbox = f"{worktree_path}/.agentbox"
 
         # Skip if already configured
-        if os.path.exists(f"{dest_agentbox}/claude/mcp.json"):
+        if os.path.exists(f"{dest_agentbox}/agents.md"):
             return True, ""
 
         # Create directory structure
-        os.makedirs(f"{dest_agentbox}/claude", exist_ok=True)
+        os.makedirs(dest_agentbox, exist_ok=True)
 
-        # Symlink shared config files to single source of truth
+        # Symlink shared project files (not agent configs - those are in ~/.claude etc)
         symlinks = [
-            ("claude/mcp.json", f"{dest_agentbox}/claude/mcp.json"),
-            ("claude/config.json", f"{dest_agentbox}/claude/config.json"),
-            ("claude/config-super.json", f"{dest_agentbox}/claude/config-super.json"),
+            ("agents.md", f"{dest_agentbox}/agents.md"),
+            ("superagents.md", f"{dest_agentbox}/superagents.md"),
             ("skills", f"{dest_agentbox}/skills"),
-            ("config.json", f"{dest_agentbox}/config.json"),
+            ("mcp", f"{dest_agentbox}/mcp"),
             ("mcp-meta.json", f"{dest_agentbox}/mcp-meta.json"),
             (".gitignore", f"{dest_agentbox}/.gitignore"),
         ]
@@ -160,21 +195,6 @@ def setup_worktree_configs(worktree_path: str) -> tuple[bool, str]:
             source = f"{source_agentbox}/{source_rel}"
             if os.path.exists(source) and not os.path.exists(dest):
                 os.symlink(source, dest)
-
-        # Create local state directories (isolated per worktree)
-        state_dirs = [
-            f"{dest_agentbox}/claude/todos",
-            f"{dest_agentbox}/claude/telemetry",
-            f"{dest_agentbox}/claude/debug",
-            f"{dest_agentbox}/claude/file-history",
-            f"{dest_agentbox}/claude/plans",
-            f"{dest_agentbox}/claude/projects",
-            f"{dest_agentbox}/claude/shell-snapshots",
-            f"{dest_agentbox}/claude/statsig",
-        ]
-
-        for dir_path in state_dirs:
-            os.makedirs(dir_path, exist_ok=True)
 
         return True, ""
 
@@ -223,6 +243,53 @@ def create_worktree_helper(branch: str, create_new: bool) -> tuple[bool, str, st
         return False, "", str(e)
 
 
+def _configure_tmux_session(session_name: str, branch: str, agent_type: str) -> None:
+    """Apply tmux configuration to match agentbox-created sessions.
+
+    This ensures sessions created via agentctl have the same look and feel
+    as sessions created via 'agentbox superclaude'.
+    """
+    # Get container name from hostname
+    container_name = socket.gethostname().replace("agentbox-", "")
+
+    # Display name for status bar
+    display = f"{branch} | {agent_type}"
+
+    # Apply all tmux options (matching agent_commands.py)
+    tmux_options = [
+        # Status bar
+        ["set-option", "-t", session_name, "status", "on"],
+        ["set-option", "-t", session_name, "status-position", "top"],
+        ["set-option", "-t", session_name, "status-style", "bg=colour226,fg=colour232"],
+        ["set-option", "-t", session_name, "status-left", f" AGENTBOX {container_name} | {display} "],
+        ["set-option", "-t", session_name, "status-right", ""],
+        # Mouse and history
+        ["set-option", "-t", session_name, "mouse", "off"],
+        ["set-option", "-t", session_name, "history-limit", "50000"],
+        # Pane border
+        ["set-option", "-t", session_name, "pane-border-status", "top"],
+        ["set-option", "-t", session_name, "pane-border-style", "fg=colour226"],
+        ["set-option", "-t", session_name, "pane-border-format", f" AGENTBOX {container_name} | {display} "],
+    ]
+
+    # Key bindings (global, not session-specific)
+    tmux_bindings = [
+        ["bind-key", "-n", "PPage", "copy-mode", "-eu"],
+        ["bind-key", "-T", "copy-mode", "PPage", "send-keys", "-X", "page-up"],
+        ["bind-key", "-T", "copy-mode", "NPage", "send-keys", "-X", "page-down"],
+        ["bind-key", "-T", "copy-mode-vi", "PPage", "send-keys", "-X", "page-up"],
+        ["bind-key", "-T", "copy-mode-vi", "NPage", "send-keys", "-X", "page-down"],
+    ]
+
+    # Apply session options
+    for opt in tmux_options:
+        subprocess.run(tmux_cmd(opt), capture_output=True, check=False)
+
+    # Apply key bindings
+    for binding in tmux_bindings:
+        subprocess.run(tmux_cmd(binding), capture_output=True, check=False)
+
+
 def spawn_session_in_worktree(worktree_path: str, agent_type: str, branch: str) -> tuple[bool, str, str]:
     """Spawn a new tmux session in the worktree
 
@@ -241,7 +308,7 @@ def spawn_session_in_worktree(worktree_path: str, agent_type: str, branch: str) 
 
         # Check if session already exists
         result = subprocess.run(
-            ["tmux", "has-session", "-t", session_name],
+            tmux_cmd(["has-session", "-t", session_name]),
             capture_output=True,
             check=False
         )
@@ -250,15 +317,11 @@ def spawn_session_in_worktree(worktree_path: str, agent_type: str, branch: str) 
             # Session already exists, just return it
             return True, session_name, ""
 
-        # Determine MCP config path - use worktree-specific config if it exists, otherwise use main
-        mcp_config = f"{worktree_path}/.agentbox/claude/mcp.json"
-        if not os.path.exists(mcp_config):
-            mcp_config = "/workspace/.agentbox/claude/mcp.json"
-
         # Get agent command with proper configuration flags
+        # MCP config is user-scoped at ~/.mcp.json
         agent_commands = {
-            "claude": f"/usr/local/bin/claude --settings /home/abox/.claude/config.json --mcp-config {mcp_config}",
-            "superclaude": f"/usr/local/bin/claude --settings /home/abox/.claude/config-super.json --mcp-config {mcp_config} --dangerously-skip-permissions",
+            "claude": "/usr/local/bin/claude --settings /home/abox/.claude/settings.json --mcp-config /home/abox/.mcp.json",
+            "superclaude": "/usr/local/bin/claude --settings /home/abox/.claude/settings-super.json --mcp-config /home/abox/.mcp.json --dangerously-skip-permissions",
             "codex": "/usr/local/bin/codex",
             "supercodex": "/usr/local/bin/codex --dangerously-bypass-approvals-and-sandbox",
             "gemini": "/usr/local/bin/gemini",
@@ -272,7 +335,7 @@ def spawn_session_in_worktree(worktree_path: str, agent_type: str, branch: str) 
         if ssh_auth_sock:
             # Set SSH_AUTH_SOCK in tmux global environment
             subprocess.run(
-                ["tmux", "set-environment", "-g", "SSH_AUTH_SOCK", ssh_auth_sock],
+                tmux_cmd(["set-environment", "-g", "SSH_AUTH_SOCK", ssh_auth_sock]),
                 capture_output=True,
                 check=False
             )
@@ -280,7 +343,7 @@ def spawn_session_in_worktree(worktree_path: str, agent_type: str, branch: str) 
         # Create new session in worktree directory
         # Use /bin/bash -lc to ensure shell configuration and environment are sourced
         result = subprocess.run(
-            ["tmux", "new-session", "-d", "-s", session_name, "-c", worktree_path, "/bin/bash", "-lc", command],
+            tmux_cmd(["new-session", "-d", "-s", session_name, "-c", worktree_path, "/bin/bash", "-lc", command]),
             capture_output=True,
             text=True,
             check=False
@@ -288,6 +351,9 @@ def spawn_session_in_worktree(worktree_path: str, agent_type: str, branch: str) 
 
         if result.returncode != 0:
             return False, "", f"Failed to create session: {result.stderr}"
+
+        # Apply tmux configuration to match agentbox-created sessions
+        _configure_tmux_session(session_name, sanitized_branch, agent_type)
 
         return True, session_name, ""
 
@@ -581,7 +647,7 @@ def switch_session(session_name: str) -> dict:
         # Try TMUX env var first (if running inside tmux)
         if os.environ.get("TMUX"):
             result = subprocess.run(
-                ["tmux", "display-message", "-p", "#S"],
+                tmux_cmd(["display-message", "-p", "#S"]),
                 capture_output=True,
                 text=True,
                 check=True
@@ -599,7 +665,7 @@ def switch_session(session_name: str) -> dict:
 
         # Check if target session exists
         result = subprocess.run(
-            ["tmux", "has-session", "-t", session_name],
+            tmux_cmd(["has-session", "-t", session_name]),
             capture_output=True,
             check=False
         )
@@ -612,7 +678,7 @@ def switch_session(session_name: str) -> dict:
 
         # Get working directory of target session
         result = subprocess.run(
-            ["tmux", "display-message", "-p", "-t", session_name, "#{pane_current_path}"],
+            tmux_cmd(["display-message", "-p", "-t", session_name, "#{pane_current_path}"]),
             capture_output=True,
             text=True,
             check=True
@@ -621,7 +687,7 @@ def switch_session(session_name: str) -> dict:
 
         # Switch to target session
         subprocess.run(
-            ["tmux", "switch-client", "-t", session_name],
+            tmux_cmd(["switch-client", "-t", session_name]),
             check=True
         )
 
@@ -669,7 +735,7 @@ def detach_and_continue(task_description: str, branch: Optional[str] = None, not
         # Try TMUX env var first (if running inside tmux)
         if os.environ.get("TMUX"):
             result = subprocess.run(
-                ["tmux", "display-message", "-p", "#S"],
+                tmux_cmd(["display-message", "-p", "#S"]),
                 capture_output=True,
                 text=True,
                 check=True
@@ -678,7 +744,7 @@ def detach_and_continue(task_description: str, branch: Optional[str] = None, not
 
             # Get working directory from tmux pane
             result = subprocess.run(
-                ["tmux", "display-message", "-p", "#{pane_current_path}"],
+                tmux_cmd(["display-message", "-p", "#{pane_current_path}"]),
                 capture_output=True,
                 text=True,
                 check=True
@@ -726,7 +792,7 @@ def detach_and_continue(task_description: str, branch: Optional[str] = None, not
 
         # Detach from tmux session
         subprocess.run(
-            ["tmux", "detach-client"],
+            tmux_cmd(["detach-client"]),
             check=True
         )
 
@@ -924,7 +990,7 @@ def _get_active_tmux_session() -> tuple:
     try:
         # List all sessions and find one that's attached
         result = subprocess.run(
-            ["tmux", "list-sessions", "-F", "#{session_name}:#{session_attached}"],
+            tmux_cmd(["list-sessions", "-F", "#{session_name}:#{session_attached}"]),
             capture_output=True,
             text=True,
             check=True
@@ -943,7 +1009,7 @@ def _get_active_tmux_session() -> tuple:
 
         # Get the working directory from the active pane
         result = subprocess.run(
-            ["tmux", "display-message", "-t", session, "-p", "#{pane_current_path}"],
+            tmux_cmd(["display-message", "-t", session, "-p", "#{pane_current_path}"]),
             capture_output=True,
             text=True,
             check=True
@@ -989,7 +1055,7 @@ def set_session_task(task: str) -> dict:
 
         if os.environ.get("TMUX"):
             result = subprocess.run(
-                ["tmux", "display-message", "-p", "#S"],
+                tmux_cmd(["display-message", "-p", "#S"]),
                 capture_output=True,
                 text=True,
                 check=True
@@ -1022,7 +1088,7 @@ def set_session_task(task: str) -> dict:
 
         # Rename the session
         result = subprocess.run(
-            ["tmux", "rename-session", "-t", session, new_name],
+            tmux_cmd(["rename-session", "-t", session, new_name]),
             capture_output=True,
             text=True,
             check=False
@@ -1076,7 +1142,7 @@ def clear_session_task() -> dict:
 
         if os.environ.get("TMUX"):
             result = subprocess.run(
-                ["tmux", "display-message", "-p", "#S"],
+                tmux_cmd(["display-message", "-p", "#S"]),
                 capture_output=True,
                 text=True,
                 check=True
@@ -1106,7 +1172,7 @@ def clear_session_task() -> dict:
 
         # Rename the session back to base
         result = subprocess.run(
-            ["tmux", "rename-session", "-t", session, base_name],
+            tmux_cmd(["rename-session", "-t", session, base_name]),
             capture_output=True,
             text=True,
             check=False
@@ -1157,7 +1223,7 @@ def get_current_context() -> dict:
             try:
                 # Get session name
                 result = subprocess.run(
-                    ["tmux", "display-message", "-p", "#S"],
+                    tmux_cmd(["display-message", "-p", "#S"]),
                     capture_output=True,
                     text=True,
                     check=True
@@ -1167,7 +1233,7 @@ def get_current_context() -> dict:
                 # Get actual working directory from tmux pane
                 # This returns the real cwd of the agent's shell, not the MCP server's cwd
                 result = subprocess.run(
-                    ["tmux", "display-message", "-p", "#{pane_current_path}"],
+                    tmux_cmd(["display-message", "-p", "#{pane_current_path}"]),
                     capture_output=True,
                     text=True,
                     check=True
@@ -1194,9 +1260,13 @@ def get_current_context() -> dict:
         # Get git information from the actual working directory
         git_info = get_git_info(working_directory)
 
+        # Check for super mode
+        session_info = get_current_session_info()
+
         return {
             "success": True,
             "session": session,
+            "super_mode": session_info.get("super_mode", False),
             "working_directory": working_directory,
             "worktree_path": worktree_path,
             "is_worktree": is_worktree,
@@ -1208,6 +1278,240 @@ def get_current_context() -> dict:
             "success": False,
             "error": str(e)
         }
+
+
+@mcp.tool()
+def bootstrap_context() -> dict:
+    """Load essential context at conversation start.
+
+    THIS IS A TEST TOOL to verify if agents follow MCP instructions.
+    The MCP instructions tell agents to call this at every conversation start.
+
+    If you're seeing this, it means:
+    1. The agent read the MCP instructions
+    2. The agent followed the instruction to call this tool
+    3. MCP instructions CAN be used for bootstrap behavior
+
+    Returns:
+        Dict with test confirmation and basic context.
+    """
+    import datetime
+
+    session_info = get_current_session_info()
+    cwd = os.getcwd()
+
+    return {
+        "success": True,
+        "test_confirmation": "✓ BOOTSTRAP TEST PASSED - Agent followed MCP instructions!",
+        "timestamp": datetime.datetime.now().isoformat(),
+        "session": session_info.get("name"),
+        "agent_type": session_info.get("agent_type"),
+        "super_mode": session_info.get("super_mode", False),
+        "working_directory": cwd,
+        "message": "If you see this, the agent proactively called bootstrap_context based on MCP instructions."
+    }
+
+
+# ============================================================================
+# Usage / Rate Limit Tools
+# ============================================================================
+
+def _send_usage_request(action: str, payload: dict) -> Optional[dict]:
+    """Send a usage request to the container client's local IPC socket.
+
+    Returns:
+        Response dict if successful, None if unavailable.
+    """
+    from pathlib import Path
+    import socket as sock
+
+    ipc_socket = Path("/tmp/agentbox-local.sock")
+    if not ipc_socket.exists():
+        return None
+
+    try:
+        with sock.socket(sock.AF_UNIX, sock.SOCK_STREAM) as s:
+            s.settimeout(5.0)
+            s.connect(str(ipc_socket))
+
+            request = {"action": action, **payload}
+            s.sendall((json.dumps(request) + "\n").encode())
+
+            # Read response
+            data = b""
+            while b"\n" not in data and len(data) < 65536:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+
+            if data:
+                return json.loads(data.decode().strip())
+            return None
+    except (OSError, sock.timeout):
+        return None
+
+
+@mcp.tool()
+def check_agent_available(agent: str) -> dict:
+    """Check if an agent is available (not rate-limited).
+
+    Use this before launching an agent to see if it's available or rate-limited.
+    If the agent is limited, consider using an alternative.
+
+    Args:
+        agent: Agent name (e.g., "superclaude", "supercodex", "supergemini")
+
+    Returns:
+        Dict with available (bool), resets_at (if limited), and fallback suggestion.
+    """
+    # Try service first
+    response = _send_usage_request("check_agent", {"agent": agent})
+
+    if response and response.get("ok"):
+        available = response.get("available", True)
+        result = {
+            "agent": agent,
+            "available": available,
+            "resets_at": response.get("resets_at"),
+        }
+
+        # Suggest fallback if not available
+        if not available:
+            fallback_chains = {
+                "superclaude": ["supercodex", "supergemini", "superqwen"],
+                "supercodex": ["superclaude", "supergemini", "superqwen"],
+                "supergemini": ["superclaude", "supercodex", "superqwen"],
+                "superqwen": ["superclaude", "supercodex", "supergemini"],
+            }
+            chain = fallback_chains.get(agent, [])
+            for fb in chain:
+                fb_response = _send_usage_request("check_agent", {"agent": fb})
+                if fb_response and fb_response.get("available"):
+                    result["suggested_fallback"] = fb
+                    break
+
+        return result
+
+    # Fallback to local state check
+    try:
+        from agentbox.usage.client import is_agent_available, get_fallback_agent
+        available = is_agent_available(agent)
+        result = {"agent": agent, "available": available}
+        if not available:
+            fallback, _ = get_fallback_agent(agent)
+            if fallback != agent:
+                result["suggested_fallback"] = fallback
+        return result
+    except ImportError:
+        return {"agent": agent, "available": True, "note": "usage module not available"}
+
+
+@mcp.tool()
+def get_agent_status() -> dict:
+    """Get rate limit status of all agents.
+
+    Shows which agents are available and which are rate-limited,
+    including when limits are expected to reset.
+
+    Returns:
+        Dict with status for each agent (available, limited, resets_at, resets_in).
+    """
+    # Try service first
+    response = _send_usage_request("get_usage_status", {})
+
+    if response and response.get("ok"):
+        return {
+            "source": "service",
+            "agents": response.get("status", {}),
+        }
+
+    # Fallback to local state
+    try:
+        from agentbox.usage.client import get_usage_status
+        return {
+            "source": "local",
+            "agents": get_usage_status(),
+        }
+    except ImportError:
+        return {
+            "source": "none",
+            "agents": {},
+            "note": "usage module not available",
+        }
+
+
+@mcp.tool()
+def report_agent_limit(
+    agent: str,
+    resets_in_seconds: Optional[int] = None,
+    error_type: Optional[str] = None,
+) -> dict:
+    """Report that an agent hit a rate limit.
+
+    Call this when you detect a rate limit error from an agent.
+    The information will be stored and used for fallback decisions.
+
+    Args:
+        agent: Agent name (e.g., "superclaude", "supercodex")
+        resets_in_seconds: Seconds until limit resets (if known from error)
+        error_type: Type of error (e.g., "rate_limit", "usage_limit_reached")
+
+    Returns:
+        Dict with ok status.
+    """
+    # Calculate resets_at from resets_in_seconds
+    resets_at = None
+    if resets_in_seconds:
+        from datetime import datetime, timezone, timedelta
+        resets_at = (datetime.now(timezone.utc) + timedelta(seconds=resets_in_seconds)).isoformat()
+
+    # Try service first
+    response = _send_usage_request("report_rate_limit", {
+        "agent": agent,
+        "limited": True,
+        "resets_at": resets_at,
+        "resets_in_seconds": resets_in_seconds,
+        "error_type": error_type,
+    })
+
+    if response and response.get("ok"):
+        return {"ok": True, "reported_to": "service"}
+
+    # Fallback to local state
+    try:
+        from agentbox.usage.client import report_rate_limit
+        report_rate_limit(agent, resets_in_seconds, error_type)
+        return {"ok": True, "reported_to": "local"}
+    except ImportError:
+        return {"ok": False, "error": "usage module not available"}
+
+
+@mcp.tool()
+def clear_agent_limit(agent: str) -> dict:
+    """Clear rate limit state for an agent.
+
+    Use this when you know a limit has reset or to clear stale state.
+
+    Args:
+        agent: Agent name to clear
+
+    Returns:
+        Dict with ok status.
+    """
+    # Try service first
+    response = _send_usage_request("clear_rate_limit", {"agent": agent})
+
+    if response and response.get("ok"):
+        return {"ok": True, "cleared_from": "service"}
+
+    # Fallback to local state
+    try:
+        from agentbox.usage.client import clear_rate_limit
+        clear_rate_limit(agent)
+        return {"ok": True, "cleared_from": "local"}
+    except ImportError:
+        return {"ok": False, "error": "usage module not available"}
 
 
 # ============================================================================

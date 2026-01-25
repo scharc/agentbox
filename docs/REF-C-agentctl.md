@@ -24,10 +24,10 @@ agentctl peek superclaude-1          # View without attaching
 agentctl kill superclaude-1          # Kill session
 
 # Worktrees
-agentctl wt list                     # List worktrees
-agentctl wt add feature-auth         # Create worktree
-agentctl wt switch feature-auth superclaude  # Switch and start agent
-agentctl wt remove feature-auth      # Remove worktree
+agentctl worktree list                     # List worktrees
+agentctl worktree add feature-auth         # Create worktree
+agentctl worktree switch feature-auth superclaude  # Switch and start agent
+agentctl worktree remove feature-auth      # Remove worktree
 ```
 
 ---
@@ -109,13 +109,13 @@ agentctl kill superclaude-1 -f       # Force, no confirmation
 
 Git worktrees let you work on multiple branches simultaneously. Each worktree is an independent checkout.
 
-### agentctl wt list [--json]
+### agentctl worktree list [--json]
 
 List all worktrees.
 
 ```bash
-agentctl wt list
-agentctl worktree list               # Full form
+agentctl worktree list
+agentctl worktree list               # List worktrees
 ```
 
 Output:
@@ -126,13 +126,13 @@ PATH                                    BRANCH         COMMIT   SESSIONS
 /git-worktrees/worktree-bugfix          bugfix-123     789abc   -
 ```
 
-### agentctl wt add BRANCH [-c]
+### agentctl worktree add BRANCH [-c]
 
 Create a worktree.
 
 ```bash
-agentctl wt add feature-auth         # Existing branch
-agentctl wt add new-feature -c       # Create new branch
+agentctl worktree add feature-auth         # Existing branch
+agentctl worktree add new-feature -c       # Create new branch
 ```
 
 Worktrees created at `/git-worktrees/worktree-<branch>`.
@@ -141,40 +141,40 @@ Branch names are sanitized:
 - `feature/auth` → `feature-auth`
 - `refs/heads/main` → `main`
 
-### agentctl wt remove BRANCH [-f]
+### agentctl worktree remove BRANCH [-f]
 
 Remove a worktree.
 
 ```bash
-agentctl wt remove feature-auth      # Asks confirmation
-agentctl wt remove feature-auth -f   # Force (discard changes)
+agentctl worktree remove feature-auth      # Asks confirmation
+agentctl worktree remove feature-auth -f   # Force (discard changes)
 ```
 
 Accepts branch name or full path:
 ```bash
-agentctl wt remove feature-auth
-agentctl wt remove /git-worktrees/worktree-feature-auth
+agentctl worktree remove feature-auth
+agentctl worktree remove /git-worktrees/worktree-feature-auth
 ```
 
 Cannot remove `/workspace` (main worktree).
 
-### agentctl wt prune
+### agentctl worktree prune
 
 Clean up stale metadata.
 
 ```bash
-agentctl wt prune
+agentctl worktree prune
 ```
 
 Removes tracking entries for worktrees that no longer exist.
 
-### agentctl wt switch BRANCH AGENT
+### agentctl worktree switch BRANCH AGENT
 
 Switch to worktree and start agent session.
 
 ```bash
-agentctl wt switch feature-auth superclaude
-agentctl wt switch bugfix-123 claude
+agentctl worktree switch feature-auth superclaude
+agentctl worktree switch bugfix-123 claude
 ```
 
 **What happens:**
@@ -199,19 +199,19 @@ agentctl attach superclaude
 # (Agent can run these commands)
 
 # Create worktree for feature
-agentctl wt add feature-auth -c
+agentctl worktree add feature-auth -c
 
 # Switch to it
-agentctl wt switch feature-auth superclaude
+agentctl worktree switch feature-auth superclaude
 
 # Work on feature...
 # Commit changes...
 
 # Switch back to main
-agentctl wt switch main superclaude
+agentctl worktree switch main superclaude
 
 # Clean up when done
-agentctl wt remove feature-auth
+agentctl worktree remove feature-auth
 ```
 
 ## Directory Structure
@@ -256,19 +256,13 @@ The `agentctl` MCP server exposes these functions to agents:
 | `switch_branch(branch)` | Creates worktree + session |
 | `switch_session(name)` | Attaches to session |
 | `detach_and_continue(task)` | Detaches, agent keeps running |
-| `list_worktrees()` | `agentctl wt list --json` |
+| `list_worktrees()` | `agentctl worktree list --json` |
 | `list_sessions()` | `agentctl list --json` |
 | `get_current_context()` | Current session, branch, worktree info |
 | `set_session_task(task)` | Label session with task description |
 | `clear_session_task()` | Remove task label |
 
 Agents use these to autonomously manage their work across branches.
-
-## Aliases
-
-| Full | Short |
-|------|-------|
-| `agentctl worktree` | `agentctl wt` |
 
 ## Shell Completions
 

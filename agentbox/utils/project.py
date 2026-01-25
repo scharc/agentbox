@@ -6,52 +6,25 @@
 This module provides centralized project directory resolution logic.
 All CLI commands should use these functions instead of duplicating
 the AGENTBOX_PROJECT_DIR environment variable check.
+
+For container name resolution, use agentbox.container_naming module directly.
 """
 
-import os
 from pathlib import Path
 from typing import Optional
 
+from agentbox.paths import ProjectPaths
 
-def resolve_project_dir(project_dir: Optional[Path] = None) -> Path:
-    """Resolve the project directory.
-
-    Resolution order:
-    1. Explicit project_dir argument (if provided)
-    2. AGENTBOX_PROJECT_DIR environment variable
-    3. Current working directory
-
-    Args:
-        project_dir: Optional explicit project directory
-
-    Returns:
-        Resolved project directory as Path
-    """
-    if project_dir is not None:
-        return project_dir
-
-    env_project_dir = os.getenv("AGENTBOX_PROJECT_DIR")
-    if env_project_dir:
-        return Path(env_project_dir)
-
-    return Path.cwd()
-
-
-def get_container_name(project_dir: Optional[Path] = None) -> str:
-    """Get the container name for a project.
-
-    Args:
-        project_dir: Optional project directory (resolved if not provided)
-
-    Returns:
-        Container name in format: agentbox-<project_name>
-    """
-    resolved = resolve_project_dir(project_dir)
-    # Sanitize project name: lowercase, replace special chars
-    project_name = resolved.name.lower()
-    project_name = "".join(c if c.isalnum() or c == "-" else "-" for c in project_name)
-    project_name = project_name.strip("-")
-    return f"agentbox-{project_name}"
+# Re-export from container_naming
+from agentbox.container_naming import (
+    resolve_project_dir,
+    resolve_container_name,
+    get_container_workspace,
+    find_container_by_workspace,
+    extract_project_name,
+    sanitize_name,
+    CONTAINER_PREFIX,
+)
 
 
 def find_project_by_container(container_name: str) -> Optional[Path]:
@@ -63,52 +36,40 @@ def find_project_by_container(container_name: str) -> Optional[Path]:
     Returns:
         Path to project directory, or None if not found
     """
-    import subprocess
+    # First try to get workspace from container mounts
+    workspace = get_container_workspace(container_name)
+    if workspace and workspace.exists():
+        return workspace
 
-    # Try to get workspace mount from running container
-    try:
-        result = subprocess.run(
-            ["docker", "inspect", container_name, "--format",
-             "{{range .Mounts}}{{if eq .Destination \"/workspace\"}}{{.Source}}{{end}}{{end}}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            project_dir = Path(result.stdout.strip())
-            if project_dir.exists():
-                return project_dir
-    except Exception:
-        pass
+    # Fallback: extract project name and search common locations
+    project_name = extract_project_name(container_name)
+    if not project_name:
+        return None
 
-    # Fallback: extract project name from container name and search common locations
-    if container_name.startswith("agentbox-"):
-        project_name = container_name[9:]  # Remove "agentbox-" prefix
+    # Search in common project locations
+    search_paths = [
+        Path.home() / "projects",
+        Path.home() / "code",
+        Path.home() / "src",
+        Path("/x/coding"),
+        Path.cwd(),
+    ]
 
-        # Search in common project locations
-        search_paths = [
-            Path.home() / "projects",
-            Path.home() / "code",
-            Path.home() / "src",
-            Path("/x/coding"),
-            Path.cwd(),
-        ]
-
-        for base in search_paths:
-            if not base.exists():
-                continue
-            # Try exact match
-            candidate = base / project_name
-            if candidate.exists() and (candidate / ".agentbox.yml").exists():
-                return candidate
-            # Try case-insensitive search
-            try:
-                for d in base.iterdir():
-                    if d.is_dir() and d.name.lower() == project_name.lower():
-                        if (d / ".agentbox.yml").exists():
-                            return d
-            except PermissionError:
-                continue
+    for base in search_paths:
+        if not base.exists():
+            continue
+        # Try exact match
+        candidate = base / project_name
+        if candidate.exists() and ProjectPaths.agentbox_dir(candidate).exists():
+            return candidate
+        # Try case-insensitive search
+        try:
+            for d in base.iterdir():
+                if d.is_dir() and d.name.lower() == project_name.lower():
+                    if ProjectPaths.agentbox_dir(d).exists():
+                        return d
+        except PermissionError:
+            continue
 
     return None
 
@@ -122,19 +83,19 @@ def get_agentbox_dir(project_dir: Optional[Path] = None) -> Path:
     Returns:
         Path to .agentbox directory
     """
-    return resolve_project_dir(project_dir) / ".agentbox"
+    return ProjectPaths.agentbox_dir(resolve_project_dir(project_dir))
 
 
-def get_agentbox_yml(project_dir: Optional[Path] = None) -> Path:
-    """Get the .agentbox.yml config file path for a project.
+def get_config_file(project_dir: Optional[Path] = None) -> Path:
+    """Get the config file path for a project.
 
     Args:
         project_dir: Optional project directory (resolved if not provided)
 
     Returns:
-        Path to .agentbox.yml file
+        Path to .agentbox/config.yml file
     """
-    return resolve_project_dir(project_dir) / ".agentbox.yml"
+    return ProjectPaths.config_file(resolve_project_dir(project_dir))
 
 
 def is_initialized(project_dir: Optional[Path] = None) -> bool:

@@ -61,17 +61,12 @@ def _get_available_devices() -> List[Tuple[str, str]]:
 
 def _get_configured_devices(config: ProjectConfig) -> List[str]:
     """Get list of configured devices from config."""
-    if config._model:
-        return list(config._model.devices)
-    return config.config.get("devices", [])
+    return list(config.devices)
 
 
 def _save_devices(config: ProjectConfig, devices: List[str]) -> None:
     """Save devices to config."""
-    if config._model:
-        config._model.devices = devices
-    else:
-        config.config["devices"] = devices
+    config.devices = devices
     config.save()
 
 
@@ -103,7 +98,7 @@ def devices_choose():
 
     if not config.exists():
         raise click.ClickException(
-            f"No .agentbox.yml found in {project_dir}. Run: agentbox init"
+            f"No .agentbox/config.yml found in {project_dir}. Run: agentbox init"
         )
 
     # Get available and configured devices
@@ -206,7 +201,7 @@ def devices_list():
 
     if not config.exists():
         raise click.ClickException(
-            f"No .agentbox.yml found in {project_dir}. Run: agentbox init"
+            f"No .agentbox/config.yml found in {project_dir}. Run: agentbox init"
         )
 
     configured = _get_configured_devices(config)
@@ -253,7 +248,7 @@ def devices_add(device: str):
 
     if not config.exists():
         raise click.ClickException(
-            f"No .agentbox.yml found in {project_dir}. Run: agentbox init"
+            f"No .agentbox/config.yml found in {project_dir}. Run: agentbox init"
         )
 
     # Validate device path format
@@ -302,7 +297,7 @@ def devices_remove(device: str):
 
     if not config.exists():
         raise click.ClickException(
-            f"No .agentbox.yml found in {project_dir}. Run: agentbox init"
+            f"No .agentbox/config.yml found in {project_dir}. Run: agentbox init"
         )
 
     configured = _get_configured_devices(config)
@@ -336,7 +331,7 @@ def devices_clear():
 
     if not config.exists():
         raise click.ClickException(
-            f"No .agentbox.yml found in {project_dir}. Run: agentbox init"
+            f"No .agentbox/config.yml found in {project_dir}. Run: agentbox init"
         )
 
     configured = _get_configured_devices(config)

@@ -2,6 +2,94 @@
 
 All notable changes to Agentbox are documented here.
 
+## [0.3.0] - 2026-01-25
+
+New minor release with Qwen agent support, multi-agent orchestration, unified configuration, and significant reliability improvements.
+
+### Added
+
+- **Qwen Code support** - New agent with `abox qwen` and `abox superqwen` commands
+  - Auto-mounts `~/.qwen` for auth/config
+  - Superqwen uses `--yolo` flag for auto-approve mode
+- **AgentPipe multi-agent orchestration** - Run conversations between AI agents
+  - Round-robin, reactive, and free-form conversation modes
+  - TUI interface with metrics
+  - Supports Claude, Gemini, Codex, Qwen agents
+  - `discuss` tool in agentbox-analyst MCP for multi-agent discussions
+- **Agent rate limit tracking** - Centralized rate limit detection and fallback
+  - Automatic agent fallback chains: superclaude → supercodex → supergemini → superqwen
+  - CLI commands: `abox usage status/probe/reset/fallback`
+  - agentctl MCP tools for agents to check/report limits
+- **Remote Q&A manager** - Telegram/webhook support for agent questions
+  - Detects when agents are waiting for user input
+  - Pattern matching for questions, confirmations, passwords
+  - Notification with question summarization
+- **Port conflict detection** - Cross-project port conflict detection
+  - Live status display when exposing/forwarding ports
+  - `abox ports list all` shows ports across all containers
+- **Remote Chrome skill** - Control Chrome browser via CDP
+  - Agents can interact with host Chrome through port forwarding
+  - Requires Chrome with `--remote-debugging-port=9222`
+- **Notification auto-dismiss** - Notifications auto-dismiss on session activity
+- **Fast session discovery** - Daemon cache for faster session lookups
+- **GitLab CLI (glab)** - Added to base image
+- **FastMCP** - Added to base image for Python MCP development
+- **python-is-python3** - Added to base image for compatibility
+- **Native Claude Code installer** - Uses official installer instead of npm
+
+### Changed
+
+- **Unified agent configuration** - All agents share MCP config via symlinks
+  - Single `mcp.json` distributed to all agent config directories
+  - `distribute-mcp-config.py` handles config synchronization
+  - Agent configs moved to home directories
+- **Unified notification system** - Multi-channel notification dispatch
+  - Single AI call generates short (6 words) and long (2 sentences) summaries
+  - Desktop uses short summaries, Telegram uses long summaries
+  - Easily extensible for Slack, Discord, etc.
+- **Worktree command restructure** - Argument order changed to `BRANCH AGENT`
+  - Removed `wt` alias for worktree command
+  - More consistent with other CLI patterns
+- **CLI consistency improvements**
+  - Consistent arg patterns for session and agent commands
+  - Removed deprecated ports aliases
+  - Warns about active sessions before disruptive actions
+- **Centralized paths module** - All path handling consolidated
+- **Container name resolution** - Centralized with collision handling
+- **Removed legacy code** - Migration and backward compatibility code cleaned up
+- **Templates consolidated** - Unified config structure across agents
+
+### Fixed
+
+- **tmux session matching** - Exact match prevents wrong session attach
+- **tmux socket handling** - Consistent socket detection across CLI and MCP
+- **Gemini config path** - Corrected path resolution
+- **Codex approval policy** - Fixed configuration
+- **MCP installation** - Custom MCP installation and env var resolution fixed
+- **Analyst fallback chain** - Improved with Qwen support
+- **CLI error messages** - Better formatted panels
+- **Notification AI summaries** - Compact for notification bubbles
+- **agentctl tmux config** - Applied to sessions created via MCP
+- **Reconfigure UX** - Improved experience and config saving
+
+### Performance
+
+- **Caching and parallelization** - Across CLI and web server
+- **Session discovery cache** - Faster lookups via daemon
+
+### Testing
+
+- **Comprehensive CLI tests** - Command existence, execution, workflow, and regression tests
+- **DinD test fixes** - Fixed test collection and unit test failures
+
+### Breaking Changes
+
+- **Worktree command argument order** - Changed from `AGENT BRANCH` to `BRANCH AGENT`
+- **`wt` alias removed** - Use `agentctl worktree` or full command
+- **Agent config locations** - Moved to home directories (migration automatic)
+
+---
+
 ## [0.2.0] - 2026-01-18
 
 Major release with new architecture, MCP servers, and mobile-friendly CLI.

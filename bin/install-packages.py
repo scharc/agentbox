@@ -91,7 +91,7 @@ class PackageSpec:
 
     @classmethod
     def from_agentbox_yml(cls, config_path: Path):
-        """Extract packages from .agentbox.yml."""
+        """Extract packages from .agentbox/config.yml."""
         try:
             import yaml
         except ImportError:
@@ -211,8 +211,21 @@ class PipManager(PackageManager):
         return self.install_batch([package])
 
     def validate(self, package: str) -> Tuple[bool, Optional[str]]:
-        # Extract package name (remove version specifier)
-        pkg_name = re.split(r'[<>=!]', package)[0].strip()
+        # Handle local path installs (e.g., /path/to/package or -e /path/to/package)
+        pkg_spec = package.strip()
+        if pkg_spec.startswith('-e '):
+            pkg_spec = pkg_spec[3:].strip()
+
+        if pkg_spec.startswith('/') or pkg_spec.startswith('./'):
+            # Local path install - extract package name from pyproject.toml
+            pkg_name = self._get_package_name_from_path(pkg_spec)
+            if pkg_name is None:
+                # Can't determine package name, trust that pip install succeeded
+                log_info(f"Local path install, skipping validation: {package}")
+                return True, "local"
+        else:
+            # Extract package name (remove version specifier)
+            pkg_name = re.split(r'[<>=!]', package)[0].strip()
 
         cmd = ['pip', 'show', pkg_name]
         success, output = self._run_command(cmd, check=False)
@@ -227,6 +240,25 @@ class PipManager(PackageManager):
                 return True, version
 
         return False, None
+
+    def _get_package_name_from_path(self, path: str) -> Optional[str]:
+        """Extract package name from pyproject.toml in a local path."""
+        import os
+        pyproject = os.path.join(path, 'pyproject.toml')
+        if not os.path.exists(pyproject):
+            return None
+
+        try:
+            with open(pyproject) as f:
+                content = f.read()
+            # Simple regex to extract name from [project] section
+            # Handles: name = "package-name" or name = 'package-name'
+            match = re.search(r'\[project\].*?name\s*=\s*["\']([^"\']+)["\']', content, re.DOTALL)
+            if match:
+                return match.group(1)
+        except Exception:
+            pass
+        return None
 
     def _run_command(self, cmd: List[str], check: bool = True) -> Tuple[bool, str]:
         try:
@@ -612,7 +644,7 @@ def main():
     )
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--meta', type=Path, help='Path to mcp-meta.json')
-    group.add_argument('--config', type=Path, help='Path to .agentbox.yml')
+    group.add_argument('--config', type=Path, help='Path to .agentbox/config.yml')
     parser.add_argument(
         '--manifest',
         type=Path,

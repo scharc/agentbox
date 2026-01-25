@@ -1,5 +1,6 @@
 """Helper functions for agentctl tmux session management"""
 
+import os
 import subprocess
 from typing import List, Dict, Optional
 
@@ -7,6 +8,30 @@ from agentbox.utils.terminal import reset_terminal
 
 # Timeout for tmux operations (seconds)
 TMUX_TIMEOUT = 5
+
+
+def _get_tmux_socket() -> Optional[str]:
+    """Get the tmux socket path from TMUX environment variable.
+
+    TMUX env var format: /path/to/socket,pid,session_index
+    Returns the socket path or None if not in tmux.
+    """
+    tmux_env = os.environ.get("TMUX")
+    if tmux_env:
+        # Extract socket path (first comma-separated field)
+        return tmux_env.split(",")[0]
+    return None
+
+
+def _tmux_cmd(args: List[str]) -> List[str]:
+    """Build tmux command with socket if available.
+
+    Ensures all tmux commands use the same server as the current session.
+    """
+    socket = _get_tmux_socket()
+    if socket:
+        return ["tmux", "-S", socket] + args
+    return ["tmux"] + args
 
 
 def get_tmux_sessions() -> List[Dict[str, any]]:
@@ -18,7 +43,7 @@ def get_tmux_sessions() -> List[Dict[str, any]]:
     fmt = "#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created_string}"
     try:
         result = subprocess.run(
-            ["tmux", "list-sessions", "-F", fmt],
+            _tmux_cmd(["list-sessions", "-F", fmt]),
             capture_output=True,
             text=True,
             check=False,
@@ -55,7 +80,7 @@ def session_exists(name: str) -> bool:
     """
     try:
         result = subprocess.run(
-            ["tmux", "has-session", "-t", name],
+            _tmux_cmd(["has-session", "-t", name]),
             capture_output=True,
             check=False,
             timeout=TMUX_TIMEOUT
@@ -77,7 +102,7 @@ def capture_pane(session: str, lines: int) -> str:
     """
     try:
         result = subprocess.run(
-            ["tmux", "capture-pane", "-t", session, "-p", "-S", f"-{lines}"],
+            _tmux_cmd(["capture-pane", "-t", session, "-p", "-S", f"-{lines}"]),
             capture_output=True,
             text=True,
             check=False,
@@ -120,7 +145,7 @@ def kill_session(name: str) -> bool:
     """
     try:
         result = subprocess.run(
-            ["tmux", "kill-session", "-t", name],
+            _tmux_cmd(["kill-session", "-t", name]),
             capture_output=True,
             check=False,
             timeout=TMUX_TIMEOUT
@@ -141,7 +166,7 @@ def detach_client() -> bool:
     """
     try:
         result = subprocess.run(
-            ["tmux", "detach-client"],
+            _tmux_cmd(["detach-client"]),
             capture_output=True,
             check=False,
             timeout=TMUX_TIMEOUT
@@ -162,13 +187,13 @@ def send_keys_to_session(session: str, keys: str, literal: bool = False) -> bool
     Returns:
         True if successful, False otherwise
     """
-    cmd = ["tmux", "send-keys", "-t", session]
+    args = ["send-keys", "-t", session]
     if literal:
-        cmd.append("-l")
-    cmd.append(keys)
+        args.append("-l")
+    args.append(keys)
 
     try:
-        result = subprocess.run(cmd, capture_output=True, check=False, timeout=TMUX_TIMEOUT)
+        result = subprocess.run(_tmux_cmd(args), capture_output=True, check=False, timeout=TMUX_TIMEOUT)
         return result.returncode == 0
     except subprocess.TimeoutExpired:
         return False
@@ -180,7 +205,6 @@ def get_current_tmux_session() -> Optional[str]:
     Returns:
         Session name if in a tmux session, None otherwise
     """
-    import os
     tmux_var = os.environ.get("TMUX")
     if not tmux_var:
         return None
@@ -189,7 +213,7 @@ def get_current_tmux_session() -> Optional[str]:
     # We need to query tmux for the session name
     try:
         result = subprocess.run(
-            ["tmux", "display-message", "-p", "#{session_name}"],
+            _tmux_cmd(["display-message", "-p", "#{session_name}"]),
             capture_output=True,
             text=True,
             check=False,

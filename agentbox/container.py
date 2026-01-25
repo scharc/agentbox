@@ -19,8 +19,28 @@ from rich.table import Table
 from agentbox.config import ProjectConfig
 from agentbox.utils.terminal import reset_terminal
 from agentbox.utils.exceptions import ConfigError
+from agentbox import container_naming
+from agentbox.paths import ContainerPaths, HostPaths, ProjectPaths
+import threading
 
 console = Console()
+
+# Module-level container cache (shared across all ContainerManager instances)
+# Uses explicit string keys to avoid ambiguity with boolean parameters
+_CACHE_KEY_ALL = "containers_all"      # all_containers=True
+_CACHE_KEY_RUNNING = "containers_running"  # all_containers=False
+
+_container_cache: Dict[str, List[Dict]] = {}
+_container_cache_time: Dict[str, float] = {}
+_container_cache_lock = threading.Lock()
+_CONTAINER_CACHE_TTL = float(os.environ.get("AGENTBOX_CONTAINER_CACHE_TTL", "2.0"))
+
+
+def invalidate_container_cache() -> None:
+    """Clear ALL container cache variants. Call after create/remove/stop/start."""
+    with _container_cache_lock:
+        _container_cache.clear()
+        _container_cache_time.clear()
 
 
 def get_abox_environment(include_tmux: bool = False, container_name: str = None) -> dict:
@@ -33,7 +53,7 @@ def get_abox_environment(include_tmux: bool = False, container_name: str = None)
     Returns:
         Dict with standard environment variables
     """
-    env = {"HOME": "/home/abox", "USER": "abox"}
+    env = {"HOME": ContainerPaths.HOME, "USER": "abox"}
     if include_tmux:
         env["TMUX_TMPDIR"] = "/tmp"
     if container_name:
@@ -72,11 +92,7 @@ class ContainerManager:
         Returns:
             Sanitized name safe for Docker
         """
-        # Convert to lowercase, replace invalid chars with hyphens
-        sanitized = re.sub(r'[^a-z0-9_-]', '-', name.lower())
-        # Remove leading/trailing hyphens
-        sanitized = sanitized.strip('-')
-        return sanitized
+        return container_naming.sanitize_name(name)
 
     def get_project_name(self, project_dir: Optional[Path] = None) -> str:
         """Get sanitized project name from directory.
@@ -87,29 +103,26 @@ class ContainerManager:
         Returns:
             Sanitized project name
         """
-        if project_dir is None:
-            # Check for environment variable set by wrapper script
-            env_project_dir = os.getenv("AGENTBOX_PROJECT_DIR")
-            if env_project_dir:
-                project_dir = Path(env_project_dir)
-            else:
-                project_dir = Path.cwd()
-        return self.sanitize_project_name(project_dir.name)
+        resolved = container_naming.resolve_project_dir(project_dir)
+        return container_naming.sanitize_name(resolved.name)
 
-    def get_container_name(self, project_name: str) -> str:
-        """Get container name from project name.
+    def resolve_container_name(self, project_dir: Optional[Path] = None) -> str:
+        """Resolve container name for a project directory.
+
+        This is the preferred method - handles existing containers
+        and name collisions properly.
 
         Args:
-            project_name: Sanitized project name
+            project_dir: Project directory (defaults to current dir)
 
         Returns:
-            Full container name with prefix
+            Container name to use
         """
-        return f"{self.CONTAINER_PREFIX}{project_name}"
+        return container_naming.resolve_container_name(project_dir)
 
     def _get_mcp_mounts(self, project_dir: Path) -> list:
         """Get extra mounts from MCP metadata."""
-        meta_path = project_dir / ".agentbox" / "mcp-meta.json"
+        meta_path = ProjectPaths.mcp_meta_file(project_dir)
         if not meta_path.exists():
             return []
 
@@ -173,6 +186,31 @@ class ContainerManager:
         except docker.errors.NotFound:
             return None
 
+    def get_container_workspace(self, container_name: str) -> Optional[Path]:
+        """Get the workspace path mounted in a container.
+
+        Args:
+            container_name: Full container name
+
+        Returns:
+            Path to workspace on host, or None if not found
+        """
+        return container_naming.get_container_workspace(container_name)
+
+    def find_container_for_project(self, project_dir: Path) -> Optional[str]:
+        """Find the container name for a project directory.
+
+        Searches all agentbox containers and returns the one whose
+        /workspace mount matches the given project path.
+
+        Args:
+            project_dir: Project directory path
+
+        Returns:
+            Container name, or None if not found
+        """
+        return container_naming.find_container_by_workspace(project_dir)
+
     def is_running(self, container_name: str) -> bool:
         """Check if container is running.
 
@@ -235,9 +273,15 @@ class ContainerManager:
         if custom_name:
             project_name = self.sanitize_project_name(custom_name)
 
-        container_name = self.get_container_name(project_name)
+        # Resolve container name (handles existing containers and collisions)
+        container_name = container_naming.resolve_container_name(project_dir)
 
-        # Check if container already exists
+        # Check if this is a new collision-generated name
+        default_name = container_naming.generate_default_name(project_dir)
+        if container_name != default_name and not self.container_exists(container_name):
+            console.print(f"[yellow]Name collision detected, using: {container_name}[/yellow]")
+
+        # Return existing container if found
         if self.container_exists(container_name):
             # Lazy import to avoid circular dependency
             from agentbox.cli.helpers.tmux_ops import _show_warning_panel
@@ -254,7 +298,7 @@ class ContainerManager:
 
         # Ensure .agentbox/state directory exists in project
         # Note: state is no longer mounted when host ~/.claude is mounted directly.
-        agentbox_dir = project_dir / ".agentbox"
+        agentbox_dir = ProjectPaths.agentbox_dir(project_dir)
         state_dir = agentbox_dir / "state"
         state_dir.mkdir(parents=True, exist_ok=True)
 
@@ -269,25 +313,26 @@ class ContainerManager:
         git_author_name = os.getenv("GIT_AUTHOR_NAME", username)
         git_author_email = os.getenv("GIT_AUTHOR_EMAIL", "")
         display = os.getenv("DISPLAY", ":0")
-        runtime_dir = f"/run/user/{os.getuid()}"
-        agentboxd_dir = f"{runtime_dir}/agentboxd"
-        dbus_address = f"unix:path={runtime_dir}/bus"
+        runtime_dir = str(HostPaths.runtime_dir())
+        agentboxd_dir = str(HostPaths.agentboxd_dir())
+        dbus_address = HostPaths.dbus_socket()
 
         # Prepare volume mounts
         # Mount host config dirs for optional auth/state bootstrap
-        host_claude_dir = Path.home() / ".claude"
-        host_openai_config_dir = Path.home() / ".config" / "openai"
-        host_codex_dir = Path.home() / ".codex"
-        host_gemini_config_dir = Path.home() / ".config" / "gemini"
+        host_claude_dir = HostPaths.claude_dir()
+        host_openai_config_dir = HostPaths.openai_config_dir()
+        host_codex_dir = HostPaths.codex_dir()
+        host_gemini_dir = HostPaths.gemini_dir()
+        host_qwen_dir = HostPaths.qwen_dir()
         mcp_mounts = self._get_mcp_mounts(project_dir)
 
         # Use project-local Claude state for session isolation
         # Each container gets its own history, cache, etc.
-        project_claude_dir = agentbox_dir / "claude"
+        project_claude_dir = ProjectPaths.claude_dir(project_dir)
         project_claude_dir.mkdir(parents=True, exist_ok=True)
 
         # Use project-local Codex state for session isolation (like Claude)
-        project_codex_dir = agentbox_dir / "codex"
+        project_codex_dir = ProjectPaths.codex_dir(project_dir)
         project_codex_dir.mkdir(parents=True, exist_ok=True)
 
         # Mount host config directories for credential access
@@ -298,16 +343,25 @@ class ContainerManager:
 
         volumes = {
             # Project workspace (read/write)
-            str(project_dir.absolute()): {"bind": "/workspace", "mode": "rw"},
+            str(project_dir.absolute()): {"bind": ContainerPaths.WORKSPACE, "mode": "rw"},
             # Project-local Claude state for session isolation
             str(project_claude_dir): {"bind": f"/{username}/claude", "mode": "rw"},
             # Project-local Codex state for session isolation
             str(project_codex_dir): {"bind": f"/{username}/codex", "mode": "rw"},
             # Agentbox global library (read-only)
-            str(self.AGENTBOX_DIR / "library" / "config"): {"bind": "/agentbox/library/config", "mode": "ro"},
-            str(self.AGENTBOX_DIR / "library" / "mcp"): {"bind": "/agentbox/library/mcp", "mode": "ro"},
-            str(self.AGENTBOX_DIR / "library" / "skills"): {"bind": "/agentbox/library/skills", "mode": "ro"},
+            str(self.AGENTBOX_DIR / "library" / "config"): {"bind": ContainerPaths.LIBRARY_CONFIG, "mode": "ro"},
+            str(self.AGENTBOX_DIR / "library" / "mcp"): {"bind": ContainerPaths.LIBRARY_MCP, "mode": "ro"},
+            str(self.AGENTBOX_DIR / "library" / "skills"): {"bind": ContainerPaths.LIBRARY_SKILLS, "mode": "ro"},
         }
+
+        # Mount user's custom MCP/skills directories if they exist
+        # These are at ~/.config/agentbox/{mcp,skills}/ on host, mounted to /home/abox/.config/agentbox/
+        user_mcp_dir = HostPaths.user_mcp_dir()
+        user_skills_dir = HostPaths.user_skills_dir()
+        if user_mcp_dir.exists():
+            volumes[str(user_mcp_dir)] = {"bind": ContainerPaths.user_mcp_dir(), "mode": "ro"}
+        if user_skills_dir.exists():
+            volumes[str(user_skills_dir)] = {"bind": ContainerPaths.user_skills_dir(), "mode": "ro"}
 
         # Mount agentboxd socket directory (for streaming/notifications)
         # Create dir if needed - socket will appear when service starts
@@ -321,34 +375,44 @@ class ContainerManager:
         if local_init_script.exists():
             volumes[str(local_init_script)] = {"bind": "/usr/local/bin/container-init.sh", "mode": "ro"}
 
+        # Mount install-packages.py for development (same caveat as container-init.sh)
+        local_install_script = self.AGENTBOX_DIR / "bin" / "install-packages.py"
+        if local_install_script.exists():
+            volumes[str(local_install_script)] = {"bind": "/usr/local/bin/install-packages.py", "mode": "ro"}
+
+        # Mount generate-mcp-config.py for development
+        local_mcp_config_script = self.AGENTBOX_DIR / "bin" / "generate-mcp-config.py"
+        if local_mcp_config_script.exists():
+            volumes[str(local_mcp_config_script)] = {"bind": "/usr/local/bin/generate-mcp-config.py", "mode": "ro"}
+
         # Mount host credential directories (not individual files) to avoid stale inode issues
         # When OAuth tokens refresh, the credential file is replaced (new inode).
         # File mounts would still show the old content; directory mounts see updates.
         # Must be read-write so container can update credentials during OAuth token refresh.
         if host_claude_dir.exists():
-            volumes[str(host_claude_dir)] = {"bind": f"/{username}/host-claude", "mode": "rw"}
+            volumes[str(host_claude_dir)] = {"bind": ContainerPaths.host_claude_mount(username), "mode": "rw"}
         if host_codex_dir.exists():
-            volumes[str(host_codex_dir)] = {"bind": f"/{username}/host-codex", "mode": "rw"}
+            volumes[str(host_codex_dir)] = {"bind": ContainerPaths.host_codex_mount(username), "mode": "rw"}
 
         # SSH configuration based on mode
-        ssh_home = Path.home() / ".ssh"
+        ssh_home = HostPaths.ssh_dir()
         ssh_mode = config.ssh_mode
 
         if config.ssh_enabled and ssh_mode != "none":
             if ssh_mode == "keys":
                 # Keys mode: Mount to /host-ssh for copying during init
                 if ssh_home.exists():
-                    volumes[str(ssh_home)] = {"bind": "/host-ssh", "mode": "ro"}
+                    volumes[str(ssh_home)] = {"bind": ContainerPaths.HOST_SSH_MOUNT, "mode": "ro"}
 
             elif ssh_mode == "mount":
                 # Mount mode: Bind mount read-write directly to .ssh
                 if ssh_home.exists():
-                    volumes[str(ssh_home)] = {"bind": "/home/abox/.ssh", "mode": "rw"}
+                    volumes[str(ssh_home)] = {"bind": ContainerPaths.ssh_dir(), "mode": "rw"}
 
             elif ssh_mode == "config":
                 # Config mode: Mount only config/known_hosts for copying (no keys)
                 if ssh_home.exists():
-                    volumes[str(ssh_home)] = {"bind": "/host-ssh", "mode": "ro"}
+                    volumes[str(ssh_home)] = {"bind": ContainerPaths.HOST_SSH_MOUNT, "mode": "ro"}
 
         # SSH agent socket forwarding (works with all modes when enabled)
         ssh_sock_name = None
@@ -389,11 +453,13 @@ class ContainerManager:
 
         # Optional OpenAI/Gemini configs for CLI auth (already directories)
         if host_openai_config_dir.exists():
-            volumes[str(host_openai_config_dir)] = {"bind": f"/{username}/openai-config", "mode": "rw"}
-        if host_gemini_config_dir.exists():
-            volumes[str(host_gemini_config_dir)] = {"bind": f"/{username}/gemini-config", "mode": "rw"}
+            volumes[str(host_openai_config_dir)] = {"bind": ContainerPaths.host_openai_mount(username), "mode": "rw"}
+        if host_gemini_dir.exists():
+            volumes[str(host_gemini_dir)] = {"bind": ContainerPaths.host_gemini_mount(username), "mode": "rw"}
+        if host_qwen_dir.exists():
+            volumes[str(host_qwen_dir)] = {"bind": ContainerPaths.host_qwen_mount(username), "mode": "rw"}
 
-        # Extra user-defined workspace mounts from .agentbox.yml
+        # Extra user-defined workspace mounts from .agentbox/config.yml
         for entry in config.workspaces:
             if not isinstance(entry, dict):
                 continue
@@ -417,10 +483,8 @@ class ContainerManager:
             volumes[str(abs_path)] = {"bind": mount_point, "mode": mode}
 
         # Docker socket mount (if enabled)
-        docker_socket = "/var/run/docker.sock"
-        docker_config = config.config.get("docker", {})
-        if docker_config.get("enabled", False) and Path(docker_socket).exists():
-            volumes[docker_socket] = {"bind": docker_socket, "mode": "rw"}
+        if config.docker_enabled and Path(HostPaths.DOCKER_SOCKET).exists():
+            volumes[HostPaths.DOCKER_SOCKET] = {"bind": HostPaths.DOCKER_SOCKET, "mode": "rw"}
 
         # Environment variables
         environment = {
@@ -461,7 +525,7 @@ class ContainerManager:
             "detach": True,
             "tty": True,
             "stdin_open": True,
-            "working_dir": "/workspace",
+            "working_dir": ContainerPaths.WORKSPACE,
             "init": True,  # Enable init process to handle zombie processes (needed for Chrome/Playwright)
         }
 
@@ -527,7 +591,7 @@ class ContainerManager:
 
             console.print(f"[green]Container {container_name} created successfully[/green]")
 
-            # Restore container network connections from .agentbox.yml
+            # Restore container network connections from .agentbox/config.yml
             for conn in config.containers:
                 if not conn.get("auto_reconnect", True):
                     continue
@@ -554,6 +618,7 @@ class ContainerManager:
                 except Exception:
                     console.print(f"[yellow]Warning: Container {target_name} not found or not running[/yellow]")
 
+            invalidate_container_cache()
             return container
 
         except docker.errors.ImageNotFound:
@@ -582,6 +647,7 @@ class ContainerManager:
 
         console.print(f"[blue]Starting container {container_name}...[/blue]")
         container.start()
+        invalidate_container_cache()
         console.print(f"[green]Container {container_name} started[/green]")
 
     def stop_container(self, container_name: str) -> None:
@@ -604,6 +670,7 @@ class ContainerManager:
 
         console.print(f"[blue]Stopping container {container_name}...[/blue]")
         container.stop()
+        invalidate_container_cache()
         console.print(f"[green]Container {container_name} stopped[/green]")
 
     def remove_container(self, container_name: str, force: bool = False) -> None:
@@ -628,6 +695,7 @@ class ContainerManager:
 
         console.print(f"[blue]Removing container {container_name}...[/blue]")
         container.remove(force=force)
+        invalidate_container_cache()
         console.print(f"[green]Container {container_name} removed[/green]")
 
     def list_containers(self, all_containers: bool = False) -> List[Dict[str, str]]:
@@ -639,6 +707,25 @@ class ContainerManager:
         Returns:
             List of container info dicts
         """
+        cache_key = _CACHE_KEY_ALL if all_containers else _CACHE_KEY_RUNNING
+
+        # Lock covers both check AND fetch to prevent race conditions
+        with _container_cache_lock:
+            # Check cache first
+            if cache_key in _container_cache:
+                if time.time() - _container_cache_time.get(cache_key, 0) < _CONTAINER_CACHE_TTL:
+                    # Deep copy to prevent caller mutation of cached data
+                    return [d.copy() for d in _container_cache[cache_key]]
+
+            # Fetch fresh data
+            result = self._list_containers_impl(all_containers)
+            _container_cache[cache_key] = result
+            _container_cache_time[cache_key] = time.time()
+            # Deep copy to prevent caller mutation of cached data
+            return [d.copy() for d in result]
+
+    def _list_containers_impl(self, all_containers: bool = False) -> List[Dict[str, str]]:
+        """Internal implementation of list_containers (uncached)."""
         filters = {"name": self.CONTAINER_PREFIX}
         containers = self.client.containers.list(all=all_containers, filters=filters)
 
@@ -654,7 +741,7 @@ class ContainerManager:
             project_path = None
             mounts = container.attrs.get("Mounts", [])
             for mount in mounts:
-                if mount.get("Destination") == "/workspace":
+                if mount.get("Destination") == ContainerPaths.WORKSPACE:
                     project_path = mount.get("Source")
                     break
 
@@ -778,7 +865,7 @@ class ContainerManager:
                 return ("unknown", "")
 
             result = container.exec_run(
-                ["cat", "/tmp/container-status"],
+                ["cat", ContainerPaths.STATUS_FILE],
                 user="root",
             )
             if result.exit_code == 0:

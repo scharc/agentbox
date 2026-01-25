@@ -25,6 +25,8 @@ from agentbox.agentctl.helpers import (
     send_keys_to_session,
     get_agent_command,
     session_exists as tmux_session_exists,
+    _tmux_cmd,
+    _get_tmux_socket,
 )
 
 console = Console()
@@ -390,7 +392,9 @@ def switch_worktree(branch: str, agent: str):
     # Create new tmux session in the target worktree or attach if exists
     if tmux_session_exists(session_name):
         console.print(f"[cyan]Attaching to existing session: {session_name}[/cyan]")
-        os.execvp("tmux", ["tmux", "attach", "-t", session_name])
+        # Use = prefix for exact session matching (prevents prefix matching)
+        tmux_args = _tmux_cmd(["attach", "-t", f"={session_name}"])
+        os.execvp("tmux", tmux_args)
     else:
         console.print(f"[cyan]Creating new session: {session_name}[/cyan]")
 
@@ -400,11 +404,12 @@ def switch_worktree(branch: str, agent: str):
         if ssh_auth_sock:
             # Set SSH_AUTH_SOCK in tmux global environment before creating session
             subprocess.run(
-                ["tmux", "set-environment", "-g", "SSH_AUTH_SOCK", ssh_auth_sock],
+                _tmux_cmd(["set-environment", "-g", "SSH_AUTH_SOCK", ssh_auth_sock]),
                 check=False
             )
 
-        os.execvp("tmux", ["tmux", "new-session", "-s", session_name, "-c", target_path, cmd])
+        tmux_args = _tmux_cmd(["new-session", "-s", session_name, "-c", target_path, cmd])
+        os.execvp("tmux", tmux_args)
 
     # Note: os.execvp replaces the current process, so this line is never reached
     # But added for completeness

@@ -928,6 +928,7 @@ class SSHTunnelClient:
             return
 
         # Set up local forwards (container→host)
+        local_forwards_info = []
         for config in self.local_forwards:
             try:
                 listener = await self._conn.forward_local_port(
@@ -937,9 +938,19 @@ class SSHTunnelClient:
                     dest_port=config.host_port,
                 )
                 self._local_listeners[config.container_port] = listener
+                local_forwards_info.append({
+                    "host_port": config.host_port,
+                    "container_port": config.container_port,
+                })
                 logger.info(f"Local forward: 127.0.0.1:{config.container_port} -> host:{config.host_port}")
             except Exception as e:
                 logger.error(f"Failed to create local forward for {config.name}: {e}")
+
+        # Notify daemon about local forwards (so it can track them for display)
+        if local_forwards_info:
+            await self.send_event_async("local_forwards_registered", {
+                "forwards": local_forwards_info,
+            })
 
         # Set up remote forwards (host→container)
         for config in self.remote_forwards:

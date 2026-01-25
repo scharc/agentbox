@@ -64,6 +64,7 @@ Create a directory in `~/.config/agentbox/mcp/`:
 ```
 ~/.config/agentbox/mcp/my-server/
 ├── config.json       # Required
+├── .env              # Optional: environment variables
 ├── server.py         # Or package.json for npm servers
 └── README.md         # Optional
 ```
@@ -85,7 +86,30 @@ Create a directory in `~/.config/agentbox/mcp/`:
 }
 ```
 
+**.env file (optional):**
+```bash
+# API keys and secrets
+MY_API_KEY=your-key-here
+MY_SECRET=your-secret
+```
+
+When added to a project, `.env` values are merged into the MCP's environment. This allows you to:
+- Store API keys once in `~/.config/agentbox/mcp/<name>/.env`
+- Have them automatically available in all projects using that MCP
+- Keep secrets out of git (the `.env` file stays in your home directory)
+
 Then add to your project: `abox mcp add my-server && abox rebase`
+
+### Updating Custom MCPs
+
+When you modify files in `~/.config/agentbox/mcp/`:
+
+```bash
+# After editing config.json, .env, or server code
+abox rebase
+```
+
+Changes are synced on rebase. Running containers won't pick up changes until you rebase.
 
 ---
 

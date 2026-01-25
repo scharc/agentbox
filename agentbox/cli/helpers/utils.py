@@ -11,11 +11,35 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, NamedTuple, Optional
 
 from rich.console import Console
+from rich.panel import Panel
 
 if TYPE_CHECKING:
     from agentbox.container import ContainerManager
 
 _console = Console()
+
+
+# Custom exception classes for clean error handling
+class ContainerError(Exception):
+    """Raised when container operations fail.
+
+    This exception bubbles up to handle_errors which formats it nicely.
+    """
+
+    def __init__(self, message: str, hint: str = None):
+        super().__init__(message)
+        self.hint = hint
+
+
+class NotInitializedError(Exception):
+    """Raised when a command is run in an uninitialized directory.
+
+    This exception is caught by handle_errors and shown as a formatted panel.
+    """
+
+    def __init__(self, project_dir: Path):
+        self.project_dir = project_dir
+        super().__init__(f"Directory not initialized: {project_dir}")
 
 
 class ProjectContext(NamedTuple):
@@ -38,7 +62,7 @@ def _get_project_context(
         project_dir = resolve_project_dir()
         agentbox_dir = get_agentbox_dir(project_dir)
         project_name = manager.get_project_name(project_dir)
-        container_name = manager.get_container_name(project_name)
+        container_name = resolve_container_name(project_dir)
 
     Args:
         manager: ContainerManager instance. Created if not provided.
@@ -49,6 +73,7 @@ def _get_project_context(
     """
     from agentbox.container import ContainerManager
     from agentbox.utils.project import resolve_project_dir, get_agentbox_dir
+    from agentbox import container_naming
 
     if manager is None:
         manager = ContainerManager()
@@ -57,11 +82,13 @@ def _get_project_context(
     agentbox_dir = get_agentbox_dir(project_dir)
 
     if project:
-        project_name = manager.sanitize_project_name(project)
+        # Explicit project name override - use simple name generation
+        project_name = container_naming.sanitize_name(project)
+        container_name = f"{container_naming.CONTAINER_PREFIX}{project_name}"
     else:
+        # Default: use collision-aware resolution based on project directory
         project_name = manager.get_project_name(project_dir)
-
-    container_name = manager.get_container_name(project_name)
+        container_name = container_naming.resolve_container_name(project_dir)
 
     return ProjectContext(
         manager=manager,
@@ -106,11 +133,54 @@ def _require_agentbox_dir(agentbox_dir: Path, project_dir: Path) -> None:
         )
 
 
+def show_error_panel(title: str, message: str, hint: str = None) -> None:
+    """Display a formatted error panel.
+
+    Args:
+        title: Panel title (shown in red)
+        message: Main error message
+        hint: Optional hint text (shown with blue "Hint:" prefix)
+    """
+    content = message
+    if hint:
+        content += f"\n\n[blue]Hint:[/blue] {hint}"
+    _console.print(Panel(content, title=f"[red]{title}[/red]", border_style="red"))
+
+
+def require_initialized(project_dir: Path = None) -> Path:
+    """Check if project is initialized, show nice error if not.
+
+    Shows the current directory and suggests running abox init.
+
+    Args:
+        project_dir: Project directory to check. If None, resolves from cwd.
+
+    Returns:
+        Path to the project directory if initialized.
+
+    Raises:
+        NotInitializedError: If .agentbox/ directory doesn't exist.
+    """
+    if project_dir is None:
+        from agentbox.utils.project import resolve_project_dir
+        project_dir = resolve_project_dir()
+
+    agentbox_dir = project_dir / ".agentbox"
+    if not agentbox_dir.exists():
+        raise NotInitializedError(project_dir)
+
+    return project_dir
+
+
 def handle_errors(func: Callable) -> Callable:
     """Decorator that wraps CLI commands with standard error handling.
 
-    Catches exceptions, prints error in red, and exits with code 1.
-    Use this to reduce boilerplate try/except blocks in CLI commands.
+    Catches exceptions, prints error with nice formatting, and exits with code 1.
+    Special handling for:
+    - NotInitializedError: Shows "Not Initialized" panel with directory and init hint
+    - ContainerError: Shows "Container Error" panel with hint if provided
+    - ClickException: Shows panel with error message
+    - Other exceptions: Shows generic error panel
 
     Usage:
         @command.command()
@@ -119,20 +189,101 @@ def handle_errors(func: Callable) -> Callable:
             # code that might raise exceptions
             ...
     """
+    import click
+
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
         except SystemExit:
             raise  # Let sys.exit() pass through
+        except NotInitializedError as exc:
+            content = (
+                f"[bold]Directory:[/bold] {exc.project_dir}\n\n"
+                "This directory is not set up for Agentbox.\n\n"
+                "[blue]To get started, run:[/blue]\n"
+                "  abox init"
+            )
+            _console.print(Panel(content, title="[red]Not Initialized[/red]", border_style="red"))
+            sys.exit(1)
+        except ContainerError as exc:
+            content = str(exc)
+            if exc.hint:
+                content += f"\n\n[blue]Try:[/blue]\n  {exc.hint}"
+            _console.print(Panel(content, title="[red]Container Error[/red]", border_style="red"))
+            sys.exit(1)
+        except click.ClickException as exc:
+            # Let Click handle its own exceptions (they already have formatting)
+            raise
         except Exception as exc:
-            _console.print(f"[red]Error: {exc}[/red]")
+            # Generic error panel for unexpected exceptions
+            show_error_panel("Error", str(exc))
             sys.exit(1)
     return wrapper
 
 
 def _sanitize_mount_name(name: str) -> str:
     return "".join(ch if ch.isalnum() or ch in ("-", "_") else "-" for ch in name).strip("-")
+
+
+def parse_env_file(env_path: Path) -> dict[str, str]:
+    """Parse a .env file into a dictionary.
+
+    Handles:
+    - KEY=value format
+    - Quoted values (single and double quotes)
+    - Comments (lines starting with #)
+    - Empty lines
+    - Inline comments after values
+
+    Args:
+        env_path: Path to .env file
+
+    Returns:
+        Dictionary of environment variables
+    """
+    env_vars: dict[str, str] = {}
+
+    if not env_path.exists():
+        return env_vars
+
+    try:
+        content = env_path.read_text()
+    except OSError:
+        return env_vars
+
+    for line in content.splitlines():
+        line = line.strip()
+
+        # Skip empty lines and comments
+        if not line or line.startswith("#"):
+            continue
+
+        # Parse KEY=value
+        if "=" not in line:
+            continue
+
+        key, _, value = line.partition("=")
+        key = key.strip()
+
+        if not key:
+            continue
+
+        value = value.strip()
+
+        # Remove surrounding quotes if present
+        if len(value) >= 2:
+            if (value.startswith('"') and value.endswith('"')) or \
+               (value.startswith("'") and value.endswith("'")):
+                value = value[1:-1]
+
+        # Handle inline comments (only for unquoted values)
+        if " #" in value and not (value.startswith('"') or value.startswith("'")):
+            value = value.split(" #")[0].strip()
+
+        env_vars[key] = value
+
+    return env_vars
 
 
 def safe_rmtree(path: Path) -> bool:
@@ -154,6 +305,44 @@ def safe_rmtree(path: Path) -> bool:
         shutil.rmtree(path)
         return True
     return False
+
+
+def _merge_directory(src: Path, dst: Path) -> None:
+    """Recursively merge source directory into destination.
+
+    Copies all files and subdirectories from src to dst.
+    Existing files in dst are overwritten, but files only in dst are preserved.
+    Skips special directories like .git, .agentbox, __pycache__, etc.
+
+    Args:
+        src: Source directory
+        dst: Destination directory
+    """
+    # Directories to skip when syncing MCPs
+    skip_dirs = {".git", ".agentbox", "__pycache__", ".pytest_cache",
+                 "node_modules", ".venv", "venv", ".tox", ".mypy_cache",
+                 ".ruff_cache", ".eggs", "*.egg-info"}
+
+    dst.mkdir(parents=True, exist_ok=True)
+
+    for item in src.iterdir():
+        # Skip special directories
+        if item.name in skip_dirs or item.name.endswith(".egg-info"):
+            continue
+
+        src_item = item
+        dst_item = dst / item.name
+
+        if src_item.is_dir():
+            # Recursively merge subdirectories
+            _merge_directory(src_item, dst_item)
+        elif src_item.is_file():
+            # Copy file, overwriting if exists (skip symlinks that point to missing files)
+            try:
+                shutil.copy2(src_item, dst_item)
+            except FileNotFoundError:
+                # Symlink target doesn't exist, skip
+                pass
 
 
 def _sync_mcp_dir(
@@ -190,15 +379,26 @@ def _sync_mcp_dir(
             target_path = agentbox_dir / "mcp" / mcp_path.name
             existed = target_path.exists()
 
-            # Create target directory if it doesn't exist
-            target_path.mkdir(parents=True, exist_ok=True)
+            # Copy entire directory tree, preserving user-added files
+            # Use copytree with dirs_exist_ok to merge with existing
+            if existed:
+                # Merge: copy new/updated files without deleting user files
+                _merge_directory(mcp_path, target_path)
+            else:
+                # Fresh copy - use same skip patterns as _merge_directory
+                skip_dirs = {".git", ".agentbox", "__pycache__", ".pytest_cache",
+                             "node_modules", ".venv", "venv", ".tox", ".mypy_cache",
+                             ".ruff_cache", ".eggs"}
 
-            # Copy each file from source, overwriting existing
-            # This preserves user-added files (like .env) not in source
-            for src_file in mcp_path.iterdir():
-                if src_file.is_file():
-                    dst_file = target_path / src_file.name
-                    shutil.copy2(src_file, dst_file)
+                def ignore_patterns(directory, files):
+                    """Ignore runtime/cache directories and egg-info."""
+                    ignored = set()
+                    for f in files:
+                        if f in skip_dirs or f.endswith(".egg-info"):
+                            ignored.add(f)
+                    return ignored
+
+                shutil.copytree(mcp_path, target_path, dirs_exist_ok=True, ignore=ignore_patterns)
 
             # Print update message first
             if not quiet:
@@ -253,14 +453,13 @@ def _sync_library_skills(agentbox_dir: Path, quiet: bool = False) -> None:
     lib_manager = LibraryManager()
     project_dir = agentbox_dir.parent
 
-    # Get installed skills from claude/codex skills directories
+    # Get installed skills from unified skills directory
     installed_skills = set()
-    for agent in ["claude", "codex"]:
-        skills_dir = agentbox_dir / agent / "skills"
-        if skills_dir.exists():
-            for skill_dir in skills_dir.iterdir():
-                if skill_dir.is_dir() and not skill_dir.name.startswith("."):
-                    installed_skills.add(skill_dir.name)
+    skills_dir = agentbox_dir / "skills"
+    if skills_dir.exists():
+        for skill_dir in skills_dir.iterdir():
+            if skill_dir.is_dir() and not skill_dir.name.startswith("."):
+                installed_skills.add(skill_dir.name)
 
     if not installed_skills:
         return

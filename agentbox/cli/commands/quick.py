@@ -7,12 +7,22 @@
 import json
 import os
 import sys
+import threading
+import time
 import tty
 import termios
 import urllib.request
 import urllib.error
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
+
+# =============================================================================
+# Module-level cache for port configuration (avoids repeated YAML reads)
+# =============================================================================
+_port_config_cache: Dict[str, Dict[str, Any]] = {}
+_port_config_cache_time: Dict[str, float] = {}
+_port_config_cache_lock = threading.Lock()
+_PORT_CONFIG_CACHE_TTL = 5.0  # 5 seconds
 
 import click
 from rich.console import Console
@@ -24,6 +34,8 @@ from agentbox.container import ContainerManager
 from agentbox.cli.helpers import (
     _get_tmux_sessions,
     _attach_tmux_session,
+    get_sessions_from_daemon,
+    get_session_counts_from_daemon,
 )
 from agentbox.cli.commands.project import shell, info, stop, rebase, remove, init as project_init, start as project_start
 from agentbox.cli.commands.agents import claude, superclaude, codex, supercodex, gemini, supergemini
@@ -31,7 +43,7 @@ from agentbox.cli.commands.mcp import mcp_add, _add_mcp, _get_installed_mcps
 from agentbox.cli.commands.skill import skill_add, _add_skill, _get_installed_skills
 from agentbox.cli.commands.network import connect as network_connect, disconnect as network_disconnect
 from agentbox.cli.commands.workspace import workspace_add
-from agentbox.cli.commands.worktree import worktree_add, worktree_claude, worktree_superclaude, worktree_shell
+from agentbox.cli.commands.worktree import worktree_add, _run_worktree_agent, _run_worktree_shell
 from agentbox.cli.commands.ports import expose, forward, unexpose, unforward
 from agentbox.cli.helpers import _load_containers_config, _load_workspaces_config, _ensure_container_running
 from agentbox.library import LibraryManager
@@ -331,7 +343,14 @@ def status_menu() -> Optional[str]:
     # Per-container details
     console.print("[bold]CONTAINERS[/bold]")
 
-    running = [c for c in containers if c.get("status") == "running"]
+    # Single-pass partitioning instead of two list comprehensions
+    running = []
+    stopped = []
+    for c in containers:
+        if c.get("status") == "running":
+            running.append(c)
+        else:
+            stopped.append(c)
 
     if not running:
         console.print("  [dim]No running containers[/dim]")
@@ -390,8 +409,7 @@ def status_menu() -> Optional[str]:
 
             console.print()
 
-    # Stopped containers summary
-    stopped = [c for c in containers if c.get("status") != "running"]
+    # Stopped containers summary (already computed above)
     if stopped:
         console.print(f"  [dim]{len(stopped)} stopped[/dim]")
         console.print()
@@ -417,7 +435,18 @@ AGENT_TYPES = [
 
 
 def get_all_sessions() -> list[dict]:
-    """Get all sessions across all running containers, sorted by project/session name."""
+    """Get all sessions across all running containers, sorted by project/session name.
+
+    Uses daemon cache for fast queries (~5ms), falls back to docker exec if unavailable.
+    """
+    # Try daemon first (fast path)
+    daemon_sessions = get_sessions_from_daemon(timeout=1.0)
+    if daemon_sessions is not None:
+        # Sort by project name, then session name
+        daemon_sessions.sort(key=lambda s: (s.get("project", "").lower(), s.get("session_name", "").lower()))
+        return daemon_sessions
+
+    # Fallback to docker exec (slow path)
     manager = ContainerManager()
     containers = manager.list_containers(all_containers=False)  # Only running
 
@@ -444,22 +473,34 @@ def get_all_sessions() -> list[dict]:
 
 
 def get_running_containers() -> list[dict]:
-    """Get all running containers with their session counts, sorted by project name."""
+    """Get all running containers with their session counts, sorted by project name.
+
+    Uses daemon cache for session counts (~5ms), falls back to docker exec if unavailable.
+    """
     manager = ContainerManager()
     containers = manager.list_containers(all_containers=False)  # Only running
+
+    # Try to get session counts from daemon (fast path)
+    session_counts = get_session_counts_from_daemon(timeout=1.0)
 
     result = []
     for container in containers:
         container_name = container["name"]
         project = container.get("project", container_name.replace("agentbox-", ""))
         project_path = container.get("project_path", "")
-        sessions = _get_tmux_sessions(manager, container_name)
+
+        # Use daemon cache if available, otherwise fallback to docker exec
+        if session_counts is not None:
+            count = session_counts.get(container_name, 0)
+        else:
+            sessions = _get_tmux_sessions(manager, container_name)
+            count = len(sessions)
 
         result.append({
             "container_name": container_name,
             "project": project,
             "project_path": project_path,
-            "session_count": len(sessions),
+            "session_count": count,
         })
 
     # Sort by project name
@@ -509,7 +550,7 @@ def new_session_menu(container_data: dict) -> Optional[str]:
 
             # Invoke agent command - AGENTBOX_PROJECT_DIR is already set
             ctx = click.get_current_context()
-            ctx.invoke(agent_cmd, project=None, args=())
+            ctx.invoke(agent_cmd, prompt=())
             return None  # Exit after launching
 
     return "main"
@@ -914,15 +955,24 @@ def network_menu(container_data: dict) -> Optional[str]:
 
 
 def get_configured_ports(project_path: str) -> dict:
-    """Get configured ports from .agentbox.yml."""
-    from pathlib import Path
+    """Get configured ports from .agentbox/config.yml.
+
+    Performance optimized: Uses TTL cache (5 seconds) to avoid repeated YAML reads.
+    """
     import yaml
 
     result = {"host": [], "container": []}
     if not project_path:
         return result
 
-    config_file = Path(project_path) / ".agentbox.yml"
+    # Check cache first
+    cache_key = project_path
+    with _port_config_cache_lock:
+        if cache_key in _port_config_cache:
+            if time.time() - _port_config_cache_time.get(cache_key, 0) < _PORT_CONFIG_CACHE_TTL:
+                return _port_config_cache[cache_key].copy()
+
+    config_file = Path(project_path) / ".agentbox/config.yml"
     if not config_file.exists():
         return result
 
@@ -933,6 +983,11 @@ def get_configured_ports(project_path: str) -> dict:
         if isinstance(ports, dict):
             result["host"] = ports.get("host", [])
             result["container"] = ports.get("container", [])
+
+        # Cache the result
+        with _port_config_cache_lock:
+            _port_config_cache[cache_key] = result
+            _port_config_cache_time[cache_key] = time.time()
     except Exception:
         pass
 
@@ -1314,7 +1369,7 @@ def new_container_flow() -> Optional[str]:
     if choice in agent_map:
         ctx = click.get_current_context()
         # Don't pass project - AGENTBOX_PROJECT_DIR is already set
-        ctx.invoke(agent_map[choice], project=None, args=())
+        ctx.invoke(agent_map[choice], prompt=())
         return None  # Exit after launching
 
     return "main"
@@ -1484,13 +1539,13 @@ def worktree_actions_menu(wt_data: dict) -> Optional[str]:
             ctx = click.get_current_context()
 
             if action == "claude":
-                ctx.invoke(worktree_claude, branch=branch, args=())
+                _run_worktree_agent(branch, "claude", ())
                 return None  # Exit after launching
             elif action == "superclaude":
-                ctx.invoke(worktree_superclaude, branch=branch, args=())
+                _run_worktree_agent(branch, "superclaude", ())
                 return None  # Exit after launching
             elif action == "shell":
-                ctx.invoke(worktree_shell, branch=branch)
+                _run_worktree_shell(branch)
                 return None  # Exit after shell
 
     return ("worktree_actions", wt_data)

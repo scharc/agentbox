@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
-from agentbox.sessions import (
+from agentbox.core.sessions import (
     get_sessions_for_container,
     get_all_sessions,
     capture_session_output,

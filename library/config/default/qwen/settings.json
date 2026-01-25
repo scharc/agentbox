@@ -1,0 +1,20 @@
+{
+  "model": {
+    "default": "qwen3-coder"
+  },
+  "telemetry": {
+    "enabled": false
+  },
+  "general": {
+    "checkpointing": {
+      "enabled": true
+    }
+  },
+  "ui": {
+    "showMemoryUsage": false
+  },
+  "$version": 2,
+  "security": {
+    "auth": {}
+  }
+}
