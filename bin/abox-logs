@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""Simple conversation log viewer/exporter.
+
+Usage:
+  abox-logs list              List tracked sessions
+  abox-logs export [SESSION]  Export session to markdown (default: current)
+  abox-logs show [SESSION]    Show session log (no file output)
+"""
+
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+
+HISTORY_DIR = Path('/workspace/.agentbox/history')
+LOGS_DIR = Path('/workspace/.agentbox/logs')
+MAP_FILE = Path('/workspace/.agentbox/session-map.json')
+
+
+def load_map() -> dict:
+    if MAP_FILE.exists():
+        try:
+            return json.loads(MAP_FILE.read_text())
+        except:
+            pass
+    return {}
+
+
+def get_current_session() -> str:
+    import subprocess
+    try:
+        result = subprocess.run(
+            ['tmux', 'display-message', '-p', '#{session_name}'],
+            capture_output=True, text=True, timeout=2
+        )
+        return result.stdout.strip() if result.returncode == 0 else ''
+    except:
+        return ''
+
+
+def parse_timestamp(ts: str) -> str:
+    if not ts:
+        return ''
+    try:
+        dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+        return dt.strftime('%H:%M:%S')
+    except:
+        return ''
+
+
+def extract_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts = []
+        for item in content:
+            if isinstance(item, dict):
+                if item.get('type') == 'text':
+                    texts.append(item.get('text', ''))
+                elif 'text' in item:
+                    texts.append(item['text'])
+        return '\n'.join(texts)
+    return ''
+
+
+def parse_jsonl(path: Path) -> list[dict]:
+    """Parse JSONL file to messages."""
+    messages = []
+
+    with open(path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+                etype = entry.get('type', '')
+                ts = parse_timestamp(entry.get('timestamp', ''))
+
+                if etype == 'user':
+                    text = extract_text(entry.get('message', {}).get('content', ''))
+                    if text:
+                        messages.append({'time': ts, 'role': 'USER', 'text': text})
+
+                elif etype == 'assistant':
+                    content = entry.get('message', {}).get('content', '')
+                    if isinstance(content, list):
+                        texts = [i.get('text', '') for i in content
+                                if isinstance(i, dict) and i.get('type') == 'text']
+                        text = '\n'.join(t for t in texts if t)
+                    else:
+                        text = str(content) if content else ''
+                    if text:
+                        messages.append({'time': ts, 'role': 'ASSISTANT', 'text': text})
+            except:
+                continue
+
+    return messages
+
+
+def format_markdown(session: str, info: dict, messages: list) -> str:
+    """Format messages as markdown."""
+    lines = [
+        f"# Session: {session}",
+        f"",
+        f"- **Agent**: {info.get('agent', 'unknown')}",
+        f"- **Started**: {info.get('started', '')[:19]}",
+        f"- **Messages**: {len(messages)}",
+        f"",
+        f"---",
+        f"",
+    ]
+
+    for msg in messages:
+        time = f"[{msg['time']}] " if msg['time'] else ''
+        lines.append(f"## {time}{msg['role']}")
+        lines.append("")
+        lines.append(msg['text'])
+        lines.append("")
+
+    return '\n'.join(lines)
+
+
+def cmd_list():
+    """List tracked sessions."""
+    data = load_map()
+
+    if not data:
+        print("No sessions tracked")
+        return
+
+    current = get_current_session()
+
+    print(f"{'SESSION':<25} {'AGENT':<10} {'STARTED':<20}")
+    print("-" * 60)
+
+    for session, info in sorted(data.items(), key=lambda x: x[1].get('started', ''), reverse=True):
+        agent = info.get('agent', '?')
+        started = info.get('started', '')[:19]
+        marker = " *" if session == current else ""
+        print(f"{session:<25} {agent:<10} {started}{marker}")
+
+
+def cmd_export(session: str = None):
+    """Export session to markdown file."""
+    data = load_map()
+
+    if not session:
+        session = get_current_session()
+
+    if session not in data:
+        print(f"Session not found: {session}", file=sys.stderr)
+        print("Use 'abox-logs list' to see available sessions", file=sys.stderr)
+        sys.exit(1)
+
+    info = data[session]
+    file_path = info.get('file')
+
+    if not file_path:
+        print(f"No file mapped for session: {session}", file=sys.stderr)
+        sys.exit(1)
+
+    full_path = HISTORY_DIR / file_path
+    if not full_path.exists():
+        print(f"File not found: {full_path}", file=sys.stderr)
+        sys.exit(1)
+
+    messages = parse_jsonl(full_path)
+    markdown = format_markdown(session, info, messages)
+
+    # Generate output filename
+    started = info.get('started', '')[:19].replace(':', '').replace('-', '').replace('T', '-')
+    out_file = LOGS_DIR / f"{started}-{session}.md"
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+    out_file.write_text(markdown)
+    print(f"Exported {len(messages)} messages to {out_file}")
+
+
+def cmd_show(session: str = None):
+    """Show session log to stdout."""
+    data = load_map()
+
+    if not session:
+        session = get_current_session()
+
+    if session not in data:
+        print(f"Session not found: {session}", file=sys.stderr)
+        sys.exit(1)
+
+    info = data[session]
+    file_path = info.get('file')
+
+    if not file_path:
+        print(f"No file mapped for session: {session}", file=sys.stderr)
+        sys.exit(1)
+
+    full_path = HISTORY_DIR / file_path
+    if not full_path.exists():
+        print(f"File not found: {full_path}", file=sys.stderr)
+        sys.exit(1)
+
+    messages = parse_jsonl(full_path)
+
+    for msg in messages:
+        time = f"[{msg['time']}] " if msg['time'] else ''
+        text = msg['text'][:200] + '...' if len(msg['text']) > 200 else msg['text']
+        text = text.replace('\n', ' ')
+        print(f"{time}{msg['role']}: {text}")
+
+
+if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(0)
+
+    cmd = sys.argv[1]
+    arg = sys.argv[2] if len(sys.argv) > 2 else None
+
+    if cmd == 'list':
+        cmd_list()
+    elif cmd == 'export':
+        cmd_export(arg)
+    elif cmd == 'show':
+        cmd_show(arg)
+    else:
+        print(__doc__)
+        sys.exit(1)

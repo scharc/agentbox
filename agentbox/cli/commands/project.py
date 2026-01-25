@@ -819,9 +819,12 @@ def connect(project_name: Optional[str], session: Optional[str]):
 @click.argument("project_name", required=False, shell_complete=_complete_project_name)
 @handle_errors
 def info(project_name: Optional[str]):
-    """Show container info (IP, status, sessions).
+    """Show container and project configuration.
 
-    If no project name is provided, shows info for the current project's container.
+    Displays container status, network info, active sessions, and the full
+    project configuration including SSH, Docker, ports, MCP servers, and more.
+
+    If no project name is provided, shows info for the current project.
     """
     pctx = _get_project_context(project=project_name)
 
@@ -833,24 +836,89 @@ def info(project_name: Optional[str]):
     container = pctx.manager.client.containers.get(pctx.container_name)
     networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
 
-    console.print(f"\n[blue]Container:[/blue] {pctx.container_name}")
-    console.print(f"[blue]Status:[/blue] {container.status}")
+    # Container info
+    console.print(f"\n[bold]Container[/bold]")
+    console.print(f"  Name:   {pctx.container_name}")
+    console.print(f"  Status: {container.status}")
 
     for network_name, network_info in networks.items():
         ip_address = network_info.get("IPAddress", "")
         if ip_address:
-            console.print(f"[green]IP Address:[/green] {ip_address}")
-            console.print(f"[blue]Network:[/blue] {network_name}")
+            console.print(f"  IP:     {ip_address}")
+            console.print(f"  Network: {network_name}")
             break
 
     # Show sessions if running
     if pctx.manager.is_running(pctx.container_name):
         sessions = _get_tmux_sessions(pctx.manager, pctx.container_name)
         if sessions:
-            console.print("\n[blue]Active Sessions:[/blue]")
+            console.print(f"\n[bold]Sessions[/bold]")
             for sess in sessions:
-                status = "attached" if sess.get("attached") else "detached"
+                status = "[green]attached[/green]" if sess.get("attached") else "[dim]detached[/dim]"
                 console.print(f"  - {sess['name']} ({status})")
+
+    # Load project config
+    config = ProjectConfig(pctx.project_dir)
+    if not config.exists():
+        console.print(f"\n[dim]No config file found at {pctx.project_dir}/.agentbox/config.yml[/dim]")
+        return
+
+    # SSH configuration
+    console.print(f"\n[bold]SSH[/bold]")
+    ssh_mode = config.ssh_mode
+    forward_agent = config.ssh_forward_agent
+    if ssh_mode == "none":
+        console.print("  Mode: [dim]disabled[/dim]")
+    else:
+        console.print(f"  Mode: {ssh_mode}")
+        console.print(f"  Agent forwarding: {'[green]enabled[/green]' if forward_agent else '[dim]disabled[/dim]'}")
+
+    # Docker configuration
+    console.print(f"\n[bold]Docker[/bold]")
+    docker_enabled = config.docker_enabled
+    console.print(f"  Socket: {'[green]enabled[/green]' if docker_enabled else '[dim]disabled[/dim]'}")
+
+    # Port forwarding
+    ports_config = config.ports
+    forwarded = ports_config.get("forward", [])
+    exposed = ports_config.get("expose", [])
+    if forwarded or exposed:
+        console.print(f"\n[bold]Ports[/bold]")
+        if forwarded:
+            port_strs = [str(p) if isinstance(p, int) else f"{p.get('host', '?')}:{p.get('container', '?')}" for p in forwarded]
+            console.print(f"  Forward: {', '.join(port_strs)}")
+        if exposed:
+            console.print(f"  Expose: {', '.join(str(p) for p in exposed)}")
+
+    # MCP servers
+    mcp_servers = config.mcp_servers
+    if mcp_servers:
+        console.print(f"\n[bold]MCP Servers[/bold]")
+        for mcp in mcp_servers:
+            console.print(f"  - {mcp}")
+
+    # Skills
+    skills = config.skills
+    if skills:
+        console.print(f"\n[bold]Skills[/bold]")
+        for skill in skills:
+            console.print(f"  - {skill}")
+
+    # Workspace mounts
+    workspaces = config.workspaces
+    if workspaces:
+        console.print(f"\n[bold]Workspace Mounts[/bold]")
+        for ws in workspaces:
+            if isinstance(ws, dict):
+                console.print(f"  - {ws.get('host', '?')} → {ws.get('container', '?')}")
+            else:
+                console.print(f"  - {ws}")
+
+    # System packages
+    packages = config.system_packages
+    if packages:
+        console.print(f"\n[bold]System Packages[/bold]")
+        console.print(f"  {', '.join(packages)}")
 
 
 @project.command(options_metavar="")

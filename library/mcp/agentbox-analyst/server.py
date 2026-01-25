@@ -416,7 +416,7 @@ def _invoke_single_agent(agent: str, prompt: str, timeout: Optional[int], env: d
         return {"success": False, "error": str(e), "output": "", "stderr": None, "agent_used": agent}
 
 
-def _invoke_superagent(agent: str, prompt: str, timeout: Optional[int] = None, caller: str = "") -> dict:
+def _invoke_superagent(agent: str, prompt: str, timeout: Optional[int] = None, caller: str = "", workspace: str = "") -> dict:
     """Invoke a superagent for analysis with fallback support.
 
     Uses superagent mode for full read access:
@@ -428,6 +428,13 @@ def _invoke_superagent(agent: str, prompt: str, timeout: Optional[int] = None, c
     codex → gemini → claude (in that order, skipping caller)
 
     Agents are available directly inside the agentbox container.
+
+    Args:
+        agent: Which agent to invoke
+        prompt: The prompt to send
+        timeout: Timeout in seconds
+        caller: The calling agent (for fallback logic)
+        workspace: Working directory for the agent (for worktree support)
     """
     # Parse depth safely
     try:
@@ -445,11 +452,12 @@ def _invoke_superagent(agent: str, prompt: str, timeout: Optional[int] = None, c
     env = os.environ.copy()
     env["AGENTBOX_INVOCATION_DEPTH"] = "1"
 
-    # Use workspace from env var, or current directory, or fallback to /workspace
-    workspace = os.getenv("AGENTBOX_WORKSPACE") or os.getcwd() or "/workspace"
+    # Priority: explicit param > env var > /workspace default
+    # Supports worktrees when caller passes their cwd
+    resolved_workspace = workspace or os.getenv("AGENTBOX_WORKSPACE") or "/workspace"
 
     # Try primary agent first
-    result = _invoke_single_agent(agent, prompt, timeout, env, workspace)
+    result = _invoke_single_agent(agent, prompt, timeout, env, resolved_workspace)
 
     # If successful, return immediately
     if result["success"]:
@@ -461,7 +469,7 @@ def _invoke_superagent(agent: str, prompt: str, timeout: Optional[int] = None, c
     fallbacks = _get_fallback_agents(agent, caller)
 
     for fallback_agent in fallbacks:
-        fallback_result = _invoke_single_agent(fallback_agent, prompt, timeout, env, workspace)
+        fallback_result = _invoke_single_agent(fallback_agent, prompt, timeout, env, resolved_workspace)
 
         if fallback_result["success"]:
             # Add note about fallback
@@ -484,6 +492,7 @@ def analyze(
     prompt: str,
     report_file: str = "",
     timeout: Optional[int] = None,
+    workspace: str = "",
 ) -> dict:
     """Request deep analysis from peer agent.
 
@@ -497,6 +506,7 @@ def analyze(
         prompt: Analysis instructions (what to look for, what to ignore, etc.)
         report_file: Where to write the report (default: /tmp/agentbox-reports/<timestamp>-analysis.md)
         timeout: Timeout in seconds (default 600 = 10 minutes)
+        workspace: Working directory for the peer agent (for worktree support)
 
     Returns:
         Path to the report file and summary
@@ -558,7 +568,7 @@ SUMMARY:
 <your summary here>
 """
 
-    result = _invoke_superagent(peer, full_prompt, resolved_timeout, caller=caller)
+    result = _invoke_superagent(peer, full_prompt, resolved_timeout, caller=caller, workspace=workspace)
 
     if not result["success"]:
         return {
@@ -598,8 +608,12 @@ SUMMARY:
     }
 
 
-def _validate_commit_ref(commit: str) -> tuple[bool, str]:
+def _validate_commit_ref(commit: str, workspace: str = "") -> tuple[bool, str]:
     """Validate a git commit reference to prevent injection.
+
+    Args:
+        commit: Git commit reference to validate
+        workspace: Working directory for git commands (default: /workspace)
 
     Returns (is_valid, sanitized_or_error_message).
     """
@@ -621,15 +635,18 @@ def _validate_commit_ref(commit: str) -> tuple[bool, str]:
     if any(c in commit for c in dangerous):
         return False, f"Invalid characters in commit reference: {commit}"
 
-    # Verify it's a valid git ref (use -- to separate ref from options)
-    workspace = os.getenv("AGENTBOX_WORKSPACE") or os.getcwd() or "/workspace"
+    # Verify it's a valid git ref
+    # Note: --verify requires ref immediately after, can't use -- separator
+    # Pre-validation above prevents option injection (no leading -, no shell chars)
+    # Priority: explicit param > env var > /workspace default
+    cwd = workspace or os.getenv("AGENTBOX_WORKSPACE") or "/workspace"
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--verify", "--", commit],
+            ["git", "rev-parse", "--verify", commit],
             capture_output=True,
             text=True,
             timeout=5,
-            cwd=workspace,
+            cwd=cwd,
         )
         if result.returncode != 0:
             return False, f"Not a valid git reference: {commit}"
@@ -643,6 +660,7 @@ def review_commit(
     commit: str = "HEAD",
     focus: str = "",
     timeout: Optional[int] = None,
+    workspace: str = "",
 ) -> dict:
     """Find issues with a commit.
 
@@ -652,6 +670,7 @@ def review_commit(
         commit: Commit to review (default: HEAD, can be SHA, HEAD~1, etc.)
         focus: Optional focus area (e.g., "error handling", "performance")
         timeout: Timeout in seconds (default 300 = 5 minutes)
+        workspace: Working directory for git commands (for worktree support)
 
     Returns:
         Issues found and suggestions
@@ -659,7 +678,7 @@ def review_commit(
     resolved_timeout = _resolve_timeout("review_commit", timeout)
 
     # Validate commit reference to prevent injection
-    is_valid, validated = _validate_commit_ref(commit)
+    is_valid, validated = _validate_commit_ref(commit, workspace)
     if not is_valid:
         return {
             "success": False,
@@ -711,7 +730,7 @@ SUMMARY:
 Be specific with file paths and line numbers. Only report real issues, not style preferences.
 """
 
-    result = _invoke_superagent(peer, prompt, resolved_timeout, caller=caller)
+    result = _invoke_superagent(peer, prompt, resolved_timeout, caller=caller, workspace=workspace)
 
     if not result["success"]:
         return {
@@ -754,6 +773,7 @@ def suggest_tests(
     subject: str,
     test_type: str = "unit",
     timeout: Optional[int] = None,
+    workspace: str = "",
 ) -> dict:
     """Suggest tests for code or find gaps in existing tests.
 
@@ -763,6 +783,7 @@ def suggest_tests(
         subject: What to test (file path, function name, feature, or "recent changes")
         test_type: Type of tests - "unit", "integration", or "both" (default: unit)
         timeout: Timeout in seconds (default 300 = 5 minutes)
+        workspace: Working directory for the peer agent (for worktree support)
 
     Returns:
         Test suggestions with example code
@@ -823,7 +844,7 @@ Focus on:
 Be practical - suggest tests that catch real bugs, not trivial ones.
 """
 
-    result = _invoke_superagent(peer, prompt, resolved_timeout, caller=caller)
+    result = _invoke_superagent(peer, prompt, resolved_timeout, caller=caller, workspace=workspace)
 
     if not result["success"]:
         return {
@@ -866,6 +887,7 @@ def quick_check(
     subject: str,
     question: str,
     timeout: Optional[int] = None,
+    workspace: str = "",
 ) -> dict:
     """Quick question to peer agent - no report file, direct answer.
 
@@ -875,6 +897,7 @@ def quick_check(
         subject: What to look at (files, feature, etc.)
         question: Specific question to answer
         timeout: Timeout in seconds (default 180 = 3 minutes)
+        workspace: Working directory for the peer agent (for worktree support)
 
     Returns:
         Direct answer from peer
@@ -901,7 +924,7 @@ SUMMARY:
 <your summary here>
 """
 
-    result = _invoke_superagent(peer, prompt, resolved_timeout, caller=caller)
+    result = _invoke_superagent(peer, prompt, resolved_timeout, caller=caller, workspace=workspace)
 
     if not result["success"]:
         return {
@@ -941,6 +964,7 @@ def verify_plan(
     context: str = "",
     concerns: str = "",
     timeout: Optional[int] = None,
+    workspace: str = "",
 ) -> dict:
     """Get a second opinion on an implementation plan.
 
@@ -952,6 +976,7 @@ def verify_plan(
         context: Optional context about the codebase or requirements
         concerns: Optional specific concerns you want addressed
         timeout: Timeout in seconds (default 300 = 5 minutes)
+        workspace: Working directory for the peer agent (for worktree support)
 
     Returns:
         Peer's assessment with approval/concerns/alternatives
@@ -1009,7 +1034,7 @@ SUMMARY:
 <your summary here>
 """
 
-    result = _invoke_superagent(peer, prompt, resolved_timeout, caller=caller)
+    result = _invoke_superagent(peer, prompt, resolved_timeout, caller=caller, workspace=workspace)
 
     if not result["success"]:
         return {
@@ -1050,6 +1075,7 @@ def discuss(
     agents: str = "claude,gemini",
     max_turns: int = 2,
     timeout: Optional[int] = None,
+    workspace: str = "",
 ) -> dict:
     """Get multiple AI perspectives on a topic via multi-agent discussion.
 
@@ -1061,6 +1087,7 @@ def discuss(
         agents: Comma-separated agent list (default: claude,gemini)
         max_turns: Conversation rounds per agent (default: 2)
         timeout: Timeout in seconds (default 120 = 2 minutes)
+        workspace: Working directory for the discussion (for worktree support)
 
     Returns:
         Discussion transcript with all agent responses
@@ -1098,7 +1125,8 @@ def discuss(
         "--no-summary",
     ])
 
-    workspace = os.getenv("AGENTBOX_WORKSPACE") or os.getcwd() or "/workspace"
+    # Priority: explicit param > env var > /workspace default
+    resolved_workspace = workspace or os.getenv("AGENTBOX_WORKSPACE") or "/workspace"
 
     try:
         result = subprocess.run(
@@ -1106,7 +1134,7 @@ def discuss(
             capture_output=True,
             text=True,
             timeout=resolved_timeout,
-            cwd=workspace,
+            cwd=resolved_workspace,
         )
 
         # Parse JSONL output for messages

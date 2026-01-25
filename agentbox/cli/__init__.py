@@ -56,6 +56,7 @@ def cli():
                 ("supercodex", "Run Codex (auto-approve)"),
                 ("gemini", "Run Gemini"),
                 ("supergemini", "Run Gemini (auto-approve)"),
+                ("run", "Run agent non-interactively (for scripting)"),
             ]),
             ("Quick Commands", [
                 ("quick/q", "Mobile-friendly TUI menu"),
@@ -90,6 +91,7 @@ def cli():
                 ("docker", "Docker socket access (enable/disable/status)"),
                 ("config", "Config utilities (migrate)"),
                 ("usage", "Agent rate limits (status/probe/reset/fallback)"),
+                ("logs", "Conversation logs (list/export/show)"),
             ]),
             ("Service", [
                 ("service", "Host daemon (install/start/stop/status/logs/serve)"),
@@ -124,6 +126,8 @@ from agentbox.cli.commands import worktree  # noqa: E402,F401
 from agentbox.cli.commands import workspace  # noqa: E402,F401
 from agentbox.cli.commands import quick  # noqa: E402,F401
 from agentbox.cli.commands import usage  # noqa: E402,F401
+from agentbox.cli.commands import logs  # noqa: E402,F401
+from agentbox.cli.commands import run  # noqa: E402,F401
 
 
 # Shortcut commands that delegate to command groups
@@ -272,9 +276,11 @@ def fix_terminal():
 # Register plural aliases for skill and mcp groups
 from agentbox.cli.commands.skill import skill as skill_group
 from agentbox.cli.commands.mcp import mcp as mcp_group
+from agentbox.cli.commands.logs import logs as logs_group
 
 cli.add_command(skill_group, name="skills")
 cli.add_command(mcp_group, name="mcps")
+cli.add_command(logs_group)
 
 
 # Config command group for migration and config utilities

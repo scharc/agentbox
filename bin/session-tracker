@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""Track mapping between tmux sessions and agent conversation files.
+
+Usage:
+  session-tracker start <agent>    # Record session start, find file after delay
+  session-tracker get              # Get current session's file
+  session-tracker list             # List all mappings
+"""
+
+import json
+import os
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+MAP_FILE = Path('/workspace/.agentbox/session-map.json')
+HISTORY_DIR = Path('/workspace/.agentbox/history')
+
+AGENT_PATTERNS = {
+    'claude': ('claude', '*/*.jsonl'),
+    'codex': ('codex', '*/*/*/*rollout*.jsonl'),
+    'gemini': ('gemini', '*/chats/*.json'),
+    'qwen': ('qwen', '*/chats/*.json'),
+}
+
+
+def get_tmux_session() -> str:
+    """Get current tmux session name with container context."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ['tmux', 'display-message', '-p', '#{session_name}'],
+            capture_output=True, text=True, timeout=2
+        )
+        session = result.stdout.strip() if result.returncode == 0 else ''
+
+        # Add container/project context if available
+        container = os.environ.get('AGENTBOX_CONTAINER', '')
+        if container and session:
+            # Extract project name from container (agentbox-<project> -> <project>)
+            project = container.replace('agentbox-', '', 1) if container.startswith('agentbox-') else container
+            return f"{project}/{session}"
+
+        return session
+    except:
+        return ''
+
+
+def load_map() -> dict:
+    """Load session map."""
+    if MAP_FILE.exists():
+        try:
+            return json.loads(MAP_FILE.read_text())
+        except:
+            pass
+    return {}
+
+
+def save_map(data: dict):
+    """Save session map."""
+    MAP_FILE.parent.mkdir(parents=True, exist_ok=True)
+    MAP_FILE.write_text(json.dumps(data, indent=2))
+
+
+def find_newest_file(agent: str, after_time: float = 0) -> str | None:
+    """Find the newest file for an agent, optionally modified after given time."""
+    agent_dir, pattern = AGENT_PATTERNS.get(agent, (agent, '*.jsonl'))
+    base = HISTORY_DIR / agent_dir
+
+    if not base.exists():
+        return None
+
+    newest = None
+    newest_mtime = 0
+
+    for path in base.glob(pattern):
+        if path.is_file() and 'index' not in path.name:
+            try:
+                mtime = path.stat().st_mtime
+                if mtime > newest_mtime:
+                    newest_mtime = mtime
+                    newest = str(path.relative_to(HISTORY_DIR))
+            except:
+                pass
+
+    return newest
+
+
+def cmd_start(agent: str):
+    """Record session start and find associated file."""
+    session = get_tmux_session()
+    if not session:
+        print("Not in tmux session", file=sys.stderr)
+        sys.exit(1)
+
+    start_time = time.time()
+
+    # Record initial state
+    data = load_map()
+    data[session] = {
+        'agent': agent,
+        'file': None,
+        'started': datetime.now().isoformat(),
+        'start_time': start_time,
+    }
+    save_map(data)
+
+    # Wait a bit for agent to create/open file
+    time.sleep(2)
+
+    # Find the most recently modified file for this agent
+    file_path = find_newest_file(agent)
+
+    if file_path:
+        data[session]['file'] = file_path
+        save_map(data)
+        print(f"Mapped: {session} -> {file_path}")
+    else:
+        print(f"Warning: No file found for {agent}", file=sys.stderr)
+
+
+def cmd_update():
+    """Update current session's file mapping."""
+    session = get_tmux_session()
+    if not session:
+        return
+
+    data = load_map()
+    if session not in data:
+        return
+
+    agent = data[session].get('agent')
+    start_time = data[session].get('start_time', 0)
+
+    if agent:
+        file_path = find_newest_file(agent, start_time - 1)
+        if file_path and file_path != data[session].get('file'):
+            data[session]['file'] = file_path
+            save_map(data)
+            print(f"Updated: {session} -> {file_path}")
+
+
+def cmd_get():
+    """Get current session's file."""
+    session = get_tmux_session()
+    data = load_map()
+
+    if session in data and data[session].get('file'):
+        print(data[session]['file'])
+    else:
+        sys.exit(1)
+
+
+def cmd_list():
+    """List all mappings."""
+    data = load_map()
+    for session, info in data.items():
+        agent = info.get('agent', '?')
+        file = info.get('file', 'none')
+        started = info.get('started', '?')[:19]
+        print(f"{session}: [{agent}] {file} ({started})")
+
+
+if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(1)
+
+    cmd = sys.argv[1]
+
+    if cmd == 'start' and len(sys.argv) >= 3:
+        cmd_start(sys.argv[2])
+    elif cmd == 'update':
+        cmd_update()
+    elif cmd == 'get':
+        cmd_get()
+    elif cmd == 'list':
+        cmd_list()
+    else:
+        print(__doc__)
+        sys.exit(1)

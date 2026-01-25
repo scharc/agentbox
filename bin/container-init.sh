@@ -32,10 +32,16 @@ ensure_abox_user() {
     local user_name="abox"
     local group_name="abox"
 
-    if ! getent group "${HOST_GID}" >/dev/null; then
-        groupadd -g "${HOST_GID}" "${group_name}"
-    else
+    # Check if the target GID already exists as a group
+    if getent group "${HOST_GID}" >/dev/null; then
+        # GID exists - use that group name
         group_name="$(getent group "${HOST_GID}" | cut -d: -f1)"
+    elif getent group "${group_name}" >/dev/null; then
+        # Group 'abox' exists but with different GID - modify it
+        groupmod -g "${HOST_GID}" "${group_name}"
+    else
+        # Neither GID nor group name exists - create new group
+        groupadd -g "${HOST_GID}" "${group_name}"
     fi
 
     if id "${user_name}" >/dev/null 2>&1; then
@@ -387,6 +393,24 @@ setup_agent_home_dirs() {
     if [[ -d "${agentbox_dir}/skills" ]]; then
         ln -sf "${agentbox_dir}/skills" "${ABOX_HOME}/.claude/skills" 2>/dev/null || true
     fi
+
+    # Symlink agent history directories to workspace for persistence across rebases
+    # This allows session resume and preserves conversation history
+    local history_dir="${agentbox_dir}/history"
+    mkdir -p "${history_dir}/claude" "${history_dir}/codex" "${history_dir}/gemini" "${history_dir}/qwen"
+    chown -R "${HOST_UID}:${HOST_GID}" "${history_dir}"
+
+    # Claude: projects/ contains conversation JSONL files
+    ln -sfn "${history_dir}/claude" "${ABOX_HOME}/.claude/projects"
+
+    # Codex: sessions/ contains conversation JSONL files
+    ln -sfn "${history_dir}/codex" "${ABOX_HOME}/.codex/sessions"
+
+    # Gemini: tmp/ contains chat JSON files
+    ln -sfn "${history_dir}/gemini" "${ABOX_HOME}/.gemini/tmp"
+
+    # Qwen: tmp/ contains chat JSON files
+    ln -sfn "${history_dir}/qwen" "${ABOX_HOME}/.qwen/tmp"
 }
 
 set_status "agent_configs" "Setting up agent home directories"
@@ -501,6 +525,24 @@ if [[ -d "/${USER}/qwen-config" ]]; then
     done
     chown -h "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.qwen"/* 2>/dev/null || true
     chown -h "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.qwen"/.* 2>/dev/null || true
+fi
+
+# GitHub CLI (gh) config from host - auto-symlink for gh auth
+if [[ -d "/${USER}/gh-config" ]]; then
+    echo "Linking GitHub CLI (gh) config from host..."
+    mkdir -p "${ABOX_HOME}/.config"
+    rm -rf "${ABOX_HOME}/.config/gh"
+    ln -s "/${USER}/gh-config" "${ABOX_HOME}/.config/gh"
+    chown -h "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.config/gh" 2>/dev/null || true
+fi
+
+# GitLab CLI (glab) config from host - auto-symlink for glab auth
+if [[ -d "/${USER}/glab-config" ]]; then
+    echo "Linking GitLab CLI (glab) config from host..."
+    mkdir -p "${ABOX_HOME}/.config"
+    rm -rf "${ABOX_HOME}/.config/glab-cli"
+    ln -s "/${USER}/glab-config" "${ABOX_HOME}/.config/glab-cli"
+    chown -h "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.config/glab-cli" 2>/dev/null || true
 fi
 
 # Load project environment variables (optional).
@@ -775,6 +817,7 @@ start_container_client() {
 }
 
 start_container_client
+
 
 set_status "ready" "Container ready"
 

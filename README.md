@@ -337,6 +337,16 @@ Areas that need help:
 - Bug reports and fixes
 - Testing experimental features
 
+## Contributors
+
+Thanks to everyone who has contributed to Agentbox:
+
+- **[@stephanj](https://github.com/stephanj)** - macOS compatibility fixes, architecture mapping for binary downloads, non-interactive mode concept
+
+## Acknowledgments
+
+Agentbox was developed during my time at [ZKM | Center for Art and Media Karlsruhe](https://zkm.de) ([GitHub](https://github.com/zkmkarlsruhe/)). Thanks for providing the environment and support that made this project possible.
+
 ## License
 
 MIT

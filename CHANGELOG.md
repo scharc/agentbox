@@ -2,6 +2,25 @@
 
 All notable changes to Agentbox are documented here.
 
+## [Unreleased]
+
+### Added
+
+- **Non-interactive mode** - New `abox run` command for automation and scripting
+  - Run agents without tmux: `abox run superclaude "implement feature"`
+  - Suitable for CI/CD pipelines, automation tools, and scripting
+  - Returns exit codes for programmatic handling
+  - Thanks to [@stephanj](https://github.com/stephanj) for the concept ([#3](https://github.com/scharc/agentbox/pull/3))
+- **GitHub/GitLab CLI credentials** - Auto-mount `gh` and `glab` CLI configs
+  - `~/.config/gh/` mounted for GitHub CLI authentication
+  - `~/.config/glab-cli/` mounted for GitLab CLI authentication
+
+### Fixed
+
+- **macOS compatibility** - Fixed runtime directory path for macOS
+  - Uses `$TMPDIR` on macOS instead of Linux-specific `/run/user/{uid}`
+  - Thanks to [@stephanj](https://github.com/stephanj) for the fix ([#2](https://github.com/scharc/agentbox/pull/2))
+
 ## [0.3.0] - 2026-01-25
 
 New minor release with Qwen agent support, multi-agent orchestration, unified configuration, and significant reliability improvements.

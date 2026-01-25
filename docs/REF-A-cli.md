@@ -30,7 +30,7 @@ abox superclaude                       # Run autonomous Claude
 
 # Manage
 abox list                              # List containers
-abox info                              # Show container info
+abox info                              # Show container & config
 abox shell                             # Open bash in container
 abox q                                 # Mobile-friendly TUI menu
 
@@ -144,12 +144,23 @@ abox ps all
 
 ### abox info [project]
 
-Show container details (IP, mounts, sessions, MCPs).
+Show container status and full project configuration.
 
 ```bash
 abox info
 abox info myproject
 ```
+
+Displays:
+- **Container**: name, status, IP address, network
+- **Sessions**: active tmux sessions with attach status
+- **SSH**: mode (keys/config/none) and agent forwarding
+- **Docker**: socket access enabled/disabled
+- **Ports**: forwarded and exposed ports
+- **MCP Servers**: configured MCP servers
+- **Skills**: enabled skills
+- **Workspace Mounts**: additional mounted directories
+- **System Packages**: packages installed in container
 
 ### abox connect [project] [session]
 

@@ -129,6 +129,16 @@ class HostPaths:
         return Path.home() / ".config" / "openai"
 
     @staticmethod
+    def gh_config_dir() -> Path:
+        """~/.config/gh/ - GitHub CLI config."""
+        return Path.home() / ".config" / "gh"
+
+    @staticmethod
+    def glab_config_dir() -> Path:
+        """~/.config/glab-cli/ - GitLab CLI config."""
+        return Path.home() / ".config" / "glab-cli"
+
+    @staticmethod
     def ssh_dir() -> Path:
         """~/.ssh/"""
         return Path.home() / ".ssh"
@@ -263,6 +273,26 @@ class ContainerPaths:
     def host_qwen_mount(username: str) -> str:
         """Mount point for host ~/.qwen inside container."""
         return f"/{username}/qwen-config"
+
+    @staticmethod
+    def host_gh_mount(username: str) -> str:
+        """Mount point for host ~/.config/gh inside container."""
+        return f"/{username}/gh-config"
+
+    @staticmethod
+    def host_glab_mount(username: str) -> str:
+        """Mount point for host ~/.config/glab-cli inside container."""
+        return f"/{username}/glab-config"
+
+    @staticmethod
+    def gh_dir() -> str:
+        """GitHub CLI config directory inside container."""
+        return f"{ContainerPaths.HOME}/.config/gh"
+
+    @staticmethod
+    def glab_dir() -> str:
+        """GitLab CLI config directory inside container."""
+        return f"{ContainerPaths.HOME}/.config/glab-cli"
 
     HOST_SSH_MOUNT = "/host-ssh"
     HOST_CONFIG_MOUNT = "/host-config"

@@ -6,6 +6,7 @@
 
 import json
 import os
+import pwd
 import re
 import time
 from pathlib import Path
@@ -308,7 +309,8 @@ class ContainerManager:
         # Get user environment variables
         username = os.getenv("USER", "user")
         host_uid = os.getuid()
-        host_gid = os.getgid()
+        # Use primary GID from passwd, not effective GID (which may be docker group)
+        host_gid = pwd.getpwuid(host_uid).pw_gid
         # Git author defaults to username if not set (avoid hardcoded personal info)
         git_author_name = os.getenv("GIT_AUTHOR_NAME", username)
         git_author_email = os.getenv("GIT_AUTHOR_EMAIL", "")
@@ -324,6 +326,8 @@ class ContainerManager:
         host_codex_dir = HostPaths.codex_dir()
         host_gemini_dir = HostPaths.gemini_dir()
         host_qwen_dir = HostPaths.qwen_dir()
+        host_gh_config_dir = HostPaths.gh_config_dir()
+        host_glab_config_dir = HostPaths.glab_config_dir()
         mcp_mounts = self._get_mcp_mounts(project_dir)
 
         # Use project-local Claude state for session isolation
@@ -458,6 +462,14 @@ class ContainerManager:
             volumes[str(host_gemini_dir)] = {"bind": ContainerPaths.host_gemini_mount(username), "mode": "rw"}
         if host_qwen_dir.exists():
             volumes[str(host_qwen_dir)] = {"bind": ContainerPaths.host_qwen_mount(username), "mode": "rw"}
+
+        # GitHub CLI config (gh) - auto-mount if exists
+        if host_gh_config_dir.exists():
+            volumes[str(host_gh_config_dir)] = {"bind": ContainerPaths.host_gh_mount(username), "mode": "ro"}
+
+        # GitLab CLI config (glab) - auto-mount if exists
+        if host_glab_config_dir.exists():
+            volumes[str(host_glab_config_dir)] = {"bind": ContainerPaths.host_glab_mount(username), "mode": "ro"}
 
         # Extra user-defined workspace mounts from .agentbox/config.yml
         for entry in config.workspaces:
