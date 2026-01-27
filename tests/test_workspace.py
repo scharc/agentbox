@@ -12,8 +12,9 @@ from tests.conftest import run_abox
 
 
 def test_workspace_add_creates_config(test_project, workspace_dir):
-    """Test that 'abox workspace add' creates config entry in .agentbox.yml."""
-    config_file = test_project / ".agentbox.yml"
+    """Test that 'abox workspace add' creates config entry in .boxctl.yml."""
+    config_file = test_project / ".boxctl" / "config.yml"
+    config_file.parent.mkdir(exist_ok=True)
 
     # Create a test file in workspace dir to mount
     test_file = workspace_dir / "test.txt"
@@ -25,13 +26,13 @@ def test_workspace_add_creates_config(test_project, workspace_dir):
     # Should succeed
     assert result.returncode == 0, "abox workspace add should succeed"
 
-    # Check .agentbox.yml was created/updated
-    assert config_file.exists(), ".agentbox.yml should exist after adding workspace"
+    # Check .boxctl.yml was created/updated
+    assert config_file.exists(), ".boxctl.yml should exist after adding workspace"
 
     with open(config_file) as f:
         config_data = yaml.safe_load(f)
 
-    assert isinstance(config_data, dict), ".agentbox.yml should be a dict"
+    assert isinstance(config_data, dict), ".boxctl.yml should be a dict"
     workspaces_config = config_data.get("workspaces", [])
     assert len(workspaces_config) > 0, "Should have at least one workspace entry"
 
@@ -59,8 +60,9 @@ def test_workspace_list_shows_mounts(test_project, workspace_dir):
 
 
 def test_workspace_remove_cleans_config(test_project, workspace_dir):
-    """Test that 'abox workspace remove' removes from .agentbox.yml."""
-    config_file = test_project / ".agentbox.yml"
+    """Test that 'abox workspace remove' removes from .boxctl.yml."""
+    config_file = test_project / ".boxctl" / "config.yml"
+    config_file.parent.mkdir(exist_ok=True)
 
     # Add workspace first
     run_abox("workspace", "add", str(workspace_dir), cwd=test_project, check=False)
@@ -100,8 +102,9 @@ def test_workspace_mounted_in_container(test_project, workspace_dir):
     # Add workspace
     run_abox("workspace", "add", str(workspace_dir), cwd=test_project, check=False)
 
-    # Get the mount name from .agentbox.yml
-    config_file = test_project / ".agentbox.yml"
+    # Get the mount name from .boxctl.yml
+    config_file = test_project / ".boxctl" / "config.yml"
+    config_file.parent.mkdir(exist_ok=True)
     with open(config_file) as f:
         config_data = yaml.safe_load(f)
     workspaces_config = config_data.get("workspaces", [])
@@ -112,7 +115,7 @@ def test_workspace_mounted_in_container(test_project, workspace_dir):
     # Start/rebuild container to pick up the new mount
     run_abox("rebuild", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Check if the file is visible in the container at /context/<name>
     result = subprocess.run(
@@ -145,7 +148,8 @@ def test_workspace_self_reference_skipped(test_project):
 
     # If no clear warning/error message, verify workspace wasn't added
     if not has_warning_indicator:
-        config_file = test_project / ".agentbox.yml"
+        config_file = test_project / ".boxctl" / "config.yml"
+        config_file.parent.mkdir(exist_ok=True)
         if config_file.exists():
             with open(config_file) as f:
                 config_data = yaml.safe_load(f)

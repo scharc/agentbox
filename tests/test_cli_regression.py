@@ -25,7 +25,7 @@ def run_abox(*args, cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     env["PYTHONPATH"] = "/workspace"
     return subprocess.run(
-        ["python3", "-m", "agentbox.cli", *args],
+        ["python3", "-m", "boxctl.cli", *args],
         cwd=cwd,
         capture_output=True,
         text=True,
@@ -36,7 +36,7 @@ def run_abox(*args, cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
 
 def get_config_path(project: Path) -> Path:
     """Get config file path."""
-    return project / ".agentbox" / "config.yml"
+    return project / ".boxctl" / "config.yml"
 
 
 def load_config(project: Path) -> dict:
@@ -415,10 +415,10 @@ class TestProjectInit:
     """Test project init command."""
 
     def test_init_creates_structure(self, test_project):
-        """init should create .agentbox structure."""
+        """init should create .boxctl structure."""
         result = run_abox("init", cwd=test_project)
         assert result.returncode == 0
-        assert (test_project / ".agentbox").exists()
+        assert (test_project / ".boxctl").exists()
 
     def test_init_idempotent(self, test_project):
         """init twice should not fail."""

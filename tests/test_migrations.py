@@ -11,12 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from agentbox.migrations import (
+from boxctl.migrations import (
     DuplicateMigrationError,
     get_all_migrations,
     get_migration,
 )
-from agentbox.migrations.v0_3_0_unified import MCPUnification, UnifiedConfigStructure
+from boxctl.migrations.v0_3_0_unified import MCPUnification, UnifiedConfigStructure
 
 
 class TestMigrationRegistry:
@@ -61,11 +61,11 @@ class TestUnifiedConfigStructure:
         shutil.rmtree(temp_dir)
 
     def test_detect_old_config_structure(self, temp_project):
-        """Should detect when .agentbox.yml exists in root."""
+        """Should detect when .boxctl.yml exists in root."""
         migration = UnifiedConfigStructure()
 
         # Create old-style config
-        old_config = temp_project / ".agentbox.yml"
+        old_config = temp_project / ".boxctl.yml"
         old_config.write_text("version: 1\n")
 
         assert migration.detect({}, temp_project) is True
@@ -75,7 +75,7 @@ class TestUnifiedConfigStructure:
         migration = UnifiedConfigStructure()
 
         # Create new-style config
-        new_dir = temp_project / ".agentbox"
+        new_dir = temp_project / ".boxctl"
         new_dir.mkdir()
         (new_dir / "config.yml").write_text("version: 1\n")
 
@@ -86,8 +86,8 @@ class TestUnifiedConfigStructure:
         migration = UnifiedConfigStructure()
 
         # Create both configs
-        (temp_project / ".agentbox.yml").write_text("version: 1\n")
-        new_dir = temp_project / ".agentbox"
+        (temp_project / ".boxctl.yml").write_text("version: 1\n")
+        new_dir = temp_project / ".boxctl"
         new_dir.mkdir()
         (new_dir / "config.yml").write_text("version: 1\n")
 
@@ -99,11 +99,11 @@ class TestUnifiedConfigStructure:
         assert migration.detect({}, temp_project) is False
 
     def test_migrate_moves_config(self, temp_project):
-        """Migration should move .agentbox.yml to .agentbox/config.yml."""
+        """Migration should move .boxctl.yml to .boxctl/config.yml."""
         migration = UnifiedConfigStructure()
 
         # Create old-style config
-        old_config = temp_project / ".agentbox.yml"
+        old_config = temp_project / ".boxctl.yml"
         old_config.write_text("version: 1\ntest: value\n")
 
         # Run migration
@@ -111,7 +111,7 @@ class TestUnifiedConfigStructure:
 
         # Verify
         assert not old_config.exists()
-        new_config = temp_project / ".agentbox" / "config.yml"
+        new_config = temp_project / ".boxctl" / "config.yml"
         assert new_config.exists()
         assert "test: value" in new_config.read_text()
 
@@ -120,25 +120,25 @@ class TestUnifiedConfigStructure:
         migration = UnifiedConfigStructure()
 
         # Create old-style config
-        (temp_project / ".agentbox.yml").write_text("version: 1\n")
+        (temp_project / ".boxctl.yml").write_text("version: 1\n")
 
         # Run migration
         migration.migrate({}, temp_project)
 
         # Verify backup exists
-        backup_dir = temp_project / ".agentbox" / "backup-pre-migration"
+        backup_dir = temp_project / ".boxctl" / "backup-pre-migration"
         assert backup_dir.exists()
-        assert (backup_dir / ".agentbox.yml").exists()
+        assert (backup_dir / ".boxctl.yml").exists()
 
     def test_migrate_merges_mcp_configs(self, temp_project):
         """Migration should merge agent MCP configs into unified mcp.json."""
         migration = UnifiedConfigStructure()
 
         # Create old-style config
-        (temp_project / ".agentbox.yml").write_text("version: 1\n")
+        (temp_project / ".boxctl.yml").write_text("version: 1\n")
 
         # Create Claude MCP config
-        claude_dir = temp_project / ".agentbox" / "claude"
+        claude_dir = temp_project / ".boxctl" / "claude"
         claude_dir.mkdir(parents=True)
         claude_mcp = {"mcpServers": {"server1": {"command": "test1"}}}
         (claude_dir / "mcp.json").write_text(json.dumps(claude_mcp))
@@ -147,7 +147,7 @@ class TestUnifiedConfigStructure:
         migration.migrate({}, temp_project)
 
         # Verify unified MCP exists with merged content
-        unified_mcp = temp_project / ".agentbox" / "mcp.json"
+        unified_mcp = temp_project / ".boxctl" / "mcp.json"
         assert unified_mcp.exists()
         content = json.loads(unified_mcp.read_text())
         assert "server1" in content["mcpServers"]
@@ -157,10 +157,10 @@ class TestUnifiedConfigStructure:
         migration = UnifiedConfigStructure()
 
         # Create old-style config
-        (temp_project / ".agentbox.yml").write_text("version: 1\n")
+        (temp_project / ".boxctl.yml").write_text("version: 1\n")
 
         # Create unified MCP first (simulating merge result)
-        agentbox_dir = temp_project / ".agentbox"
+        agentbox_dir = temp_project / ".boxctl"
         agentbox_dir.mkdir(exist_ok=True)
         (agentbox_dir / "mcp.json").write_text('{"mcpServers": {}}')
 
@@ -177,7 +177,7 @@ class TestUnifiedConfigStructure:
         migration = UnifiedConfigStructure()
 
         # Create old-style config
-        (temp_project / ".agentbox.yml").write_text("version: 1\n")
+        (temp_project / ".boxctl.yml").write_text("version: 1\n")
 
         # Run migration
         migration.migrate({}, temp_project)
@@ -186,8 +186,8 @@ class TestUnifiedConfigStructure:
         gitignore = temp_project / ".gitignore"
         assert gitignore.exists()
         content = gitignore.read_text()
-        assert ".agentbox/claude/projects/" in content
-        assert "Agentbox state" in content
+        assert ".boxctl/claude/projects/" in content
+        assert "Boxctl state" in content
 
     def test_migrate_gitignore_idempotent(self, temp_project):
         """Running migration twice should not duplicate .gitignore entries."""
@@ -198,7 +198,7 @@ class TestUnifiedConfigStructure:
         gitignore.write_text("*.pyc\n")
 
         # Create old-style config
-        (temp_project / ".agentbox.yml").write_text("version: 1\n")
+        (temp_project / ".boxctl.yml").write_text("version: 1\n")
 
         # Run migration
         migration.migrate({}, temp_project)
@@ -207,9 +207,9 @@ class TestUnifiedConfigStructure:
         content1 = gitignore.read_text()
 
         # Recreate old config and run again
-        (temp_project / ".agentbox.yml").write_text("version: 1\n")
+        (temp_project / ".boxctl.yml").write_text("version: 1\n")
         # Remove new config to allow detection
-        (temp_project / ".agentbox" / "config.yml").unlink()
+        (temp_project / ".boxctl" / "config.yml").unlink()
 
         migration.migrate({}, temp_project)
 
@@ -222,7 +222,7 @@ class TestUnifiedConfigStructure:
         migration = UnifiedConfigStructure()
         suggestion = migration.get_suggestion()
         assert "abox config migrate" in suggestion
-        assert ".agentbox/" in suggestion
+        assert ".boxctl/" in suggestion
 
 
 class TestMCPUnification:
@@ -239,8 +239,8 @@ class TestMCPUnification:
         """Should detect when Claude has separate MCP config."""
         migration = MCPUnification()
 
-        # Create .agentbox structure with separate Claude MCP
-        agentbox_dir = temp_project / ".agentbox"
+        # Create .boxctl structure with separate Claude MCP
+        agentbox_dir = temp_project / ".boxctl"
         claude_dir = agentbox_dir / "claude"
         claude_dir.mkdir(parents=True)
         (claude_dir / "mcp.json").write_text('{"mcpServers": {}}')
@@ -251,8 +251,8 @@ class TestMCPUnification:
         """Should not detect when MCP is already unified (symlink)."""
         migration = MCPUnification()
 
-        # Create .agentbox structure with symlink
-        agentbox_dir = temp_project / ".agentbox"
+        # Create .boxctl structure with symlink
+        agentbox_dir = temp_project / ".boxctl"
         claude_dir = agentbox_dir / "claude"
         claude_dir.mkdir(parents=True)
 
@@ -268,8 +268,8 @@ class TestMCPUnification:
         """Should not detect when no Claude MCP exists."""
         migration = MCPUnification()
 
-        # Create empty .agentbox structure
-        agentbox_dir = temp_project / ".agentbox"
+        # Create empty .boxctl structure
+        agentbox_dir = temp_project / ".boxctl"
         agentbox_dir.mkdir(parents=True)
 
         assert migration.detect({}, temp_project) is False
@@ -278,8 +278,8 @@ class TestMCPUnification:
         """Migration should merge Claude MCP and replace with symlink."""
         migration = MCPUnification()
 
-        # Create .agentbox structure
-        agentbox_dir = temp_project / ".agentbox"
+        # Create .boxctl structure
+        agentbox_dir = temp_project / ".boxctl"
         claude_dir = agentbox_dir / "claude"
         claude_dir.mkdir(parents=True)
 
@@ -305,8 +305,8 @@ class TestMCPUnification:
         """Migration should preserve existing unified MCP entries."""
         migration = MCPUnification()
 
-        # Create .agentbox structure
-        agentbox_dir = temp_project / ".agentbox"
+        # Create .boxctl structure
+        agentbox_dir = temp_project / ".boxctl"
         claude_dir = agentbox_dir / "claude"
         claude_dir.mkdir(parents=True)
 
@@ -330,8 +330,8 @@ class TestMCPUnification:
         """Migration should handle broken symlinks gracefully."""
         migration = MCPUnification()
 
-        # Create .agentbox structure
-        agentbox_dir = temp_project / ".agentbox"
+        # Create .boxctl structure
+        agentbox_dir = temp_project / ".boxctl"
         claude_dir = agentbox_dir / "claude"
         claude_dir.mkdir(parents=True)
 
@@ -366,7 +366,7 @@ class TestSymlinkEdgeCases:
         migration = UnifiedConfigStructure()
 
         # Create directory structure
-        agentbox_dir = temp_project / ".agentbox"
+        agentbox_dir = temp_project / ".boxctl"
         claude_dir = agentbox_dir / "claude"
         claude_dir.mkdir(parents=True)
 
@@ -389,7 +389,7 @@ class TestSymlinkEdgeCases:
         migration = UnifiedConfigStructure()
 
         # Create directory structure
-        agentbox_dir = temp_project / ".agentbox"
+        agentbox_dir = temp_project / ".boxctl"
         claude_dir = agentbox_dir / "claude"
         claude_dir.mkdir(parents=True)
 
@@ -409,7 +409,7 @@ class TestSymlinkEdgeCases:
         migration = UnifiedConfigStructure()
 
         # Create directory structure
-        agentbox_dir = temp_project / ".agentbox"
+        agentbox_dir = temp_project / ".boxctl"
         claude_dir = agentbox_dir / "claude"
         claude_dir.mkdir(parents=True)
 
@@ -429,14 +429,14 @@ class TestSymlinkEdgeCases:
         migration = UnifiedConfigStructure()
 
         # Create directory structure with symlink
-        agentbox_dir = temp_project / ".agentbox"
+        agentbox_dir = temp_project / ".boxctl"
         claude_dir = agentbox_dir / "claude"
         claude_dir.mkdir(parents=True)
         (agentbox_dir / "mcp.json").write_text('{"mcpServers": {}}')
         (claude_dir / "mcp.json").symlink_to("../mcp.json")
 
         # Create old-style config to trigger migration
-        (temp_project / ".agentbox.yml").write_text("version: 1\n")
+        (temp_project / ".boxctl.yml").write_text("version: 1\n")
 
         # Run migration (which creates backup)
         migration.migrate({}, temp_project)

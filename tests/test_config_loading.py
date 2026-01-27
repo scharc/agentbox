@@ -17,7 +17,7 @@ def test_claude_config_mounted_in_container(test_project):
     # Start container
     run_abox("start", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Check if config files are accessible in container
     result = subprocess.run(
@@ -33,7 +33,7 @@ def test_claude_super_config_mounted_in_container(test_project):
     # Start container
     run_abox("start", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Check if super config is accessible
     result = subprocess.run(
@@ -49,7 +49,7 @@ def test_claude_mcp_config_mounted_in_container(test_project):
     # Start container
     run_abox("start", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Check if MCP config is accessible (now at ~/.mcp.json)
     result = subprocess.run(
@@ -65,7 +65,7 @@ def test_codex_config_mounted_in_container(test_project):
     # Start container
     run_abox("start", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Check if Codex config is accessible (now in home directory from host mount)
     result = subprocess.run(
@@ -84,7 +84,7 @@ def test_mcp_config_contains_added_server(test_project):
     # Start/rebuild container
     run_abox("start", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Read MCP config from inside container (now at ~/.mcp.json)
     result = subprocess.run(
@@ -111,8 +111,9 @@ def test_workspace_mount_visible_in_container(test_project, workspace_dir):
     # Add workspace
     run_abox("workspace", "add", str(workspace_dir), cwd=test_project, check=False)
 
-    # Get mount name from .agentbox.yml
-    config_file = test_project / ".agentbox.yml"
+    # Get mount name from .boxctl.yml
+    config_file = test_project / ".boxctl" / "config.yml"
+    config_file.parent.mkdir(exist_ok=True)
     with open(config_file) as f:
         config_data = yaml.safe_load(f)
     workspaces_config = config_data.get("workspaces", [])
@@ -128,7 +129,7 @@ def test_workspace_mount_visible_in_container(test_project, workspace_dir):
     # Rebuild container to apply mount
     run_abox("rebuild", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Verify the mount is visible in container
     result = subprocess.run(
@@ -146,8 +147,9 @@ def test_workspace_mount_read_only(test_project, workspace_dir):
     # Add workspace as read-only
     run_abox("workspace", "add", str(workspace_dir), "ro", cwd=test_project, check=False)
 
-    # Get mount name from .agentbox.yml
-    config_file = test_project / ".agentbox.yml"
+    # Get mount name from .boxctl.yml
+    config_file = test_project / ".boxctl" / "config.yml"
+    config_file.parent.mkdir(exist_ok=True)
     with open(config_file) as f:
         config_data = yaml.safe_load(f)
     workspaces_config = config_data.get("workspaces", [])
@@ -162,7 +164,7 @@ def test_workspace_mount_read_only(test_project, workspace_dir):
     # Rebuild container
     run_abox("rebuild", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Try to write to the read-only mount (should fail)
     result = subprocess.run(
@@ -182,8 +184,9 @@ def test_workspace_mount_read_write(test_project, workspace_dir):
     # Add workspace as read-write
     run_abox("workspace", "add", str(workspace_dir), "rw", cwd=test_project, check=False)
 
-    # Get mount name from .agentbox.yml
-    config_file = test_project / ".agentbox.yml"
+    # Get mount name from .boxctl.yml
+    config_file = test_project / ".boxctl" / "config.yml"
+    config_file.parent.mkdir(exist_ok=True)
     with open(config_file) as f:
         config_data = yaml.safe_load(f)
     workspaces_config = config_data.get("workspaces", [])
@@ -198,7 +201,7 @@ def test_workspace_mount_read_write(test_project, workspace_dir):
     # Rebuild container
     run_abox("rebuild", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Write to the read-write mount (should succeed)
     test_content = "rw_test_content"
@@ -227,7 +230,7 @@ def test_project_workspace_mounted_at_workspace(test_project):
     # Start container
     run_abox("start", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Verify file is accessible at /workspace
     result = subprocess.run(
@@ -247,18 +250,18 @@ def test_env_file_loaded_in_container(test_project):
     This test verifies the env file is mounted and can be sourced by scripts.
     """
     # Create .env file
-    env_file = test_project / ".agentbox" / ".env"
+    env_file = test_project / ".boxctl" / ".env"
     env_file.write_text("TEST_VAR=test_value_123\n")
 
     # Rebuild container to pick up env
     run_abox("rebuild", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Check if env file exists and can be sourced
     result = subprocess.run(
         ["docker", "exec", container_name, "bash", "-c",
-         "source /workspace/.agentbox/.env && echo $TEST_VAR"],
+         "source /workspace/.boxctl/.env && echo $TEST_VAR"],
         capture_output=True,
         text=True
     )

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Agentbox are documented here.
+All notable changes to Boxctl are documented here.
 
 ## [Unreleased]
 
@@ -12,7 +12,7 @@ All notable changes to Agentbox are documented here.
   - Run agents without tmux: `abox run superclaude "implement feature"`
   - Suitable for CI/CD pipelines, automation tools, and scripting
   - Returns exit codes for programmatic handling
-  - Thanks to [@stephanj](https://github.com/stephanj) for the concept ([#3](https://github.com/scharc/agentbox/pull/3))
+  - Thanks to [@stephanj](https://github.com/stephanj) for the concept ([#3](https://github.com/scharc/boxctl/pull/3))
 - **GitHub/GitLab CLI credentials** - Opt-in mounting for `gh` and `glab` CLI configs
   - Enable via `abox reconfigure` or set `credentials.gh: true` in config
   - `~/.config/gh/` mounted read-only for GitHub CLI authentication
@@ -22,7 +22,7 @@ All notable changes to Agentbox are documented here.
 
 - **macOS compatibility** - Fixed runtime directory path for macOS
   - Uses `$TMPDIR` on macOS instead of Linux-specific `/run/user/{uid}`
-  - Thanks to [@stephanj](https://github.com/stephanj) for the fix ([#2](https://github.com/scharc/agentbox/pull/2))
+  - Thanks to [@stephanj](https://github.com/stephanj) for the fix ([#2](https://github.com/scharc/boxctl/pull/2))
 
 ## [0.3.0] - 2026-01-25
 
@@ -37,7 +37,7 @@ New minor release with Qwen agent support, multi-agent orchestration, unified co
   - Round-robin, reactive, and free-form conversation modes
   - TUI interface with metrics
   - Supports Claude, Gemini, Codex, Qwen agents
-  - `discuss` tool in agentbox-analyst MCP for multi-agent discussions
+  - `discuss` tool in boxctl-analyst MCP for multi-agent discussions
 - **Agent rate limit tracking** - Centralized rate limit detection and fallback
   - Automatic agent fallback chains: superclaude → supercodex → supergemini → superqwen
   - CLI commands: `abox usage status/probe/reset/fallback`
@@ -118,8 +118,8 @@ Major release with new architecture, MCP servers, and mobile-friendly CLI.
 
 ### Added
 - **agentctl MCP** - Worktree and session management from within agents
-- **agentbox-analyst MCP** - Cross-agent review and analysis
-- **agentbox-notify MCP** - Desktop notifications from container
+- **boxctl-analyst MCP** - Cross-agent review and analysis
+- **boxctl-notify MCP** - Desktop notifications from container
 - **Worktree support** - Run multiple agents on different branches in parallel
 - **Session management** - Multiple agent sessions per container
 - **Quick menu** (`abox q`) - Mobile-friendly single-keypress navigation
@@ -135,7 +135,7 @@ Major release with new architecture, MCP servers, and mobile-friendly CLI.
 ### Changed
 - **All CLI flags removed** - Positional arguments only (mobile-friendly)
 - **Packages moved to `.agentbox.yml`** - Single config file
-- **MCP library reorganized** - `agentbox-notify`, `agentbox-analyst`, `agentctl`
+- **MCP library reorganized** - `boxctl-notify`, `boxctl-analyst`, `agentctl`
 - **Documentation rewritten** - Story-driven guides, comprehensive reference
 
 ### Fixed
@@ -175,9 +175,9 @@ Major release with new architecture, MCP servers, and mobile-friendly CLI.
 - Fixed notification socket path (uses proper runtime directory)
 
 **Phase 1: Foundation**
-- Created `agentbox/utils/` package:
+- Created `boxctl/utils/` package:
   - `exceptions.py`: 12 custom exception classes
-  - `logging.py`: AgentboxLogger with Rich console
+  - `logging.py`: BoxctlLogger with Rich console
   - `tmux.py`: 4 utility functions
   - `config_io.py`: JSON config I/O helpers
 - Created `host_config.py`: Centralized HostConfig singleton
@@ -265,7 +265,7 @@ Major release with new architecture, MCP servers, and mobile-friendly CLI.
 ### Documentation & Positioning
 
 **Emphasizing Autonomous Agents**
-- Repositioned Agentbox as a tool for autonomous background work
+- Repositioned Boxctl as a tool for autonomous background work
 - Super modes (`superclaude`, `supercodex`, `supergemini`) now highlighted as primary workflow
 - Updated all examples to show autonomous usage patterns
 - Added comprehensive autonomous mode safety section
@@ -273,7 +273,7 @@ Major release with new architecture, MCP servers, and mobile-friendly CLI.
 
 **Terminology Updates**
 - Changed "volume" commands to "workspace" for consistency
-- `agentbox workspace add/list/remove` now documented correctly
+- `boxctl workspace add/list/remove` now documented correctly
 
 ### Reliability Improvements
 
@@ -303,7 +303,7 @@ Major release with new architecture, MCP servers, and mobile-friendly CLI.
 - MCP dependencies now auto-install when added to project
 - Support for npm packages (e.g., `@modelcontextprotocol/server-postgres`)
 - Support for pip packages (e.g., MySQL connector)
-- `agentbox mcp install <name>` for manual installation in running containers
+- `boxctl mcp install <name>` for manual installation in running containers
 
 **MCP Post-Install Support**
 - Added `mcp-meta.json` to track MCP installation requirements
@@ -323,9 +323,9 @@ Major release with new architecture, MCP servers, and mobile-friendly CLI.
 - Config watcher stability improvements
 
 **Environment Variable Support**
-- `.agentbox/.env` files now auto-loaded on container start
+- `.boxctl/.env` files now auto-loaded on container start
 - Reload detection (polled every 5 seconds)
-- `.agentbox/.env.local` support for local overrides
+- `.boxctl/.env.local` support for local overrides
 - Variable substitution in MCP configs: `${VAR_NAME}`
 
 **Workspace Mount Collision Prevention**
@@ -391,7 +391,7 @@ Major release with new architecture, MCP servers, and mobile-friendly CLI.
 - Helpful suggestions when things go wrong
 
 **Command Simplifications**
-- Shorter command aliases still work (e.g., `abox` for `agentbox`)
+- Shorter command aliases still work (e.g., `abox` for `boxctl`)
 - More intuitive command names
 - Better help text
 
@@ -454,7 +454,7 @@ Other changes remain backward compatible with existing projects.
 
 1. Pull latest changes:
    ```bash
-   cd /path/to/agentbox
+   cd /path/to/boxctl
    git pull
    ```
 
@@ -492,7 +492,7 @@ abox remove force
 
 ### Migrating Package Configuration
 
-If you have a `packages.json` file in your `.agentbox/` directory:
+If you have a `packages.json` file in your `.boxctl/` directory:
 
 1. Open `.agentbox.yml` in your editor
 2. Add a `packages:` section:
@@ -507,7 +507,7 @@ If you have a `packages.json` file in your `.agentbox/` directory:
 Example migration:
 
 ```json
-// Old: .agentbox/packages.json
+// Old: .boxctl/packages.json
 ["ripgrep", "fd-find", "bat"]
 ```
 
@@ -519,7 +519,7 @@ packages:
   - bat
 ```
 
-Other `.agentbox/` configurations work without changes.
+Other `.boxctl/` configurations work without changes.
 
 ### New Features to Try
 
@@ -538,14 +538,14 @@ code --install-extension ms-vscode-remote.remote-containers
 
 **MCP Auto-Install**:
 ```bash
-agentbox mcp add postgres  # Auto-installs npm package
-agentbox mcp add mysql     # Auto-installs pip package
+boxctl mcp add postgres  # Auto-installs npm package
+boxctl mcp add mysql     # Auto-installs pip package
 ```
 
 **Environment Variables**:
 ```bash
-# Create .agentbox/.env
-echo "GITHUB_TOKEN=ghp_xxx" >> .agentbox/.env
+# Create .boxctl/.env
+echo "GITHUB_TOKEN=ghp_xxx" >> .boxctl/.env
 
 # Use in configs with ${GITHUB_TOKEN}
 # Auto-reloads when .env changes!
@@ -576,11 +576,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 - **Documentation**: More examples, tutorials, and guides
 - **MCP Servers**: Pre-configured setups for popular tools
 - **Testing**: Additional test coverage and scenarios
-- **Bug Fixes**: See [Issues](https://github.com/scharc/agentbox/issues)
+- **Bug Fixes**: See [Issues](https://github.com/scharc/boxctl/issues)
 
 ## Acknowledgments
 
-Agentbox is built on top of amazing open source projects:
+Boxctl is built on top of amazing open source projects:
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) by Anthropic
 - [OpenAI Codex](https://github.com/openai/codex)
@@ -591,10 +591,10 @@ Agentbox is built on top of amazing open source projects:
 
 ## Support
 
-- **Issues**: https://github.com/scharc/agentbox/issues
-- **Discussions**: https://github.com/scharc/agentbox/discussions
-- **Documentation**: https://github.com/scharc/agentbox/tree/main/docs
+- **Issues**: https://github.com/scharc/boxctl/issues
+- **Discussions**: https://github.com/scharc/boxctl/discussions
+- **Documentation**: https://github.com/scharc/boxctl/tree/main/docs
 
 ---
 
-**Thank you for using Agentbox!** 🚀
+**Thank you for using Boxctl!** 🚀

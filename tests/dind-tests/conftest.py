@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 """
-Root pytest configuration and fixtures for Agentbox True DinD tests.
+Root pytest configuration and fixtures for Boxctl True DinD tests.
 
 This runs in a True DinD environment where we have our own Docker daemon.
 No special path translation needed - everything works like on a real host.
@@ -150,7 +150,7 @@ def module_workspace(test_workspace) -> Generator[Path, None, None]:
 
     result = run_docker(
         "ps", "-a",
-        "--filter", f"name=agentbox-test-{module_id}",
+        "--filter", f"name=boxctl-test-{module_id}",
         "--format", "{{.Names}}",
     )
     for container in result.stdout.strip().split("\n"):
@@ -168,9 +168,9 @@ def module_workspace(test_workspace) -> Generator[Path, None, None]:
 
 @pytest.fixture
 def test_project(module_workspace, docker_available) -> Generator[Path, None, None]:
-    """Create an isolated test project with agentbox initialized.
+    """Create an isolated test project with boxctl initialized.
 
-    Each test gets a fresh project directory with .agentbox/ set up.
+    Each test gets a fresh project directory with .boxctl/ set up.
     Cleanup is automatic after the test.
     """
     from helpers.cli import run_abox
@@ -180,14 +180,14 @@ def test_project(module_workspace, docker_available) -> Generator[Path, None, No
     project_dir = module_workspace / f"test-{project_id}"
     project_dir.mkdir(parents=True, exist_ok=True)
 
-    # Initialize agentbox
+    # Initialize boxctl
     result = run_abox("init", cwd=project_dir)
     assert result.returncode == 0, f"Failed to init project: {result.stderr}"
 
     yield project_dir
 
     # Cleanup container
-    container_name = f"agentbox-{project_dir.name}"
+    container_name = f"boxctl-{project_dir.name}"
     run_docker("rm", "-f", container_name)
 
     # Cleanup directory
@@ -196,7 +196,7 @@ def test_project(module_workspace, docker_available) -> Generator[Path, None, No
 
 @pytest.fixture
 def running_container(test_project) -> Generator[str, None, None]:
-    """Start an agentbox container and return its name.
+    """Start an boxctl container and return its name.
 
     Container is automatically stopped after test.
     """
@@ -207,7 +207,7 @@ def running_container(test_project) -> Generator[str, None, None]:
     result = run_abox("start", cwd=test_project)
     assert result.returncode == 0, f"Failed to start container: {result.stderr}"
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Wait for ready
     ready = wait_for_container_ready(container_name, timeout=60)

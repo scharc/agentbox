@@ -2,7 +2,7 @@
 # Copyright (c) 2025 Marc Schütze <scharc@gmail.com>
 # SPDX-License-Identifier: MIT
 #
-# One-shot LLM provider for agentbox
+# One-shot LLM provider for boxctl
 # Supports: claude, codex, gemini CLIs + any OpenAI-compatible API
 #
 # Usage: echo "prompt" | oneshot-llm [--provider X] [--model Y] [--max-tokens Z]
@@ -18,7 +18,7 @@ import urllib.error
 
 
 def load_config():
-    """Load task_agents config from .agentbox/config.yml"""
+    """Load task_agents config from .boxctl/config.yml"""
     config = {
         "provider": "claude",
         "model": "fast",
@@ -31,7 +31,7 @@ def load_config():
 
     try:
         import yaml
-        config_path = "/workspace/.agentbox/config.yml"
+        config_path = "/workspace/.boxctl/config.yml"
         if os.path.exists(config_path):
             with open(config_path) as f:
                 data = yaml.safe_load(f) or {}
@@ -100,7 +100,7 @@ def _check_rate_limit(output: str, provider: str) -> None:
 
     # Report the rate limit
     try:
-        from agentbox.usage.client import report_rate_limit
+        from boxctl.usage.client import report_rate_limit
         report_rate_limit(agent, resets_in_seconds, error_type)
         print(f"[oneshot-llm] Reported rate limit for {agent}", file=sys.stderr)
     except ImportError:
@@ -124,7 +124,7 @@ def call_claude(prompt: str, model: str, max_tokens: int) -> str:
             capture_output=True,
             text=True,
             timeout=60,
-            env={**os.environ, "AGENTBOX_INVOCATION_DEPTH": "1"}
+            env={**os.environ, "BOXCTL_INVOCATION_DEPTH": "1"}
         )
 
         # Check for rate limit in stderr
@@ -150,7 +150,7 @@ def call_codex(prompt: str, model: str, max_tokens: int) -> str:
             capture_output=True,
             text=True,
             timeout=60,
-            env={**os.environ, "AGENTBOX_INVOCATION_DEPTH": "1"}
+            env={**os.environ, "BOXCTL_INVOCATION_DEPTH": "1"}
         )
 
         # Check for rate limit in stdout (codex returns JSON errors) and stderr
@@ -172,7 +172,7 @@ def call_gemini(prompt: str, model: str, max_tokens: int) -> str:
             capture_output=True,
             text=True,
             timeout=60,
-            env={**os.environ, "AGENTBOX_INVOCATION_DEPTH": "1"}
+            env={**os.environ, "BOXCTL_INVOCATION_DEPTH": "1"}
         )
 
         # Check for rate limit in stderr

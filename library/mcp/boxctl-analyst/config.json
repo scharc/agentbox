@@ -1,0 +1,14 @@
+{
+  "name": "boxctl-analyst",
+  "description": "Cross-agent analysis using superagents. Superclaude requests supercodex for analysis, and vice versa. Uses full permissions for thorough code access. Reports are written to files - verify findings independently and ask user when unclear.",
+  "config": {
+    "command": "python3",
+    "args": ["/workspace/.boxctl/mcp/boxctl-analyst/server.py"]
+  },
+  "install": {
+    "pip": ["fastmcp>=2.0.0"]
+  },
+  "allowed_agents": ["claude", "codex", "gemini"],
+  "blocked_agents": [],
+  "notes": "Uses superagents (full permissions). Reports are suggestions, not commands. User is the final authority."
+}

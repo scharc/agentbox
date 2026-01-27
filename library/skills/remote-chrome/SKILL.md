@@ -35,10 +35,10 @@ Forward port 9222 into the container:
 
 ```bash
 # From host terminal (outside container)
-agentbox ports forward 9222
+boxctl ports forward 9222
 ```
 
-Or add to `.agentbox.yml`:
+Or add to `.boxctl.yml`:
 
 ```yaml
 ports:
@@ -426,7 +426,7 @@ console.log('Link count:', result.value);
 ### "Connection refused" on port 9222
 
 1. Verify Chrome is running with `--remote-debugging-port=9222` on host
-2. Verify port is forwarded: `agentbox ports forward 9222`
+2. Verify port is forwarded: `boxctl ports forward 9222`
 3. Check from container: `curl http://localhost:9222/json/version`
 
 ### "No targets available"

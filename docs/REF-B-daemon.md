@@ -1,17 +1,17 @@
-# agentboxd - Host Daemon
+# boxctld - Host Daemon
 
 The host-side daemon that bridges containers to the desktop environment.
 
 ## What It Does
 
-agentboxd runs on your host machine and provides:
+boxctld runs on your host machine and provides:
 
 - **Desktop Notifications** - Agents send alerts that appear as native notifications
 - **Port Forwarding** - SSH tunnels between host and containers
 - **Shell Completions** - Fast tab-completion for CLI
 - **Clipboard Access** *(WIP)* - Containers can copy to your system clipboard
 
-Without agentboxd, containers are isolated. With it, agents can notify you when tasks complete and expose services.
+Without boxctld, containers are isolated. With it, agents can notify you when tasks complete and expose services.
 
 ## Installation
 
@@ -35,11 +35,11 @@ The service auto-starts on login.
 ┌─────────────────────────────────────────────────────────────┐
 │ Host                                                        │
 │                                                             │
-│   agentboxd                                                 │
+│   boxctld                                                 │
 │   ├── SSH Server (AsyncSSH)                                 │
-│   │     └── /run/user/{uid}/agentboxd/ssh.sock             │
+│   │     └── /run/user/{uid}/boxctld/ssh.sock             │
 │   ├── Unix Socket (local IPC)                              │
-│   │     └── /run/user/{uid}/agentboxd/agentboxd.sock       │
+│   │     └── /run/user/{uid}/boxctld/boxctld.sock       │
 │   └── Web Server (Uvicorn)                                  │
 │         └── http://localhost:8080                          │
 │                                                             │
@@ -64,7 +64,7 @@ All container ↔ host communication flows through a single SSH connection per c
 
 ## Configuration
 
-Host config at `~/.config/agentbox/config.yml`:
+Host config at `~/.config/boxctl/config.yml`:
 
 ```yaml
 # Web server settings
@@ -88,7 +88,7 @@ stall_detection:
   threshold_seconds: 30
 
 # Custom notification hook
-# notify_hook: ~/.config/agentbox/notify-hook.sh
+# notify_hook: ~/.config/boxctl/notify-hook.sh
 ```
 
 ## Capabilities
@@ -111,14 +111,14 @@ On host:
 **Custom Hook:**
 
 ```bash
-# ~/.config/agentbox/notify-hook.sh
+# ~/.config/boxctl/notify-hook.sh
 #!/bin/bash
 TITLE="$1"
 MESSAGE="$2"
 URGENCY="$3"
 
 # Example: send to phone via ntfy
-curl -d "$MESSAGE" "ntfy.sh/my-agentbox-alerts"
+curl -d "$MESSAGE" "ntfy.sh/my-boxctl-alerts"
 ```
 
 ### Clipboard Access *(WIP)*
@@ -149,7 +149,7 @@ Two directions:
 abox ports expose 3000              # container:3000 → host:3000
 
 # What happens:
-# 1. agentboxd creates SSH remote forward
+# 1. boxctld creates SSH remote forward
 # 2. Listening on host:3000
 # 3. Traffic tunneled to container:3000
 ```
@@ -161,7 +161,7 @@ abox ports expose 3000              # container:3000 → host:3000
 abox ports forward 9222             # host:9222 → container:9222
 
 # What happens:
-# 1. agentboxd creates SSH local forward
+# 1. boxctld creates SSH local forward
 # 2. Container can connect to localhost:9222
 # 3. Traffic tunneled to host:9222
 ```
@@ -179,7 +179,7 @@ Used by the web terminal at `http://localhost:8080`.
 
 ### Shell Completions
 
-Fast tab-completion for CLI. agentboxd caches:
+Fast tab-completion for CLI. boxctld caches:
 
 - Connected container names
 - Active tmux sessions
@@ -188,17 +188,17 @@ Fast tab-completion for CLI. agentboxd caches:
 - Skill names
 - Docker container names
 
-When you type `abox session attach <TAB>`, the CLI queries agentboxd instead of running slow Docker commands.
+When you type `abox session attach <TAB>`, the CLI queries boxctld instead of running slow Docker commands.
 
 ## Tailscale Support
 
-agentboxd monitors Tailscale IP changes:
+boxctld monitors Tailscale IP changes:
 
 1. Background thread checks `tailscale ip -4` periodically
 2. If IP changes, web server rebinds
 3. Enables remote access via Tailscale
 
-Configure in `~/.config/agentbox/config.yml`:
+Configure in `~/.config/boxctl/config.yml`:
 
 ```yaml
 web_server:
@@ -233,7 +233,7 @@ View logs:
 
 ```bash
 abox service logs 100               # Last 100 lines
-journalctl --user -u agentboxd -f   # Full systemd logs
+journalctl --user -u boxctld -f   # Full systemd logs
 ```
 
 ## Protocol Reference
@@ -263,7 +263,7 @@ Copies stdin to host clipboard.
 
 ## API Functions
 
-For developers integrating with agentboxd:
+For developers integrating with boxctld:
 
 | Function | Purpose |
 |----------|---------|

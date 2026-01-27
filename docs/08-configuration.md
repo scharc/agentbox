@@ -1,16 +1,16 @@
 # Configuration
 
-Agentbox is customizable but has sensible defaults. You can go deep or just use it out of the box.
+Boxctl is customizable but has sensible defaults. You can go deep or just use it out of the box.
 
 This guide covers all configuration options - but you don't need to read it all. Start with the defaults, customize when you need to.
 
 ## The Philosophy
 
-**Project-level config** (`.agentbox.yml`) controls what an agent can do in a specific project. Packages, mounts, MCPs, ports. Different projects can have different setups.
+**Project-level config** (`.boxctl.yml`) controls what an agent can do in a specific project. Packages, mounts, MCPs, ports. Different projects can have different setups.
 
-**Host-level config** (`~/.config/agentbox/`) sets your personal defaults and daemon settings. These apply across all your projects.
+**Host-level config** (`~/.config/boxctl/`) sets your personal defaults and daemon settings. These apply across all your projects.
 
-**Agent instructions** (`.agentbox/agents.md`, `.agentbox/superagents.md`) tell agents how to behave. Project conventions, things to avoid, workflow guidelines. Edit freely - they're yours.
+**Agent instructions** (`.boxctl/agents.md`, `.boxctl/superagents.md`) tell agents how to behave. Project conventions, things to avoid, workflow guidelines. Edit freely - they're yours.
 
 ---
 
@@ -18,20 +18,20 @@ This guide covers all configuration options - but you don't need to read it all.
 
 **Add packages:**
 ```bash
-agentbox packages add npm typescript
-agentbox packages add pip pytest
+boxctl packages add npm typescript
+boxctl packages add pip pytest
 # Auto-rebuilds the container
 ```
 
 **Mount another directory:**
 ```bash
-agentbox workspace add ~/other-repo ro reference
+boxctl workspace add ~/other-repo ro reference
 # Auto-rebuilds the container
 ```
 
 **Enable an MCP:**
 ```bash
-agentbox mcp add agentbox-analyst
+boxctl mcp add boxctl-analyst
 # Auto-rebuilds if the MCP needs mounts
 ```
 
@@ -42,14 +42,14 @@ All these commands automatically rebuild the container to apply changes.
 ## Configuration Hierarchy
 
 ```
-~/.config/agentbox/           # Host-level config (user preferences)
-├── config.yml                # agentboxd settings, timeouts, web server
+~/.config/boxctl/           # Host-level config (user preferences)
+├── config.yml                # boxctld settings, timeouts, web server
 ├── mcp/                      # Custom MCP servers (override library)
 └── skills/                   # Custom skills (override library)
 
 /path/to/project/             # Project-level config
-├── .agentbox.yml             # Main project config (SSH, packages, ports, etc.)
-└── .agentbox/                # Generated runtime files
+├── .boxctl.yml             # Main project config (SSH, packages, ports, etc.)
+└── .boxctl/                # Generated runtime files
     ├── agents.md             # Agent instructions template
     ├── superagents.md        # Super agent instructions template
     ├── skills/               # Installed skills (shared by all agents)
@@ -60,21 +60,21 @@ All these commands automatically rebuild the container to apply changes.
     ├── LOG.md                # Development log
     └── workspaces.json       # Workspace mount tracking
 
-/agentbox/library/            # Built-in library (inside container)
+/boxctl/library/            # Built-in library (inside container)
 ├── config/                   # Config templates
-│   └── agentbox.yml.template
+│   └── boxctl.yml.template
 ├── mcp/                      # Built-in MCP servers
 └── skills/                   # Built-in skills
 ```
 
 ---
 
-## 1. Project Config: `.agentbox.yml`
+## 1. Project Config: `.boxctl.yml`
 
-**Location:** Project root (e.g., `/workspace/.agentbox.yml`)
+**Location:** Project root (e.g., `/workspace/.boxctl.yml`)
 **Purpose:** Configure the container for this specific project
-**Applied:** On `agentbox rebase` or container creation
-**Model:** `agentbox/models/project_config.py`
+**Applied:** On `boxctl rebase` or container creation
+**Model:** `boxctl/models/project_config.py`
 
 ### SSH Configuration
 
@@ -97,7 +97,7 @@ ssh:
 
 ### Automatic Credential Sharing
 
-Agentbox automatically shares your host AI credentials with the container. No configuration needed.
+Boxctl automatically shares your host AI credentials with the container. No configuration needed.
 
 **How it works:**
 
@@ -126,7 +126,7 @@ Git commits use your host's `GIT_AUTHOR_NAME` and `GIT_AUTHOR_EMAIL` environment
 
 ### CLI Credentials (gh/glab)
 
-GitHub CLI (`gh`) and GitLab CLI (`glab`) credentials are **opt-in** for security. Enable them in `.agentbox.yml`:
+GitHub CLI (`gh`) and GitLab CLI (`glab`) credentials are **opt-in** for security. Enable them in `.boxctl.yml`:
 
 ```yaml
 credentials:
@@ -134,7 +134,7 @@ credentials:
   glab: true    # Mount ~/.config/glab-cli (GitLab CLI)
 ```
 
-Or use `agentbox reconfigure` to enable interactively.
+Or use `boxctl reconfigure` to enable interactively.
 
 When enabled:
 - Credentials are mounted **read-only** from your host
@@ -158,7 +158,7 @@ containers:
     auto_reconnect: true    # Reconnect if container restarts
 ```
 
-Adds the agentbox container to the same Docker network as the specified container.
+Adds the boxctl container to the same Docker network as the specified container.
 
 ### Packages
 
@@ -187,7 +187,7 @@ env:
 
 ```yaml
 ports:
-  mode: tunnel             # tunnel (via agentboxd) or docker (native)
+  mode: tunnel             # tunnel (via boxctld) or docker (native)
   host:                    # Expose container ports on host
     - "3000"               # container:3000 -> host:3000
     - "8080:3000"          # container:3000 -> host:8080
@@ -196,9 +196,9 @@ ports:
 ```
 
 **Port modes:**
-- `tunnel`: Uses SSH tunnel via agentboxd (preferred, survives container restart)
+- `tunnel`: Uses SSH tunnel via boxctld (preferred, survives container restart)
 - `docker`: Native Docker port mapping (requires rebuild to change)
-- `auto`: Automatically selects tunnel if agentboxd is running, otherwise docker
+- `auto`: Automatically selects tunnel if boxctld is running, otherwise docker
 
 ### Resources
 
@@ -222,12 +222,12 @@ security:
 Pass through hardware devices to the container:
 
 ```bash
-agentbox devices              # Interactive chooser
-agentbox devices list         # See configured and available
-agentbox devices add /dev/snd # Add specific device
+boxctl devices              # Interactive chooser
+boxctl devices list         # See configured and available
+boxctl devices add /dev/snd # Add specific device
 ```
 
-Or configure directly in `.agentbox.yml`:
+Or configure directly in `.boxctl.yml`:
 ```yaml
 devices:
   - /dev/snd               # Audio device
@@ -280,7 +280,7 @@ stall_detection:
 ```yaml
 mcp_servers:
   - agentctl               # Names of MCP servers to enable
-  - agentbox-analyst
+  - boxctl-analyst
 
 skills:
   - westworld              # Names of skills to enable
@@ -288,12 +288,12 @@ skills:
 
 ---
 
-## 2. Host Config: `~/.config/agentbox/config.yml`
+## 2. Host Config: `~/.config/boxctl/config.yml`
 
-**Location:** `~/.config/agentbox/config.yml`
-**Purpose:** User preferences for agentboxd daemon and host behavior
-**Applied:** On agentboxd startup
-**Model:** `agentbox/models/host_config.py`
+**Location:** `~/.config/boxctl/config.yml`
+**Purpose:** User preferences for boxctld daemon and host behavior
+**Applied:** On boxctld startup
+**Model:** `boxctl/models/host_config.py`
 
 ### Web Server
 
@@ -398,7 +398,7 @@ litellm:
     retry_after_seconds: 60
 ```
 
-**API Keys:** Use `${ENV_VAR}` syntax to reference environment variables. Set them in your shell or in `~/.config/agentbox/.env`.
+**API Keys:** Use `${ENV_VAR}` syntax to reference environment variables. Set them in your shell or in `~/.config/boxctl/.env`.
 
 **Usage:** Once enabled, the proxy is available at `http://127.0.0.1:4000/v1` inside the container. Use the `litellm` MCP server for tool-based access.
 
@@ -436,7 +436,7 @@ terminal:
 
 ```yaml
 paths:
-  agentbox_dir: null       # Override agentbox installation dir
+  boxctl_dir: null       # Override boxctl installation dir
 ```
 
 ---
@@ -444,8 +444,8 @@ paths:
 ## 3. MCP Server Library
 
 **Locations:**
-- Built-in: `/agentbox/library/mcp/` (inside container)
-- Custom: `~/.config/agentbox/mcp/` (user overrides)
+- Built-in: `/boxctl/library/mcp/` (inside container)
+- Custom: `~/.config/boxctl/mcp/` (user overrides)
 
 **Structure:**
 ```
@@ -492,22 +492,22 @@ When an MCP is added to a project, variables from `.env` are merged into the con
 
 Variables defined in `config.json`'s `env` section take precedence over `.env` values.
 
-**Usage:** Add to `.agentbox.yml`:
+**Usage:** Add to `.boxctl.yml`:
 ```yaml
 mcp_servers:
   - agentctl
   - my-custom-server
 ```
 
-Or use CLI: `agentbox mcp add <name>`
+Or use CLI: `boxctl mcp add <name>`
 
 ---
 
 ## 4. Skills Library
 
 **Locations:**
-- Built-in: `/agentbox/library/skills/` (inside container)
-- Custom: `~/.config/agentbox/skills/` (user overrides)
+- Built-in: `/boxctl/library/skills/` (inside container)
+- Custom: `~/.config/boxctl/skills/` (user overrides)
 
 **Structure:**
 ```
@@ -531,13 +531,13 @@ triggers:
 ...
 ```
 
-**Usage:** Add to `.agentbox.yml`:
+**Usage:** Add to `.boxctl.yml`:
 ```yaml
 skills:
   - westworld
 ```
 
-Or use CLI: `agentbox skill add <name>`
+Or use CLI: `boxctl skill add <name>`
 
 ---
 
@@ -547,14 +547,14 @@ Understanding how agent instructions work is key to customizing agent behavior.
 
 ### How Instructions Are Assembled
 
-When you run `agentbox claude` or `agentbox superclaude`, the system assembles a system prompt from multiple sources:
+When you run `boxctl claude` or `boxctl superclaude`, the system assembles a system prompt from multiple sources:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ Final System Prompt (what the agent sees)               │
 ├─────────────────────────────────────────────────────────┤
-│ 1. .agentbox/agents.md         (base instructions)      │
-│ 2. .agentbox/superagents.md    (if super* agent)        │
+│ 1. .boxctl/agents.md         (base instructions)      │
+│ 2. .boxctl/superagents.md    (if super* agent)        │
 │ 3. Dynamic Context             (generated at runtime)   │
 │    - Available MCP servers                              │
 │    - Workspace mounts                                   │
@@ -569,15 +569,15 @@ When you run `agentbox claude` or `agentbox superclaude`, the system assembles a
 
 ### agents.md - Base Instructions
 
-**Location:** `.agentbox/agents.md`
+**Location:** `.boxctl/agents.md`
 **Editable:** Yes
-**Copied from:** `library/config/default/agents.md` on `agentbox init`
+**Copied from:** `library/config/default/agents.md` on `boxctl init`
 
 This file tells agents about their environment:
 - They're running inside a Docker container
 - Working directory is `/workspace`
 - What tools are available (`agentctl`, `notify.sh`)
-- What they CAN'T do (run `agentbox` commands, access host filesystem)
+- What they CAN'T do (run `boxctl` commands, access host filesystem)
 - Workflow best practices
 
 **Customize this file** to add project-specific instructions that apply to all agents. Add your notes below the `---` separator line.
@@ -596,9 +596,9 @@ Example customizations:
 
 ### superagents.md - Autonomous Mode Instructions
 
-**Location:** `.agentbox/superagents.md`
+**Location:** `.boxctl/superagents.md`
 **Editable:** Yes
-**Copied from:** `library/config/default/superagents.md` on `agentbox init`
+**Copied from:** `library/config/default/superagents.md` on `boxctl init`
 
 This file adds instructions for autonomous agents running with `--dangerously-skip-permissions`:
 - Auto-approve mode reminder
@@ -624,11 +624,11 @@ Example customizations:
 
 Dynamic context is generated at runtime and appended to agent instructions. You don't edit this directly—it's assembled from your configuration:
 
-**MCP Servers:** Lists all MCP servers configured in `.agentbox/mcp-meta.json` (deployed to `~/.mcp.json`). Agents use this to know what tools they have.
+**MCP Servers:** Lists all MCP servers configured in `.boxctl/mcp-meta.json` (deployed to `~/.mcp.json`). Agents use this to know what tools they have.
 
 **Workspace Mounts:** Shows additional directories mounted at `/context/`. Helps agents know what external files they can access.
 
-**Skills:** Lists available skills from `.agentbox/skills/`. Tells agents to use the Skill tool to invoke them.
+**Skills:** Lists available skills from `.boxctl/skills/`. Tells agents to use the Skill tool to invoke them.
 
 **Slash Commands:** Lists available `/commands` from `.claude/commands/`. Tells agents when to use them.
 
@@ -638,7 +638,7 @@ The separation exists because:
 
 1. **Different trust levels.** Regular agents ask for permission. Super agents execute autonomously. Different instructions are appropriate.
 
-2. **Gradual escalation.** Start with `agentbox claude`, switch to `agentbox superclaude` when you trust the agent's judgment.
+2. **Gradual escalation.** Start with `boxctl claude`, switch to `boxctl superclaude` when you trust the agent's judgment.
 
 3. **Customization flexibility.** You might want all agents to know about your test framework, but only super agents to auto-push to remote.
 
@@ -651,7 +651,7 @@ After editing instruction files:
 
 ---
 
-## 6. Runtime Files (`.agentbox/`)
+## 6. Runtime Files (`.boxctl/`)
 
 These files are generated/managed automatically:
 
@@ -671,13 +671,13 @@ These files are generated/managed automatically:
 ## 7. Configuration Priority
 
 1. **Environment variables** (highest priority)
-   - `AGENTBOX_DIR` - Override agentbox installation path
+   - `AGENTBOX_DIR` - Override boxctl installation path
    - `AGENTBOX_PROJECT_DIR` - Override project directory
 
-2. **Project config** (`.agentbox.yml`)
+2. **Project config** (`.boxctl.yml`)
    - Per-project settings
 
-3. **Host config** (`~/.config/agentbox/config.yml`)
+3. **Host config** (`~/.config/boxctl/config.yml`)
    - User preferences
 
 4. **Library defaults** (`library/config/`)
@@ -692,43 +692,43 @@ These files are generated/managed automatically:
 
 ### Adding packages
 ```yaml
-# Edit .agentbox.yml
+# Edit .boxctl.yml
 packages:
   pip:
     - requests
     - pandas
 ```
-Then run: `agentbox rebase`
+Then run: `boxctl rebase`
 
 ### Exposing a port (no rebuild needed)
 ```bash
-agentbox ports expose 3000        # Container:3000 -> Host:3000
-agentbox ports expose 3000 8080   # Container:3000 -> Host:8080
+boxctl ports expose 3000        # Container:3000 -> Host:3000
+boxctl ports expose 3000 8080   # Container:3000 -> Host:8080
 ```
 
 ### Forwarding host port (no rebuild needed)
 ```bash
-agentbox ports forward 5432       # Host:5432 -> Container:5432
+boxctl ports forward 5432       # Host:5432 -> Container:5432
 ```
 
 ### Adding an MCP server
 ```bash
-agentbox mcp add agentbox-analyst             # Add from library
-agentbox rebase                  # Apply changes
+boxctl mcp add boxctl-analyst             # Add from library
+boxctl rebase                  # Apply changes
 ```
 
 ### Adding a workspace mount
 ```yaml
-# Edit .agentbox.yml
+# Edit .boxctl.yml
 workspaces:
   - path: ~/other-project
     mount: other
     mode: ro
 ```
-Then run: `agentbox rebase`
+Then run: `boxctl rebase`
 
 ### Customizing agent instructions
-Edit `.agentbox/agents.md` or `.agentbox/superagents.md` directly. Changes apply to new sessions.
+Edit `.boxctl/agents.md` or `.boxctl/superagents.md` directly. Changes apply to new sessions.
 
 ---
 
@@ -739,13 +739,13 @@ Configurations are validated using Pydantic models:
 - Version mismatches are warned about
 - Package names are validated for shell safety
 
-Run `agentbox config migrate` to update old configs to the latest format.
+Run `boxctl config migrate` to update old configs to the latest format.
 
 ---
 
 ## See Also
 
-- [CLI Reference](REF-A-cli.md) - All `agentbox` commands
-- [agentboxd](REF-B-daemon.md) - Host daemon configuration details
+- [CLI Reference](REF-A-cli.md) - All `boxctl` commands
+- [boxctld](REF-B-daemon.md) - Host daemon configuration details
 - [agentctl](REF-C-agentctl.md) - Container-side CLI
 - [Library](REF-E-library.md) - MCPs and skills

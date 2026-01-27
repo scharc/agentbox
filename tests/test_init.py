@@ -9,47 +9,43 @@ from pathlib import Path
 from tests.conftest import run_abox
 
 
-def test_init_creates_agentbox_dir(test_project):
-    """Test that 'abox init' creates .agentbox/ with correct structure."""
-    agentbox_dir = test_project / ".agentbox"
+def test_init_creates_boxctl_dir(test_project):
+    """Test that 'abox init' creates .boxctl/ with correct structure."""
+    boxctl_dir = test_project / ".boxctl"
 
-    assert agentbox_dir.exists(), ".agentbox directory should exist"
-    assert agentbox_dir.is_dir(), ".agentbox should be a directory"
+    assert boxctl_dir.exists(), ".boxctl directory should exist"
+    assert boxctl_dir.is_dir(), ".boxctl should be a directory"
 
-    # Check for expected subdirectories
-    assert (agentbox_dir / "claude").exists(), ".agentbox/claude should exist"
-    assert (agentbox_dir / "skills").exists(), ".agentbox/skills should exist"
+    # Check for expected subdirectories created by init
+    assert (boxctl_dir / "mcp").exists(), ".boxctl/mcp should exist"
+    assert (boxctl_dir / "skills").exists(), ".boxctl/skills should exist"
 
-    # Note: codex/, gemini/, qwen/ are created at runtime by container-init.sh
+    # Note: claude/, codex/, gemini/, qwen/ are created at container startup
     # mcp.json is at root level (unified for all agents)
-    assert (agentbox_dir / "mcp.json").exists(), ".agentbox/mcp.json should exist"
+    assert (boxctl_dir / "mcp.json").exists(), ".boxctl/mcp.json should exist"
+
+    # Check for other expected files
+    assert (boxctl_dir / "config.yml").exists(), ".boxctl/config.yml should exist"
+    assert (boxctl_dir / "agents.md").exists(), ".boxctl/agents.md should exist"
+    assert (boxctl_dir / "superagents.md").exists(), ".boxctl/superagents.md should exist"
 
 
-def test_init_creates_claude_config(test_project):
-    """Test that 'abox init' creates Claude config files."""
-    claude_dir = test_project / ".agentbox" / "claude"
+def test_init_creates_mcp_directory(test_project):
+    """Test that 'abox init' copies MCP servers to .boxctl/mcp/."""
+    mcp_dir = test_project / ".boxctl" / "mcp"
 
-    # Check config.json
-    config_file = claude_dir / "config.json"
-    assert config_file.exists(), "claude/config.json should exist"
+    assert mcp_dir.exists(), ".boxctl/mcp should exist"
+    assert mcp_dir.is_dir(), ".boxctl/mcp should be a directory"
 
-    with open(config_file) as f:
-        config = json.load(f)
-    assert isinstance(config, dict), "config.json should be valid JSON"
-
-    # Check config-super.json
-    config_super_file = claude_dir / "config-super.json"
-    assert config_super_file.exists(), "claude/config-super.json should exist"
-
-    with open(config_super_file) as f:
-        config_super = json.load(f)
-    assert isinstance(config_super, dict), "config-super.json should be valid JSON"
+    # Check for expected MCP servers (from library)
+    assert (mcp_dir / "agentctl").exists(), "agentctl MCP should be copied"
+    assert (mcp_dir / "boxctl-analyst").exists(), "boxctl-analyst MCP should be copied"
 
 
 def test_init_creates_unified_mcp(test_project):
     """Test that 'abox init' creates unified mcp.json at root level."""
-    agentbox_dir = test_project / ".agentbox"
-    mcp_file = agentbox_dir / "mcp.json"
+    boxctl_dir = test_project / ".boxctl"
+    mcp_file = boxctl_dir / "mcp.json"
 
     assert mcp_file.exists(), "mcp.json should exist at root"
 
@@ -58,10 +54,6 @@ def test_init_creates_unified_mcp(test_project):
     assert isinstance(mcp_config, dict), "mcp.json should be valid JSON"
     assert "mcpServers" in mcp_config, "mcp.json should have mcpServers key"
 
-    # claude/mcp.json should NOT exist after init (symlink created at runtime)
-    claude_mcp = agentbox_dir / "claude" / "mcp.json"
-    assert not claude_mcp.exists(), "claude/mcp.json should not exist (symlink created at runtime)"
-
 
 def test_init_idempotent(tmp_path, docker_available):
     """Test that running 'abox init' twice doesn't break things."""
@@ -69,8 +61,8 @@ def test_init_idempotent(tmp_path, docker_available):
     result1 = run_abox("init", cwd=tmp_path)
     assert result1.returncode == 0, "First init should succeed"
 
-    agentbox_dir = tmp_path / ".agentbox"
-    assert agentbox_dir.exists(), ".agentbox should exist after first init"
+    boxctl_dir = tmp_path / ".boxctl"
+    assert boxctl_dir.exists(), ".boxctl should exist after first init"
 
     # Run init second time
     result2 = run_abox("init", cwd=tmp_path, check=False)
@@ -84,4 +76,4 @@ def test_init_idempotent(tmp_path, docker_available):
         "Second init should warn that directory already exists"
 
     # Directory should still exist
-    assert agentbox_dir.exists(), ".agentbox should still exist after second init"
+    assert boxctl_dir.exists(), ".boxctl should still exist after second init"

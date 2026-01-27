@@ -18,7 +18,7 @@ class TestNotificationClient:
 
     def test_notify_script_available(self, running_container, test_project):
         """Test that abox-notify script is available in container."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         result = exec_in_container(
             container_name,
@@ -30,7 +30,7 @@ class TestNotificationClient:
 
     def test_notify_with_title_and_message(self, running_container, test_project):
         """Test basic notification with title and message."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Note: This will fail if SSH tunnel is not running, which is expected in DinD
         # We're testing that the script exists and accepts correct arguments
@@ -44,7 +44,7 @@ class TestNotificationClient:
 
     def test_notify_with_urgency_levels(self, running_container, test_project):
         """Test notifications with different urgency levels."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         urgency_levels = ["low", "normal", "critical"]
 
@@ -63,11 +63,11 @@ class TestNotificationPayload:
 
     def test_python_import_works(self, running_container, test_project):
         """Test that notifications module can be imported."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         result = exec_in_container(
             container_name,
-            "python3 -c 'from agentbox.notifications import send_notification; print(\"OK\")'"
+            "python3 -c 'from boxctl.notifications import send_notification; print(\"OK\")'"
         )
 
         assert result.returncode == 0
@@ -75,13 +75,13 @@ class TestNotificationPayload:
 
     def test_send_notification_without_ssh_socket(self, running_container, test_project):
         """Test send_notification returns False when SSH socket doesn't exist."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Try to send notification - will fail without SSH tunnel
         result = exec_in_container(
             container_name,
             "python3 -c '"
-            "from agentbox.notifications import send_notification; "
+            "from boxctl.notifications import send_notification; "
             "result = send_notification(\"Title\", \"Message\"); "
             "print(\"RESULT:\", result)"
             "'"
@@ -92,10 +92,10 @@ class TestNotificationPayload:
 
     def test_notification_with_enhancement_metadata(self, running_container, test_project):
         """Test notification with enhancement metadata doesn't crash."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         script = """
-from agentbox.notifications import send_notification
+from boxctl.notifications import send_notification
 
 result = send_notification(
     title="Enhanced",
@@ -125,12 +125,12 @@ class TestNotificationErrorHandling:
 
     def test_notification_returns_false_without_tunnel(self, running_container, test_project):
         """Test notification fails gracefully without SSH tunnel."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         result = exec_in_container(
             container_name,
             "python3 -c '"
-            "from agentbox.notifications import send_notification; "
+            "from boxctl.notifications import send_notification; "
             "result = send_notification(\"Title\", \"Message\"); "
             "exit(0 if result is False else 1)"
             "'"
@@ -140,13 +140,13 @@ class TestNotificationErrorHandling:
 
     def test_notification_with_invalid_urgency(self, running_container, test_project):
         """Test notification with invalid urgency level doesn't crash."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Python will accept any string for urgency, but test it doesn't crash
         result = exec_in_container(
             container_name,
             "python3 -c '"
-            "from agentbox.notifications import send_notification; "
+            "from boxctl.notifications import send_notification; "
             "result = send_notification(\"Title\", \"Message\", urgency=\"invalid\"); "
             "print(\"OK\")"
             "'"
@@ -157,12 +157,12 @@ class TestNotificationErrorHandling:
 
     def test_notification_with_empty_title(self, running_container, test_project):
         """Test notification with empty title doesn't crash."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         result = exec_in_container(
             container_name,
             "python3 -c '"
-            "from agentbox.notifications import send_notification; "
+            "from boxctl.notifications import send_notification; "
             "result = send_notification(\"\", \"Message\"); "
             "print(\"OK\")"
             "'"
@@ -174,7 +174,7 @@ class TestNotificationErrorHandling:
 
     def test_notification_with_long_message(self, running_container, test_project):
         """Test notification with very long message doesn't crash."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Create a long message
         long_message = "x" * 10000
@@ -182,7 +182,7 @@ class TestNotificationErrorHandling:
         result = exec_in_container(
             container_name,
             f"python3 -c '"
-            "from agentbox.notifications import send_notification; "
+            "from boxctl.notifications import send_notification; "
             f"result = send_notification(\"Title\", \"{long_message}\"); "
             "print(\"OK\")"
             "'"
@@ -199,12 +199,12 @@ class TestSshSocketPath:
 
     def test_ssh_socket_path_function_exists(self, running_container, test_project):
         """Test that _get_ssh_socket_path function exists."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         result = exec_in_container(
             container_name,
             "python3 -c '"
-            "from agentbox.notifications import _get_ssh_socket_path; "
+            "from boxctl.notifications import _get_ssh_socket_path; "
             "result = _get_ssh_socket_path(); "
             "print(f\"RESULT:{result}\")"
             "'"
@@ -214,14 +214,14 @@ class TestSshSocketPath:
         assert "RESULT:" in result.stdout
 
     def test_ssh_socket_env_var_check(self, running_container, test_project):
-        """Test that AGENTBOX_SSH_SOCKET env var is respected."""
-        container_name = f"agentbox-{test_project.name}"
+        """Test that BOXCTL_SSH_SOCKET env var is respected."""
+        container_name = f"boxctl-{test_project.name}"
 
         result = exec_in_container(
             container_name,
-            "AGENTBOX_SSH_SOCKET=/tmp/test.sock python3 -c '"
+            "BOXCTL_SSH_SOCKET=/tmp/test.sock python3 -c '"
             "import os; "
-            "from agentbox.notifications import _get_ssh_socket_path; "
+            "from boxctl.notifications import _get_ssh_socket_path; "
             "# Create the file so it passes exists check; "
             "from pathlib import Path; "
             "Path(\"/tmp/test.sock\").touch(); "
@@ -240,13 +240,13 @@ class TestNotificationConfigIntegration:
 
     def test_timeout_configuration(self, running_container, test_project):
         """Test that timeout values are read from config."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Get timeout values from config
         result = exec_in_container(
             container_name,
             "python3 -c '"
-            "from agentbox.host_config import get_config; "
+            "from boxctl.host_config import get_config; "
             "config = get_config(); "
             "normal = config.get(\"notifications\", \"timeout\"); "
             "enhanced = config.get(\"notifications\", \"timeout_enhanced\"); "
@@ -266,7 +266,7 @@ class TestNotificationIntegration:
 
     def test_notify_script_passes_arguments(self, running_container, test_project):
         """Test that abox-notify correctly passes arguments."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Test with explicit arguments
         result = exec_in_container(
@@ -279,10 +279,10 @@ class TestNotificationIntegration:
 
     def test_notification_from_python_api(self, running_container, test_project):
         """Test notification API from Python."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         script = """
-from agentbox.notifications import send_notification
+from boxctl.notifications import send_notification
 
 # This will fail without SSH tunnel, but tests the API
 try:
@@ -307,10 +307,10 @@ except Exception as e:
 
     def test_enhanced_notification_api(self, running_container, test_project):
         """Test enhanced notification with metadata."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         script = """
-from agentbox.notifications import send_notification
+from boxctl.notifications import send_notification
 
 result = send_notification(
     title="Enhanced Test",
@@ -335,7 +335,7 @@ print(f"RESULT:{result}")
 
     def test_notification_workflow_in_session(self, running_container, test_project):
         """Test notification can be sent from within tmux session."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Create a session that tries to send a notification
         result = exec_in_container(

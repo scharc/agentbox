@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Marc Schütze <scharc@gmail.com>
 # SPDX-License-Identifier: MIT
 
-"""Helper modules for agentbox DinD tests."""
+"""Helper modules for boxctl DinD tests."""
 
 from .cli import run_abox, run_agentctl
 from .docker import (

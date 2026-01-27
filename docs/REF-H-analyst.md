@@ -1,10 +1,10 @@
-# agentbox-analyst - Cross-Agent Analysis
+# boxctl-analyst - Cross-Agent Analysis
 
 Peer-to-peer analysis using superagents. One agent requests another agent to perform deep analysis.
 
 ## Overview
 
-The agentbox-analyst MCP enables cross-agent collaboration:
+The boxctl-analyst MCP enables cross-agent collaboration:
 - **superclaude** can request analysis from **supercodex**
 - **supercodex** can request analysis from **superclaude**
 
@@ -40,7 +40,7 @@ Focus on input validation and session handling.
 - `summary`: Brief overview of findings
 - `success`: Whether analysis completed
 
-**Report location:** `/tmp/agentbox-reports/<timestamp>-analysis.md`
+**Report location:** `/tmp/boxctl-reports/<timestamp>-analysis.md`
 
 ---
 
@@ -170,7 +170,7 @@ Include my concerns about database migration ordering.
 ## How It Works
 
 1. **Agent A** (e.g., superclaude) calls an analyst function
-2. **agentbox-analyst** spawns **Agent B** (supercodex) with full permissions
+2. **boxctl-analyst** spawns **Agent B** (supercodex) with full permissions
 3. **Agent B** analyzes the subject and writes findings
 4. **Agent A** receives summary and report path
 5. **Agent A** reads the report, verifies findings, implements fixes
@@ -183,7 +183,7 @@ Include my concerns about database migration ordering.
            │
            ▼
 ┌─────────────────────┐
-│  agentbox-analyst   │
+│  boxctl-analyst   │
 │  MCP Server         │
 └──────────┬──────────┘
            │ spawns
@@ -192,7 +192,7 @@ Include my concerns about database migration ordering.
 │ Agent B (supercodex) │
 │ Full permissions     │
 │ Writes report to     │
-│ /tmp/agentbox-reports│
+│ /tmp/boxctl-reports│
 └──────────┬──────────┘
            │
            ▼
@@ -218,9 +218,9 @@ Agents always get their "opposite" as the peer to provide diverse perspective.
 
 ## Report Files
 
-Reports are written to `/tmp/agentbox-reports/` by default:
+Reports are written to `/tmp/boxctl-reports/` by default:
 ```
-/tmp/agentbox-reports/
+/tmp/boxctl-reports/
 ├── 20260117-143022-analysis.md
 ├── 20260117-150510-analysis.md
 └── ...
@@ -274,9 +274,9 @@ Always verify findings against your understanding of the code.
 Enabled by default in most projects. To add manually:
 
 ```yaml
-# .agentbox.yml
+# .boxctl.yml
 mcp_servers:
-  - agentbox-analyst
+  - boxctl-analyst
 ```
 
 Then: `abox rebase`

@@ -26,9 +26,10 @@ def test_mcp_list_shows_library(test_project):
 
 
 def test_mcp_add_creates_config(test_project):
-    """Test that 'abox mcp add' adds MCP to config files."""
-    mcp_file = test_project / ".agentbox" / "claude" / "mcp.json"
-    mcp_meta_file = test_project / ".agentbox" / "mcp-meta.json"
+    """Test that 'abox mcp add' adds MCP to unified config."""
+    # MCP is now stored in unified .boxctl/mcp.json (not per-agent)
+    mcp_file = test_project / ".boxctl" / "mcp.json"
+    mcp_meta_file = test_project / ".boxctl" / "mcp-meta.json"
 
     # Add an MCP (using fetch - simple, no install requirements, no credentials needed)
     result = run_abox("mcp", "add", "fetch", cwd=test_project, check=False)
@@ -58,7 +59,7 @@ def test_mcp_add_triggers_rebuild(test_project):
     # Start container first
     run_abox("start", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Get container created timestamp before add
     created_result = subprocess.run(
@@ -70,7 +71,7 @@ def test_mcp_add_triggers_rebuild(test_project):
     original_created = created_result.stdout.strip()
 
     # Check if docker MCP is already added (from previous tests due to module-scoped fixture)
-    mcp_file = test_project / ".agentbox" / "claude" / "mcp.json"
+    mcp_file = test_project / ".boxctl" / "mcp.json"
     if mcp_file.exists():
         with open(mcp_file) as f:
             existing_config = json.load(f)
@@ -113,7 +114,7 @@ def test_mcp_add_triggers_rebuild(test_project):
 
 def test_mcp_remove_cleans_config(test_project):
     """Test that 'abox mcp remove' removes MCP from config."""
-    mcp_file = test_project / ".agentbox" / "claude" / "mcp.json"
+    mcp_file = test_project / ".boxctl" / "mcp.json"
 
     # Add MCP first (use sqlite to avoid conflicts with other tests)
     run_abox("mcp", "add", "sqlite", cwd=test_project, check=False)

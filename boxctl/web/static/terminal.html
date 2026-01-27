@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
+    <title>boxctl Terminal</title>
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#4a90e2">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="boxctl">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    <link rel="stylesheet" href="/static/css/style.css?v=CACHE_BUST">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
+</head>
+<body class="terminal-page">
+    <header class="terminal-header">
+        <a href="/" class="back-btn" aria-label="Back to sessions list">← Sessions</a>
+        <span id="session-info" class="session-info" role="heading" aria-level="1">Loading...</span>
+        <button id="controls-toggle" class="controls-toggle-btn" aria-label="Toggle controls" title="Toggle controls">⋮</button>
+    </header>
+
+    <div id="terminal-container" role="application" aria-label="Terminal"></div>
+
+    <!-- Floating side controls panel -->
+    <div id="controls-panel" class="controls-panel hidden" role="toolbar" aria-label="Terminal controls">
+        <button class="control-btn" id="scroll-up-page" aria-label="Page up" title="Page Up">⇞</button>
+        <button class="control-btn" id="scroll-up" aria-label="Scroll up" title="Scroll Up">↑</button>
+        <button class="control-btn" id="scroll-down" aria-label="Scroll down" title="Scroll Down">↓</button>
+        <button class="control-btn" id="scroll-down-page" aria-label="Page down" title="Page Down">⇟</button>
+        <button class="control-btn" id="scroll-exit" aria-label="Exit scroll mode" title="Exit Scroll">✕</button>
+        <div class="controls-divider"></div>
+        <button class="control-btn" data-key="Escape" aria-label="Escape key" title="ESC">⎋</button>
+        <button class="control-btn" data-key="Tab" aria-label="Tab key" title="TAB">⇥</button>
+        <button class="control-btn" data-key="Control" aria-label="Control modifier" title="CTRL">⌃</button>
+        <button class="control-btn" data-key="ArrowUp" aria-label="Arrow up" title="Up">↑</button>
+        <button class="control-btn" data-key="ArrowDown" aria-label="Arrow down" title="Down">↓</button>
+        <button class="control-btn" data-key="ArrowLeft" aria-label="Arrow left" title="Left">←</button>
+        <button class="control-btn" data-key="ArrowRight" aria-label="Arrow right" title="Right">→</button>
+    </div>
+
+    <!-- Keybar for special keys (mobile and desktop) -->
+    <div id="keybar" class="keybar" role="toolbar" aria-label="Terminal keyboard shortcuts">
+        <button class="key-btn" data-key="Escape" aria-label="Escape key">ESC</button>
+        <button class="key-btn" data-key="Tab" aria-label="Tab key">TAB</button>
+        <button class="key-btn" data-key="Control" aria-label="Control modifier" aria-pressed="false">CTRL</button>
+        <button class="key-btn" data-key="Enter" aria-label="Enter key">↵</button>
+        <button class="key-btn" data-key="ArrowUp" aria-label="Arrow up">↑</button>
+        <button class="key-btn" data-key="ArrowDown" aria-label="Arrow down">↓</button>
+        <button class="key-btn" data-key="ArrowLeft" aria-label="Arrow left">←</button>
+        <button class="key-btn" data-key="ArrowRight" aria-label="Arrow right">→</button>
+        <button class="key-btn clipboard-btn" id="copy-btn" aria-label="Copy selection">Copy</button>
+        <button class="key-btn clipboard-btn" id="paste-btn" aria-label="Paste from clipboard">Paste</button>
+        <button class="key-btn tmux-prefix-btn" data-key="TmuxPrefix" aria-label="Tmux prefix key">⌘ (Prefix)</button>
+        <button class="key-btn detach-btn" data-key="Detach" aria-label="Detach from session">Detach</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="/static/js/pwa-init.js?v=CACHE_BUST"></script>
+    <script src="/static/js/controls.js?v=CACHE_BUST"></script>
+    <script src="/static/js/terminal.js?v=CACHE_BUST"></script>
+    <script src="/static/js/keybar.js?v=CACHE_BUST"></script>
+</body>
+</html>

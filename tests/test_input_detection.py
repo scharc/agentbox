@@ -5,7 +5,7 @@
 
 import pytest
 
-from agentbox.core.input_detection import (
+from boxctl.core.input_detection import (
     DetectedInput,
     InputType,
     detect_input_waiting,

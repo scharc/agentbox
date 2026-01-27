@@ -11,7 +11,7 @@ from helpers.docker import exec_in_container
 
 @pytest.mark.integration
 class TestSkillList:
-    """Test 'agentbox skill list' command."""
+    """Test 'boxctl skill list' command."""
 
     def test_list_shows_available_skills(self, test_project):
         """Test listing available skills from library."""
@@ -24,7 +24,7 @@ class TestSkillList:
 
 @pytest.mark.integration
 class TestSkillShow:
-    """Test 'agentbox skill show' command."""
+    """Test 'boxctl skill show' command."""
 
     def test_show_nonexistent_skill(self, test_project):
         """Test showing details of non-existent skill fails gracefully."""
@@ -38,11 +38,11 @@ class TestSkillShow:
 
 @pytest.mark.integration
 class TestSkillAdd:
-    """Test 'agentbox skill add' command."""
+    """Test 'boxctl skill add' command."""
 
     def test_add_skill_creates_directories(self, running_container, test_project):
         """Test adding skill creates directories in both Claude and Codex."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # First, check what skills are available in the library
         result = run_abox("skill", "list", cwd=test_project)
@@ -55,8 +55,8 @@ class TestSkillAdd:
         # Create a mock skill in the library for testing
         result = exec_in_container(
             container_name,
-            "mkdir -p /opt/agentbox/library/skills/test-skill && "
-            "echo '# Test Skill' > /opt/agentbox/library/skills/test-skill/SKILL.md"
+            "mkdir -p /boxctl/library/skills/test-skill && "
+            "echo '# Test Skill' > /boxctl/library/skills/test-skill/SKILL.md"
         )
         assert result.returncode == 0, "Failed to create test skill"
 
@@ -71,14 +71,14 @@ class TestSkillAdd:
         # Verify skill directory exists (skills are now project-level, shared by all agents)
         result = exec_in_container(
             container_name,
-            "test -d /workspace/.agentbox/skills/test-skill"
+            "test -d /workspace/.boxctl/skills/test-skill"
         )
         assert result.returncode == 0, "Skill should exist in skills directory"
 
         # Verify SKILL.md exists
         result = exec_in_container(
             container_name,
-            "test -f /workspace/.agentbox/skills/test-skill/SKILL.md"
+            "test -f /workspace/.boxctl/skills/test-skill/SKILL.md"
         )
         assert result.returncode == 0, "SKILL.md should exist in skill directory"
 
@@ -96,13 +96,13 @@ class TestSkillAdd:
 
     def test_add_duplicate_skill_warns(self, running_container, test_project):
         """Test adding already-installed skill shows warning."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Create test skill in library
         exec_in_container(
             container_name,
-            "mkdir -p /opt/agentbox/library/skills/dup-test && "
-            "echo '# Dup Test' > /opt/agentbox/library/skills/dup-test/SKILL.md"
+            "mkdir -p /boxctl/library/skills/dup-test && "
+            "echo '# Dup Test' > /boxctl/library/skills/dup-test/SKILL.md"
         )
 
         # Add skill first time
@@ -124,17 +124,17 @@ class TestSkillAdd:
 
 @pytest.mark.integration
 class TestSkillRemove:
-    """Test 'agentbox skill remove' command."""
+    """Test 'boxctl skill remove' command."""
 
     def test_remove_existing_skill(self, running_container, test_project):
         """Test removing an existing skill."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Create and add test skill
         exec_in_container(
             container_name,
-            "mkdir -p /opt/agentbox/library/skills/remove-test && "
-            "echo '# Remove Test' > /opt/agentbox/library/skills/remove-test/SKILL.md"
+            "mkdir -p /boxctl/library/skills/remove-test && "
+            "echo '# Remove Test' > /boxctl/library/skills/remove-test/SKILL.md"
         )
         result = run_abox("skill", "add", "remove-test", cwd=test_project)
         assert result.returncode == 0, "Add should succeed"
@@ -142,7 +142,7 @@ class TestSkillRemove:
         # Verify skill exists
         result = exec_in_container(
             container_name,
-            "test -d /workspace/.agentbox/skills/remove-test"
+            "test -d /workspace/.boxctl/skills/remove-test"
         )
         assert result.returncode == 0, "Skill should exist before removal"
 
@@ -157,7 +157,7 @@ class TestSkillRemove:
         # Verify skill is gone
         result = exec_in_container(
             container_name,
-            "test -d /workspace/.agentbox/skills/remove-test"
+            "test -d /workspace/.boxctl/skills/remove-test"
         )
         assert result.returncode != 0, "Skill should be removed from skills directory"
 
@@ -178,16 +178,16 @@ class TestSkillIntegration:
 
     def test_skill_lifecycle(self, running_container, test_project):
         """Test complete skill lifecycle: list, add, verify, remove."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         skill_name = "lifecycle-skill"
 
         # Create test skill in library
         result = exec_in_container(
             container_name,
-            f"mkdir -p /opt/agentbox/library/skills/{skill_name} && "
-            f"echo '# Lifecycle Skill' > /opt/agentbox/library/skills/{skill_name}/SKILL.md && "
-            f"echo 'Test content' > /opt/agentbox/library/skills/{skill_name}/config.json"
+            f"mkdir -p /boxctl/library/skills/{skill_name} && "
+            f"echo '# Lifecycle Skill' > /boxctl/library/skills/{skill_name}/SKILL.md && "
+            f"echo 'Test content' > /boxctl/library/skills/{skill_name}/config.json"
         )
         assert result.returncode == 0
 
@@ -203,14 +203,14 @@ class TestSkillIntegration:
         # 3. Verify skill files exist
         result = exec_in_container(
             container_name,
-            f"cat /workspace/.agentbox/skills/{skill_name}/SKILL.md"
+            f"cat /workspace/.boxctl/skills/{skill_name}/SKILL.md"
         )
         assert result.returncode == 0
         assert "Lifecycle Skill" in result.stdout
 
         result = exec_in_container(
             container_name,
-            f"cat /workspace/.agentbox/skills/{skill_name}/config.json"
+            f"cat /workspace/.boxctl/skills/{skill_name}/config.json"
         )
         assert result.returncode == 0
         assert "Test content" in result.stdout
@@ -223,13 +223,13 @@ class TestSkillIntegration:
         # 5. Verify removal
         result = exec_in_container(
             container_name,
-            f"test -d /workspace/.agentbox/skills/{skill_name}"
+            f"test -d /workspace/.boxctl/skills/{skill_name}"
         )
         assert result.returncode != 0, "Skill should be removed"
 
     def test_multiple_skills(self, running_container, test_project):
         """Test managing multiple skills simultaneously."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         skills = ["skill-a", "skill-b", "skill-c"]
 
@@ -237,8 +237,8 @@ class TestSkillIntegration:
         for skill in skills:
             exec_in_container(
                 container_name,
-                f"mkdir -p /opt/agentbox/library/skills/{skill} && "
-                f"echo '# {skill}' > /opt/agentbox/library/skills/{skill}/SKILL.md"
+                f"mkdir -p /boxctl/library/skills/{skill} && "
+                f"echo '# {skill}' > /boxctl/library/skills/{skill}/SKILL.md"
             )
 
         # Add all skills
@@ -250,7 +250,7 @@ class TestSkillIntegration:
         for skill in skills:
             result = exec_in_container(
                 container_name,
-                f"test -f /workspace/.agentbox/skills/{skill}/SKILL.md"
+                f"test -f /workspace/.boxctl/skills/{skill}/SKILL.md"
             )
             assert result.returncode == 0, f"{skill} should exist in Claude skills"
 
@@ -263,21 +263,21 @@ class TestSkillIntegration:
         for skill in skills:
             result = exec_in_container(
                 container_name,
-                f"test -d /workspace/.agentbox/skills/{skill}"
+                f"test -d /workspace/.boxctl/skills/{skill}"
             )
             assert result.returncode != 0, f"{skill} should be removed"
 
     def test_skill_persists_across_rebuild(self, running_container, test_project):
         """Test that added skills persist after container rebuild."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         skill_name = "persist-test"
 
         # Create and add test skill
         exec_in_container(
             container_name,
-            f"mkdir -p /opt/agentbox/library/skills/{skill_name} && "
-            f"echo '# Persist Test' > /opt/agentbox/library/skills/{skill_name}/SKILL.md"
+            f"mkdir -p /boxctl/library/skills/{skill_name} && "
+            f"echo '# Persist Test' > /boxctl/library/skills/{skill_name}/SKILL.md"
         )
         result = run_abox("skill", "add", skill_name, cwd=test_project)
         assert result.returncode == 0
@@ -285,7 +285,7 @@ class TestSkillIntegration:
         # Verify skill exists
         result = exec_in_container(
             container_name,
-            f"test -f /workspace/.agentbox/skills/{skill_name}/SKILL.md"
+            f"test -f /workspace/.boxctl/skills/{skill_name}/SKILL.md"
         )
         assert result.returncode == 0
 
@@ -299,13 +299,13 @@ class TestSkillIntegration:
         # Verify skill still exists after rebuild
         result = exec_in_container(
             container_name,
-            f"test -f /workspace/.agentbox/skills/{skill_name}/SKILL.md"
+            f"test -f /workspace/.boxctl/skills/{skill_name}/SKILL.md"
         )
         assert result.returncode == 0, "Skill should persist after rebuild"
 
         result = exec_in_container(
             container_name,
-            f"cat /workspace/.agentbox/skills/{skill_name}/SKILL.md"
+            f"cat /workspace/.boxctl/skills/{skill_name}/SKILL.md"
         )
         assert result.returncode == 0
         assert "Persist Test" in result.stdout, "Skill content should be preserved"

@@ -15,7 +15,7 @@ set -e
 # Check if initialization is complete
 STATUS_FILE="/tmp/container-status"
 if [[ -f "${STATUS_FILE}" ]]; then
-    STATUS=$(cat "${STATUS_FILE}" | cut -d'|' -f1)
+    STATUS=$(cut -d'|' -f1 < "${STATUS_FILE}")
     if [[ "${STATUS}" != "ready" ]]; then
         echo "UNHEALTHY: Container initializing (${STATUS})"
         exit 1
@@ -30,19 +30,20 @@ fi
 # The socket is mounted from host - check multiple locations
 find_ssh_socket() {
     # Check env var first
-    if [[ -S "${AGENTBOX_SSH_SOCKET:-}" ]]; then
-        echo "${AGENTBOX_SSH_SOCKET}"
+    if [[ -S "${BOXCTL_SSH_SOCKET:-}" ]]; then
+        echo "${BOXCTL_SSH_SOCKET}"
         return 0
     fi
     # Check user-specific runtime dir (mounted from host)
-    local uid_socket="/run/user/$(id -u)/agentboxd/ssh.sock"
+    local uid_socket
+    uid_socket="/run/user/$(id -u)/boxctld/ssh.sock"
     if [[ -S "${uid_socket}" ]]; then
         echo "${uid_socket}"
         return 0
     fi
     # Check alternative mount location
-    if [[ -S "/run/agentboxd/ssh.sock" ]]; then
-        echo "/run/agentboxd/ssh.sock"
+    if [[ -S "/run/boxctld/ssh.sock" ]]; then
+        echo "/run/boxctld/ssh.sock"
         return 0
     fi
     return 1

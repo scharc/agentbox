@@ -1,4 +1,4 @@
-"""Tests for agentbox/notifications.py"""
+"""Tests for boxctl/notifications.py"""
 
 import json
 import socket
@@ -6,24 +6,24 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 import pytest
 
-from agentbox.notifications import send_notification, _get_ssh_socket_path
+from boxctl.notifications import send_notification, _get_ssh_socket_path
 
 
 class TestGetSshSocketPath:
     """Test SSH socket path discovery"""
 
     def test_env_var_takes_precedence(self, tmp_path):
-        """Test AGENTBOX_SSH_SOCKET env var is checked first"""
+        """Test BOXCTL_SSH_SOCKET env var is checked first"""
         sock_path = tmp_path / "ssh.sock"
         sock_path.touch()
 
-        with patch.dict('os.environ', {'AGENTBOX_SSH_SOCKET': str(sock_path)}):
+        with patch.dict('os.environ', {'BOXCTL_SSH_SOCKET': str(sock_path)}):
             result = _get_ssh_socket_path()
             assert result == sock_path
 
     def test_env_var_nonexistent_file(self, tmp_path):
         """Test env var pointing to nonexistent file returns None"""
-        with patch.dict('os.environ', {'AGENTBOX_SSH_SOCKET': '/nonexistent/path'}):
+        with patch.dict('os.environ', {'BOXCTL_SSH_SOCKET': '/nonexistent/path'}):
             with patch('pathlib.Path.exists', return_value=False):
                 result = _get_ssh_socket_path()
                 assert result is None
@@ -36,7 +36,7 @@ class TestGetSshSocketPath:
                 # No env var set, so first exists() is XDG path -> True
                 mock_exists.return_value = True
                 result = _get_ssh_socket_path()
-                assert result == Path("/run/user/1000/agentboxd/ssh.sock")
+                assert result == Path("/run/user/1000/boxctld/ssh.sock")
 
     def test_container_path_fallback(self):
         """Test container mount path as fallback"""
@@ -46,7 +46,7 @@ class TestGetSshSocketPath:
                 mock_exists.side_effect = [False, True]
                 with patch('os.getuid', return_value=1000):
                     result = _get_ssh_socket_path()
-                    assert result == Path("/run/agentboxd/ssh.sock")
+                    assert result == Path("/run/boxctld/ssh.sock")
 
     def test_no_socket_found(self):
         """Test returns None when no socket found"""
@@ -60,7 +60,7 @@ class TestGetSshSocketPath:
 class TestSendNotification:
     """Test notification sending functionality"""
 
-    @patch('agentbox.notifications._get_ssh_socket_path')
+    @patch('boxctl.notifications._get_ssh_socket_path')
     def test_returns_false_when_no_socket(self, mock_get_socket):
         """Test notification fails gracefully when no SSH socket"""
         mock_get_socket.return_value = None
@@ -69,7 +69,7 @@ class TestSendNotification:
 
         assert result is False
 
-    @patch('agentbox.notifications._get_ssh_socket_path')
+    @patch('boxctl.notifications._get_ssh_socket_path')
     def test_returns_false_when_asyncssh_missing(self, mock_get_socket):
         """Test notification fails gracefully when asyncssh not installed"""
         mock_get_socket.return_value = Path("/tmp/ssh.sock")
@@ -89,7 +89,7 @@ class TestSendNotification:
 
     def test_enhance_builds_metadata(self):
         """Test enhance=True includes metadata in request"""
-        with patch('agentbox.notifications._get_ssh_socket_path', return_value=None):
+        with patch('boxctl.notifications._get_ssh_socket_path', return_value=None):
             # Can't fully test without SSH, but verify it doesn't crash
             result = send_notification(
                 "Test",

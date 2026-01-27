@@ -58,7 +58,7 @@ class McpServerManager:
     # All other MCPs use STDIO (spawned by Claude on-demand)
     NATIVE_SSE_SERVERS = {
         "agentctl": {
-            "script": "/workspace/.agentbox/mcp/agentctl/server_fastmcp.py",
+            "script": "/workspace/.boxctl/mcp/agentctl/server_fastmcp.py",
             "args": ["--transport", "sse"]
         },
         # Add more FastMCP servers here as they're created
@@ -286,7 +286,7 @@ def main():
     parser.add_argument(
         "--meta",
         type=Path,
-        default=Path("/workspace/.agentbox/mcp-meta.json"),
+        default=Path("/workspace/.boxctl/mcp-meta.json"),
         help="Path to mcp-meta.json"
     )
     parser.add_argument(

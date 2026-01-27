@@ -12,9 +12,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-HISTORY_DIR = Path('/workspace/.agentbox/history')
-LOGS_DIR = Path('/workspace/.agentbox/logs')
-MAP_FILE = Path('/workspace/.agentbox/session-map.json')
+HISTORY_DIR = Path('/workspace/.boxctl/history')
+LOGS_DIR = Path('/workspace/.boxctl/logs')
+MAP_FILE = Path('/workspace/.boxctl/session-map.json')
 
 
 def load_map() -> dict:

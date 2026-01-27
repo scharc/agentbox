@@ -4,12 +4,12 @@ Two commands. That's all it takes.
 
 ## Your First Agent
 
-Navigate to your project directory and initialize Agentbox:
+Navigate to your project directory and initialize Boxctl:
 
 ```bash
 cd ~/myproject
-agentbox init              # One-time setup, creates .agentbox.yml
-agentbox superclaude       # Starts container, launches agent
+boxctl init              # One-time setup, creates .boxctl.yml
+boxctl superclaude       # Starts container, launches agent
 ```
 
 That's it. The container starts automatically, installs any configured packages, and the agent begins working. You're now talking to Claude inside an isolated environment.
@@ -23,16 +23,16 @@ Press `Ctrl+A`, then `D` to detach from the tmux session. The agent keeps workin
 Come back later:
 
 ```bash
-agentbox connect           # Reconnect to see what it's doing
+boxctl connect           # Reconnect to see what it's doing
 ```
 
 ## When You're Done
 
 ```bash
-agentbox stop              # Stop the container
+boxctl stop              # Stop the container
 ```
 
-The container stops but isn't removed. Next time you run `agentbox superclaude`, it starts up quickly because everything's already set up.
+The container stops but isn't removed. Next time you run `boxctl superclaude`, it starts up quickly because everything's already set up.
 
 ## Customizing (Optional)
 
@@ -40,26 +40,26 @@ Want to add packages the agent can use? Mount another directory? Enable an MCP s
 
 ```bash
 # Add packages
-agentbox packages add npm typescript   # Node packages
-agentbox packages add pip pytest       # Python packages
-agentbox packages add apt ffmpeg       # System packages
+boxctl packages add npm typescript   # Node packages
+boxctl packages add pip pytest       # Python packages
+boxctl packages add apt ffmpeg       # System packages
 
 # Mount another directory
-agentbox workspace add ~/other-repo ro reference
+boxctl workspace add ~/other-repo ro reference
 # Now available at /context/reference/ inside the container
 
 # Enable an MCP server
-agentbox mcp add agentbox-analyst
+boxctl mcp add boxctl-analyst
 
 # Pass through hardware devices (audio, GPU, serial)
-agentbox devices                       # Interactive chooser
+boxctl devices                       # Interactive chooser
 ```
 
-These commands automatically rebuild the container to apply changes. No manual `agentbox rebase` needed.
+These commands automatically rebuild the container to apply changes. No manual `boxctl rebase` needed.
 
 ## What Happens Behind the Scenes
 
-When you run `agentbox superclaude`:
+When you run `boxctl superclaude`:
 
 1. **Container check** - If no container exists for this project, one is created from the base image
 2. **Startup** - Container initializes: creates user, sets up SSH, installs packages
@@ -79,15 +79,15 @@ The container mounts your project at `/workspace`. The agent sees your code and 
 
 | Task | Command |
 |------|---------|
-| Initialize project | `agentbox init` |
-| Start autonomous Claude | `agentbox superclaude` |
-| Start interactive Claude | `agentbox claude` |
-| Reconnect to agent | `agentbox connect` |
-| Stop container | `agentbox stop` |
-| See container info | `agentbox info` |
-| Add package | `agentbox packages add TYPE PACKAGE` |
-| Mount directory | `agentbox workspace add PATH MODE NAME` |
-| Pass through devices | `agentbox devices` |
-| Apply config changes | `agentbox rebase` |
+| Initialize project | `boxctl init` |
+| Start autonomous Claude | `boxctl superclaude` |
+| Start interactive Claude | `boxctl claude` |
+| Reconnect to agent | `boxctl connect` |
+| Stop container | `boxctl stop` |
+| See container info | `boxctl info` |
+| Add package | `boxctl packages add TYPE PACKAGE` |
+| Mount directory | `boxctl workspace add PATH MODE NAME` |
+| Pass through devices | `boxctl devices` |
+| Apply config changes | `boxctl rebase` |
 
 See the **[CLI Reference](REF-A-cli.md)** for the complete command list.

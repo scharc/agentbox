@@ -21,7 +21,7 @@ def container_name(test_project):
     from tests.conftest import run_abox
 
     run_abox("start", cwd=test_project)
-    return f"agentbox-{test_project.name}"
+    return f"boxctl-{test_project.name}"
 
 
 def _start_agent_detached(container_name: str, agent: str, extra_args: list[str] = None) -> None:
@@ -194,7 +194,7 @@ class TestAgentCommandBuildingUnit:
 
     def test_build_agent_command_no_extra_args(self):
         """Test _build_agent_command without extra args."""
-        from agentbox.cli.helpers import _build_agent_command
+        from boxctl.cli.helpers import _build_agent_command
 
         cmd, tmux_setup, display, session_name = _build_agent_command(
             container_name="test-container",
@@ -209,11 +209,11 @@ class TestAgentCommandBuildingUnit:
         assert "codex" in tmux_setup
         # Should NOT contain typical instruction markers (agent context)
         assert "# Agent Context" not in tmux_setup
-        assert "You are running in an Agentbox container" not in tmux_setup
+        assert "You are running in an Boxctl container" not in tmux_setup
 
     def test_build_agent_command_with_user_prompt(self):
         """Test _build_agent_command with a user-provided prompt."""
-        from agentbox.cli.helpers import _build_agent_command
+        from boxctl.cli.helpers import _build_agent_command
 
         user_prompt = "help me write tests"
         cmd, tmux_setup, display, session_name = _build_agent_command(
@@ -233,7 +233,7 @@ class TestAgentCommandBuildingUnit:
         This is the core regression test for the bug where _read_agent_instructions()
         was being passed as the first arg.
         """
-        from agentbox.cli.helpers import _build_agent_command
+        from boxctl.cli.helpers import _build_agent_command
 
         # Simulate what the fixed code does - just pass user args
         user_args = ("my prompt",)
@@ -254,7 +254,7 @@ class TestAgentCommandBuildingUnit:
         # Verify no agent instruction markers appear
         instruction_markers = [
             "# Agent Context",
-            "You are running in an Agentbox container",
+            "You are running in an Boxctl container",
             "Dynamic Context",
             "MCP Servers Available",
         ]
@@ -284,10 +284,10 @@ class TestAgentCommandImplementation:
             raise SystemExit(0)  # Exit early
 
         # Mock _has_vscode to return True (simulating VSCode being available)
-        monkeypatch.setattr("agentbox.cli.commands.agents._has_vscode", lambda: True)
-        monkeypatch.setattr("agentbox.cli.commands.agents._run_agent_command", mock_run_agent_command)
+        monkeypatch.setattr("boxctl.cli.commands.agents._has_vscode", lambda: True)
+        monkeypatch.setattr("boxctl.cli.commands.agents._run_agent_command", mock_run_agent_command)
 
-        from agentbox.cli.commands.agents import codex
+        from boxctl.cli.commands.agents import codex
         from click.testing import CliRunner
 
         runner = CliRunner()
@@ -310,11 +310,11 @@ class TestAgentCommandImplementation:
             captured_args['extra_args'] = kwargs.get('extra_args')
             raise SystemExit(0)
 
-        monkeypatch.setattr("agentbox.cli.commands.agents._has_vscode", lambda: True)
-        monkeypatch.setattr("agentbox.cli.commands.agents._run_agent_command", mock_run_agent_command)
-        monkeypatch.setattr("agentbox.cli.commands.agents.ContainerManager", Mock)
+        monkeypatch.setattr("boxctl.cli.commands.agents._has_vscode", lambda: True)
+        monkeypatch.setattr("boxctl.cli.commands.agents._run_agent_command", mock_run_agent_command)
+        monkeypatch.setattr("boxctl.cli.commands.agents.ContainerManager", Mock)
 
-        from agentbox.cli.commands.agents import supercodex
+        from boxctl.cli.commands.agents import supercodex
         from click.testing import CliRunner
 
         runner = CliRunner()
@@ -337,10 +337,10 @@ class TestAgentCommandImplementation:
             captured_args['extra_args'] = kwargs.get('extra_args')
             raise SystemExit(0)
 
-        monkeypatch.setattr("agentbox.cli.commands.agents._has_vscode", lambda: True)
-        monkeypatch.setattr("agentbox.cli.commands.agents._run_agent_command", mock_run_agent_command)
+        monkeypatch.setattr("boxctl.cli.commands.agents._has_vscode", lambda: True)
+        monkeypatch.setattr("boxctl.cli.commands.agents._run_agent_command", mock_run_agent_command)
 
-        from agentbox.cli.commands.agents import gemini
+        from boxctl.cli.commands.agents import gemini
         from click.testing import CliRunner
 
         runner = CliRunner()
@@ -361,10 +361,10 @@ class TestAgentCommandImplementation:
             captured_args['extra_args'] = kwargs.get('extra_args')
             raise SystemExit(0)
 
-        monkeypatch.setattr("agentbox.cli.commands.agents._has_vscode", lambda: True)
-        monkeypatch.setattr("agentbox.cli.commands.agents._run_agent_command", mock_run_agent_command)
+        monkeypatch.setattr("boxctl.cli.commands.agents._has_vscode", lambda: True)
+        monkeypatch.setattr("boxctl.cli.commands.agents._run_agent_command", mock_run_agent_command)
 
-        from agentbox.cli.commands.agents import supergemini
+        from boxctl.cli.commands.agents import supergemini
         from click.testing import CliRunner
 
         runner = CliRunner()
@@ -386,17 +386,17 @@ class TestAgentCommandImplementation:
             captured_args['extra_args'] = kwargs.get('extra_args')
             raise SystemExit(0)
 
-        # Create minimal .agentbox structure for _read_agent_instructions
-        agentbox_dir = tmp_path / ".agentbox"
+        # Create minimal .boxctl structure for _read_agent_instructions
+        agentbox_dir = tmp_path / ".boxctl"
         agentbox_dir.mkdir()
         (agentbox_dir / "agents.md").write_text("# Test")
 
-        monkeypatch.setattr("agentbox.cli.commands.agents._has_vscode", lambda: True)
-        monkeypatch.setattr("agentbox.cli.commands.agents._run_agent_command", mock_run_agent_command)
-        monkeypatch.setattr("agentbox.cli.commands.agents.ContainerManager", Mock)
-        monkeypatch.setenv("AGENTBOX_PROJECT_DIR", str(tmp_path))
+        monkeypatch.setattr("boxctl.cli.commands.agents._has_vscode", lambda: True)
+        monkeypatch.setattr("boxctl.cli.commands.agents._run_agent_command", mock_run_agent_command)
+        monkeypatch.setattr("boxctl.cli.commands.agents.ContainerManager", Mock)
+        monkeypatch.setenv("BOXCTL_PROJECT_DIR", str(tmp_path))
 
-        from agentbox.cli.commands.agents import claude
+        from boxctl.cli.commands.agents import claude
         from click.testing import CliRunner
 
         runner = CliRunner()
@@ -431,7 +431,7 @@ class TestAgentFlagsValidation:
 
     def test_codex_no_claude_flags(self):
         """Verify codex command doesn't include Claude-only flags like --ide."""
-        from agentbox.cli.helpers import _build_agent_command
+        from boxctl.cli.helpers import _build_agent_command
 
         # Simulate what the codex command does
         cmd, tmux_setup, display, session_name = _build_agent_command(
@@ -452,7 +452,7 @@ class TestAgentFlagsValidation:
 
     def test_supercodex_no_claude_flags(self):
         """Verify supercodex command doesn't include Claude-only flags."""
-        from agentbox.cli.helpers import _build_agent_command
+        from boxctl.cli.helpers import _build_agent_command
 
         # Simulate what supercodex does - has its own extra_args but no --ide
         extra_args = [
@@ -478,7 +478,7 @@ class TestAgentFlagsValidation:
 
     def test_gemini_no_claude_flags(self):
         """Verify gemini command doesn't include Claude-only flags."""
-        from agentbox.cli.helpers import _build_agent_command
+        from boxctl.cli.helpers import _build_agent_command
 
         cmd, tmux_setup, display, session_name = _build_agent_command(
             container_name="test-container",
@@ -498,7 +498,7 @@ class TestAgentFlagsValidation:
 
     def test_supergemini_no_claude_flags(self):
         """Verify supergemini command doesn't include Claude-only flags."""
-        from agentbox.cli.helpers import _build_agent_command
+        from boxctl.cli.helpers import _build_agent_command
 
         extra_args = ["--non-interactive"]
 
@@ -520,7 +520,7 @@ class TestAgentFlagsValidation:
 
     def test_claude_has_ide_flag_when_vscode_available(self):
         """Verify claude command includes --ide when appropriate."""
-        from agentbox.cli.helpers import _build_agent_command
+        from boxctl.cli.helpers import _build_agent_command
 
         # Simulate claude with --ide
         extra_args = [

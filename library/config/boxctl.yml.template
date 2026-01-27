@@ -1,0 +1,101 @@
+# boxctl Configuration
+# This file configures the development container for this project.
+# Modify sections below and run 'abox rebuild' to apply changes.
+#
+# AGENT INSTRUCTIONS:
+# - To add packages: Add to the appropriate section under 'packages'
+# - To expose ports: Use 'abox ports expose <port>' (no rebuild needed)
+# - To forward host ports: Use 'abox ports forward <port>' (no rebuild needed)
+# - To add workspaces: Add to 'workspaces' list and run 'abox rebuild'
+# - Most changes require 'abox rebuild' except port commands
+
+version: "1.0"
+
+# SSH configuration for git operations
+# mode: none | keys | mount | config
+#   - keys: Copy ~/.ssh into container (default, recommended)
+#   - mount: Mount ~/.ssh read-write (use if keys change frequently)
+#   - config: Copy only config/known_hosts (use with forward_agent: true)
+#   - none: No SSH access
+# forward_agent: Forward SSH agent socket (for passphrase-protected or hardware keys)
+ssh:
+  enabled: true
+  mode: keys
+  forward_agent: false
+
+# Additional workspace mounts (read-only by default)
+# Use this to access other projects/directories from the container
+# Example:
+#   - path: ~/projects/shared-lib
+#     mount: shared-lib      # Mounted at /context/shared-lib
+#     mode: ro               # ro (read-only) or rw (read-write)
+workspaces: []
+
+# Connect to other Docker containers (e.g., databases)
+# The container will be added to the same network
+# Example:
+#   - name: postgres-dev
+#     auto_reconnect: true
+containers: []
+
+# System packages to install via apt (applied on rebuild)
+# These are installed in the container image
+# Example: ffmpeg, imagemagick, graphviz
+system_packages: []
+
+# Package manager installations (applied on rebuild)
+# AGENT: Add packages here when user requests dependencies
+packages:
+  npm: []      # npm install -g <package>
+  pip: []      # pip install <package>
+  apt: []      # apt install <package> (same as system_packages)
+  cargo: []    # cargo install <package>
+  post: []     # Custom shell commands to run after packages
+
+# Environment variables available in the container
+# Example:
+#   NODE_ENV: development
+#   DATABASE_URL: postgres://localhost/mydb
+env: {}
+
+# Container hostname (defaults to project name)
+hostname: null
+
+# Resource limits for the container
+# Example:
+#   memory: 4g
+#   cpus: 2.0
+resources: {}
+
+# Security settings
+# seccomp: unconfined allows debugging tools like strace
+# capabilities: Add Linux capabilities (e.g., SYS_PTRACE for debugging)
+security:
+  seccomp: unconfined
+  # capabilities:
+  #   - SYS_PTRACE
+
+# Device passthrough from host to container
+# Use for hardware access (GPU, audio, input devices)
+# Example:
+#   - /dev/snd
+#   - /dev/dri/renderD128
+devices: []
+
+# Port configuration
+# AGENT: Prefer using 'abox ports expose/forward' commands instead of editing here
+# Those commands work without rebuild and update this config automatically
+ports:
+  # Expose container ports to host (service runs IN container)
+  # Format: "container_port" or "container_port:host_port"
+  host: []
+  # Forward host ports into container (service runs ON host)
+  # Format: "host_port" or "host_port:container_port"
+  container: []
+
+# CLI credentials to mount from host (opt-in for security)
+# When enabled, the respective CLI config directory is mounted read-only
+# This allows CLI tools in the container to use your existing auth tokens
+credentials:
+  gh: false     # GitHub CLI (~/.config/gh) - enables 'gh' commands
+  glab: false   # GitLab CLI (~/.config/glab-cli) - enables 'glab' commands

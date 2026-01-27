@@ -17,7 +17,7 @@ class TestAgentPrerequisites:
 
     def test_mcp_config_exists(self, running_container, test_project):
         """Test that MCP config file exists."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         result = exec_in_container(
             container_name,
@@ -28,30 +28,30 @@ class TestAgentPrerequisites:
 
     def test_agent_instructions_accessible(self, running_container, test_project):
         """Test that agent instructions are accessible."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # agents.md should exist (created during init)
         result = exec_in_container(
             container_name,
-            "test -f /workspace/.agentbox/agents.md"
+            "test -f /workspace/.boxctl/agents.md"
         )
 
         assert result.returncode == 0, "agents.md should exist"
 
     def test_super_agent_instructions_accessible(self, running_container, test_project):
         """Test that super agent instructions are accessible."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         result = exec_in_container(
             container_name,
-            "test -f /workspace/.agentbox/superagents.md"
+            "test -f /workspace/.boxctl/superagents.md"
         )
 
         assert result.returncode == 0, "superagents.md should exist"
 
     def test_claude_binary_available(self, running_container, test_project):
         """Test that Claude binary is available in container."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         result = exec_in_container(
             container_name,
@@ -63,7 +63,7 @@ class TestAgentPrerequisites:
 
     def test_codex_binary_available(self, running_container, test_project):
         """Test that Codex binary is available in container."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         result = exec_in_container(
             container_name,
@@ -84,7 +84,7 @@ class TestClaudeLaunch:
         if not has_claude_auth:
             pytest.skip("Claude auth not available")
 
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Test that we can at least see the help
         result = exec_in_container(
@@ -101,7 +101,7 @@ class TestClaudeLaunch:
         if not has_claude_auth:
             pytest.skip("Claude auth not available")
 
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Try to run claude with --version to test basic invocation
         # This should load config but not start interactive session
@@ -127,7 +127,7 @@ class TestCodexLaunch:
         if not has_codex_auth:
             pytest.skip("Codex auth not available")
 
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Test that we can at least see the help
         result = exec_in_container(
@@ -146,7 +146,7 @@ class TestAgentSessionCreation:
 
     def test_session_created_for_agent(self, running_container, test_project):
         """Test that launching agent creates a tmux session."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Create a session manually (simulating what agent launch does)
         session_name = "test-claude"
@@ -181,7 +181,7 @@ class TestAgentSessionCreation:
 
     def test_multiple_agent_sessions(self, running_container, test_project):
         """Test that multiple agent sessions can coexist."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         agents = ["claude-test", "codex-test", "gemini-test"]
 
@@ -212,7 +212,7 @@ class TestAgentConfiguration:
 
     def test_workspace_mounted_for_agent(self, running_container, test_project):
         """Test that workspace is accessible to agent sessions."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Create a test file
         test_content = "agent-accessible-file"
@@ -247,7 +247,7 @@ class TestAgentConfiguration:
 
     def test_mcp_config_readable_in_session(self, running_container, test_project):
         """Test that MCP config is readable from tmux session."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Verify MCP config is readable in a tmux session
         result = exec_in_container(
@@ -273,17 +273,23 @@ class TestAgentConfiguration:
 
     def test_environment_variables_in_session(self, running_container, test_project):
         """Test that environment variables are available in agent sessions."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
-        # Set an env var and verify it's accessible in tmux
+        # Create a tmux session with the environment variable exported
         result = exec_in_container(
             container_name,
-            "tmux set-environment -g TEST_VAR 'test-value' && "
-            "tmux new-session -d -s env-test 'echo $TEST_VAR > /tmp/env-output.txt; sleep 2'"
+            "export TEST_VAR='test-value' && tmux new-session -d -s env-test -x 80 -y 24"
         )
-        assert result.returncode == 0
+        assert result.returncode == 0, f"Failed to create session: {result.stderr}"
 
-        time.sleep(1)
+        # Send the echo command to the session
+        result = exec_in_container(
+            container_name,
+            "tmux send-keys -t env-test 'echo $TEST_VAR > /tmp/env-output.txt' Enter"
+        )
+        assert result.returncode == 0, f"Failed to send keys: {result.stderr}"
+
+        time.sleep(2)
 
         result = exec_in_container(
             container_name,
@@ -305,7 +311,7 @@ class TestAgentIntegration:
 
     def test_agent_session_workflow(self, running_container, test_project):
         """Test complete agent session workflow."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         session_name = "workflow-test"
 
@@ -355,7 +361,7 @@ class TestAgentIntegration:
 
     def test_agent_restart_workflow(self, running_container, test_project):
         """Test agent can be restarted (session killed and recreated)."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         session_name = "restart-test"
 

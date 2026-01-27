@@ -1,4 +1,4 @@
-# ✨ Agentbox Features
+# ✨ Boxctl Features
 
 > **Let your AI agents work while you sleep.**
 >
@@ -12,19 +12,19 @@ Pick your favorite. They all work the same way.
 
 | Agent | Interactive | Autonomous |
 |-------|-------------|------------|
-| **Claude Code** | `abox claude` | `abox superclaude` |
-| **OpenAI Codex** | `abox codex` | `abox supercodex` |
-| **Google Gemini** | `abox gemini` | `abox supergemini` |
-| **Alibaba Qwen** | `abox qwen` | `abox superqwen` |
+| **Claude Code** | `boxctl claude` | `boxctl superclaude` |
+| **OpenAI Codex** | `boxctl codex` | `boxctl supercodex` |
+| **Google Gemini** | `boxctl gemini` | `boxctl supergemini` |
+| **Alibaba Qwen** | `boxctl qwen` | `boxctl superqwen` |
 
 **Interactive** = asks permission before actions
 **Autonomous** = full auto-approve, works while you sleep
 
 ```bash
-abox supercodex "build me a REST API with authentication"
-abox superclaude "refactor the database layer"
-abox supergemini "write comprehensive documentation"
-abox superqwen "add internationalization support"
+boxctl supercodex "build me a REST API with authentication"
+boxctl superclaude "refactor the database layer"
+boxctl supergemini "write comprehensive documentation"
+boxctl superqwen "add internationalization support"
 ```
 
 ### Mix and Match
@@ -54,7 +54,7 @@ Every change is tracked. Every experiment is reversible.
 # Agent went crazy?
 git diff                      # See what it did
 git reset --hard             # Undo everything
-abox superclaude             # Try again
+boxctl superclaude             # Try again
 ```
 
 **Total recovery time: 10 seconds.**
@@ -74,21 +74,21 @@ abox superclaude             # Try again
 
 Traditional git: one branch at a time. Switch branches, lose context, stash changes, mess up state.
 
-Agentbox: **every branch gets its own directory**.
+Boxctl: **every branch gets its own directory**.
 
 ```bash
 # Create worktrees for parallel work
-abox worktree add feature-auth
-abox worktree add feature-payments
-abox worktree add hotfix-123
+boxctl worktree add feature-auth
+boxctl worktree add feature-payments
+boxctl worktree add hotfix-123
 
 # Run agents on each - simultaneously
-abox worktree superclaude feature-auth
-abox worktree supercodex feature-payments
-abox worktree superclaude hotfix-123
+boxctl worktree superclaude feature-auth
+boxctl worktree supercodex feature-payments
+boxctl worktree superclaude hotfix-123
 
 # List what's running
-abox worktree list
+boxctl worktree list
 ```
 
 **Three agents. Three branches. Zero interference.**
@@ -166,14 +166,14 @@ All agentctl features are available as MCP tools. Agents can:
 Enable the analyst MCP (opt-in):
 
 ```bash
-abox mcp add agentbox-analyst
+boxctl mcp add boxctl-analyst
 ```
 
 Now agents can request peer review from other AI agents:
 
 ```
 Agent A: "I've implemented the auth system. Let me get a review..."
-[Calls agentbox-analyst review_commit]
+[Calls boxctl-analyst review_commit]
 Agent B: "Looking at the changes... I found 3 issues:
          1. SQL injection vulnerability in login()
          2. Missing rate limiting
@@ -187,7 +187,7 @@ Before implementing, get validation:
 
 ```
 Agent: "Here's my plan for the refactor. Let me verify with a peer..."
-[Calls agentbox-analyst verify_plan]
+[Calls boxctl-analyst verify_plan]
 Peer: "The plan looks solid, but consider:
        - Step 3 might break backward compatibility
        - You're missing database migrations
@@ -199,7 +199,7 @@ Peer: "The plan looks solid, but consider:
 Run conversations between agents:
 
 ```
-[Calls agentbox-analyst discuss]
+[Calls boxctl-analyst discuss]
 Claude: "I think we should use PostgreSQL for this..."
 Gemini: "Have you considered the scaling implications? Redis might..."
 Claude: "Good point. What about a hybrid approach..."
@@ -209,7 +209,7 @@ Claude: "Good point. What about a hybrid approach..."
 
 ```
 Agent: "Let me check what tests are missing..."
-[Calls agentbox-analyst suggest_tests]
+[Calls boxctl-analyst suggest_tests]
 Peer: "Missing coverage for:
        - Edge case: empty input
        - Error handling: network timeout
@@ -229,12 +229,12 @@ SSH into your laptop from your phone. Tailscale makes it easy.
 One command, zero typing:
 
 ```bash
-abox q
+boxctl q
 ```
 
 ```
 ┌────────────────────────────────────┐
-│  🚀 AGENTBOX QUICK MENU            │
+│  🚀 BOXCTL QUICK MENU              │
 ├────────────────────────────────────┤
 │                                    │
 │  SESSIONS                          │
@@ -265,12 +265,12 @@ Press a key. That's it. No arrow keys, no typing, no autocomplete.
 Every command uses positional arguments:
 
 ```bash
-# Agentbox style
-abox workspace add ~/docs ro reference
-abox session new superclaude feature
+# Boxctl style
+boxctl workspace add ~/docs ro reference
+boxctl session new superclaude feature
 
 # NOT like this (won't work)
-abox workspace add --path ~/docs --mode ro --name reference
+boxctl workspace add --path ~/docs --mode ro --name reference
 ```
 
 Why? Try typing `--dangerously-skip-permissions` on a phone keyboard.
@@ -284,7 +284,7 @@ Why? Try typing `--dangerously-skip-permissions` on a phone keyboard.
 Running a dev server inside the container?
 
 ```bash
-abox ports expose 3000
+boxctl ports expose 3000
 ```
 
 Now `localhost:3000` on your host shows the container's server.
@@ -294,7 +294,7 @@ Now `localhost:3000` on your host shows the container's server.
 Running PostgreSQL on your laptop?
 
 ```bash
-abox ports forward 5432
+boxctl ports forward 5432
 ```
 
 Now the container can reach your database.
@@ -310,7 +310,7 @@ google-chrome --remote-debugging-port=9222
 
 Forward the port:
 ```bash
-abox ports forward 9222
+boxctl ports forward 9222
 ```
 
 Now your agent can:
@@ -326,7 +326,7 @@ All through Chrome DevTools Protocol. All from inside a safe container.
 ### Live Port Status
 
 ```bash
-abox ports status
+boxctl ports status
 ```
 
 See what's forwarded, what's exposed, what's active.
@@ -344,9 +344,9 @@ Running services in Docker? Connect them:
 docker ps
 # NAMES: postgres-dev, redis-cache, elasticsearch
 
-# Connect agentbox to them
-abox network connect postgres-dev
-abox network connect redis-cache
+# Connect boxctl to them
+boxctl network connect postgres-dev
+boxctl network connect redis-cache
 ```
 
 Now your agent can reach `postgres-dev:5432` and `redis-cache:6379` directly.
@@ -419,16 +419,16 @@ ssh:
 
 ```bash
 # Node packages
-abox packages add npm typescript eslint prettier webpack
+boxctl packages add npm typescript eslint prettier webpack
 
 # Python packages
-abox packages add pip pytest black mypy flask django
+boxctl packages add pip pytest black mypy flask django
 
 # System packages
-abox packages add apt ffmpeg imagemagick pandoc graphviz
+boxctl packages add apt ffmpeg imagemagick pandoc graphviz
 
 # Rust tools
-abox packages add cargo ripgrep fd-find bat
+boxctl packages add cargo ripgrep fd-find bat
 ```
 
 ### Auto-Rebuild
@@ -436,7 +436,7 @@ abox packages add cargo ripgrep fd-find bat
 Packages are tracked in config. Change them and run:
 
 ```bash
-abox rebase
+boxctl rebase
 ```
 
 Container rebuilds with new packages. State preserved.
@@ -460,13 +460,13 @@ Every container comes with:
 
 ```bash
 # Mount a reference project (read-only)
-abox workspace add ~/other-project ro reference
+boxctl workspace add ~/other-project ro reference
 
 # Mount a data directory (read-write)
-abox workspace add ~/datasets rw data
+boxctl workspace add ~/datasets rw data
 
 # Mount documentation
-abox workspace add ~/company-docs ro docs
+boxctl workspace add ~/company-docs ro docs
 ```
 
 ### Inside the Container
@@ -492,16 +492,16 @@ Give agents access to real devices:
 
 ```bash
 # Audio devices
-abox devices add /dev/snd
+boxctl devices add /dev/snd
 
 # GPU (for ML, rendering)
-abox devices add /dev/dri/renderD128
+boxctl devices add /dev/dri/renderD128
 
 # Serial ports (for embedded development)
-abox devices add /dev/ttyUSB0
+boxctl devices add /dev/ttyUSB0
 
 # Cameras
-abox devices add /dev/video0
+boxctl devices add /dev/video0
 ```
 
 ### Interactive Selection
@@ -509,7 +509,7 @@ abox devices add /dev/video0
 Not sure what's available?
 
 ```bash
-abox devices
+boxctl devices
 ```
 
 Interactive chooser shows detected devices:
@@ -531,7 +531,7 @@ Device went offline? Container starts anyway - missing devices are skipped.
 ### Never Miss a Beat
 
 ```bash
-abox service install
+boxctl service install
 ```
 
 Get notified when:
@@ -560,18 +560,18 @@ Notifications include AI-generated summaries:
 
 ```bash
 # Start different agents for different tasks
-abox session new superclaude research
-abox session new supercodex implementation
-abox session new supergemini documentation
-abox session new shell debugging
+boxctl session new superclaude research
+boxctl session new supercodex implementation
+boxctl session new supergemini documentation
+boxctl session new shell debugging
 ```
 
 ### Quick Navigation
 
 ```bash
-abox session list                    # See all sessions
-abox session attach research         # Jump to one
-abox session attach implementation   # Switch to another
+boxctl session list                    # See all sessions
+boxctl session attach research         # Jump to one
+boxctl session attach implementation   # Switch to another
 ```
 
 ### Persistent State
@@ -579,7 +579,7 @@ abox session attach implementation   # Switch to another
 Sessions survive disconnection. SSH drops? Resume where you left off:
 
 ```bash
-abox connect
+boxctl connect
 ```
 
 ---
@@ -591,7 +591,7 @@ abox connect
 Every conversation is logged:
 
 ```bash
-abox logs list
+boxctl logs list
 ```
 
 ```
@@ -603,7 +603,7 @@ supercodex-feature   codex       2024-01-25 09:15     codex/sessions/def456.json
 ### Quick View
 
 ```bash
-abox logs show superclaude-1
+boxctl logs show superclaude-1
 ```
 
 See recent messages, timestamped, role-labeled.
@@ -611,7 +611,7 @@ See recent messages, timestamped, role-labeled.
 ### Export to Markdown
 
 ```bash
-abox logs export superclaude-1
+boxctl logs export superclaude-1
 ```
 
 Creates a clean markdown document:
@@ -629,7 +629,7 @@ Perfect for documentation, review, or sharing.
 ### Script Everything
 
 ```bash
-abox run superclaude "add unit tests for the API"
+boxctl run superclaude "add unit tests for the API"
 ```
 
 - No tmux
@@ -641,7 +641,7 @@ abox run superclaude "add unit tests for the API"
 
 ```bash
 #!/bin/bash
-abox run superclaude "fix linting errors"
+boxctl run superclaude "fix linting errors"
 if [ $? -eq 0 ]; then
     git add -A && git commit -m "Auto-fix linting"
 fi
@@ -650,7 +650,7 @@ fi
 ### Capture Output
 
 ```bash
-output=$(abox run claude "explain this function" 2>&1)
+output=$(boxctl run claude "explain this function" 2>&1)
 echo "$output" > explanation.md
 ```
 
@@ -663,7 +663,7 @@ echo "$output" > explanation.md
 Enable Docker socket:
 
 ```bash
-abox docker enable
+boxctl docker enable
 ```
 
 Now your agent can:
@@ -710,7 +710,7 @@ Sensitive directories are mounted read-only by default:
 
 ### Everything in One File
 
-`.agentbox/config.yml`:
+`.boxctl/config.yml`:
 
 ```yaml
 # Packages to install
@@ -753,7 +753,7 @@ devices:
 Don't like editing YAML?
 
 ```bash
-abox reconfigure
+boxctl reconfigure
 ```
 
 Walk through every option interactively.
@@ -764,16 +764,16 @@ Walk through every option interactively.
 
 | Command | What it does |
 |---------|--------------|
-| `abox superclaude` | Start autonomous Claude |
-| `abox q` | Quick menu (mobile-friendly) |
-| `abox list` | List containers |
-| `abox info` | Container details |
-| `abox stop` | Stop container |
-| `abox connect` | Reconnect to session |
-| `abox shell` | Open bash |
-| `abox rebase` | Rebuild with config changes |
-| `abox logs show` | View conversation |
-| `abox worktree list` | List branches |
+| `boxctl superclaude` | Start autonomous Claude |
+| `boxctl q` | Quick menu (mobile-friendly) |
+| `boxctl list` | List containers |
+| `boxctl info` | Container details |
+| `boxctl stop` | Stop container |
+| `boxctl connect` | Reconnect to session |
+| `boxctl shell` | Open bash |
+| `boxctl rebase` | Rebuild with config changes |
+| `boxctl logs show` | View conversation |
+| `boxctl worktree list` | List branches |
 
 ---
 
@@ -781,7 +781,7 @@ Walk through every option interactively.
 
 ### Built for Real Work
 
-Agentbox isn't a demo or proof-of-concept. It's what I use every single day.
+Boxctl isn't a demo or proof-of-concept. It's what I use every single day.
 
 Every feature exists because I hit a wall:
 - Needed Chrome automation → port forwarding
@@ -796,13 +796,13 @@ Positional arguments only. Because phone keyboards are terrible for typing `--da
 ### Fail Safe
 
 The worst case is always recoverable:
-- Container broke? `abox remove && abox superclaude`
+- Container broke? `boxctl remove && boxctl superclaude`
 - Agent went crazy? `git reset --hard`
-- Config messed up? Delete `.agentbox/`, start fresh
+- Config messed up? Delete `.boxctl/`, start fresh
 
 ### Your Feature Next
 
-Using Agentbox and need something? [Open an issue](https://github.com/scharc/agentbox/issues) with your story. If it makes sense, it gets built.
+Using Boxctl and need something? [Open an issue](https://github.com/scharc/boxctl/issues) with your story. If it makes sense, it gets built.
 
 ---
 
@@ -810,16 +810,16 @@ Using Agentbox and need something? [Open an issue](https://github.com/scharc/age
 
 ```bash
 # Clone and install
-git clone git@github.com:scharc/agentbox.git
-cd agentbox
+git clone git@github.com:scharc/boxctl.git
+cd boxctl
 bash bin/setup.sh --shell zsh
 
 # Initialize your project
 cd ~/your-project
-abox init
+boxctl init
 
 # Start working
-abox superclaude "let's build something amazing"
+boxctl superclaude "let's build something amazing"
 ```
 
 **Your agent is ready. What will you build?**

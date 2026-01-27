@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from agentbox.cli import cli
+from boxctl.cli import cli
 
 
 @pytest.fixture
@@ -46,14 +46,14 @@ class TestInitCommand:
     """Test 'abox init' command execution."""
 
     def test_init_creates_agentbox_dir(self, runner, temp_project, monkeypatch):
-        """Test init creates .agentbox directory."""
+        """Test init creates .boxctl directory."""
         monkeypatch.chdir(temp_project)
 
         result = runner.invoke(cli, ["init"])
 
         assert result.exit_code == 0, f"Failed: {result.output}"
-        assert (temp_project / ".agentbox").exists()
-        assert (temp_project / ".agentbox" / "claude").exists()
+        assert (temp_project / ".boxctl").exists()
+        assert (temp_project / ".boxctl" / "claude").exists()
 
     def test_init_creates_config_files(self, runner, temp_project, monkeypatch):
         """Test init creates expected config files."""
@@ -62,9 +62,9 @@ class TestInitCommand:
         result = runner.invoke(cli, ["init"])
 
         assert result.exit_code == 0
-        assert (temp_project / ".agentbox" / "claude" / "config.json").exists()
-        assert (temp_project / ".agentbox" / "mcp.json").exists()
-        assert (temp_project / ".agentbox" / "agents.md").exists()
+        assert (temp_project / ".boxctl" / "claude" / "config.json").exists()
+        assert (temp_project / ".boxctl" / "mcp.json").exists()
+        assert (temp_project / ".boxctl" / "agents.md").exists()
 
     def test_init_idempotent(self, runner, temp_project, monkeypatch):
         """Test init can be run multiple times."""
@@ -81,7 +81,7 @@ class TestInitCommand:
 class TestListCommand:
     """Test 'abox list' command execution."""
 
-    @patch("agentbox.cli.commands.project.ContainerManager")
+    @patch("boxctl.cli.commands.project.ContainerManager")
     def test_list_no_containers(self, mock_manager_class, runner):
         """Test list with no containers."""
         mock_manager = MagicMock()
@@ -93,7 +93,7 @@ class TestListCommand:
         assert result.exit_code == 0
         mock_manager.print_containers_table.assert_called_once()
 
-    @patch("agentbox.cli.commands.project.ContainerManager")
+    @patch("boxctl.cli.commands.project.ContainerManager")
     def test_list_with_containers(self, mock_manager_class, runner):
         """Test list with containers."""
         mock_manager = MagicMock()
@@ -108,7 +108,7 @@ class TestListCommand:
 class TestStartCommand:
     """Test 'abox start' command execution."""
 
-    @patch("agentbox.cli.commands.project.ContainerManager")
+    @patch("boxctl.cli.commands.project.ContainerManager")
     def test_start_requires_init(self, mock_manager_class, runner, temp_project, monkeypatch):
         """Test start fails without init."""
         monkeypatch.chdir(temp_project)
@@ -117,11 +117,11 @@ class TestStartCommand:
 
         result = runner.invoke(cli, ["start"])
 
-        # Should fail because .agentbox doesn't exist
-        assert result.exit_code != 0 or "not initialized" in result.output.lower() or "agentbox" in result.output.lower()
+        # Should fail because .boxctl doesn't exist
+        assert result.exit_code != 0 or "not initialized" in result.output.lower() or "boxctl" in result.output.lower()
 
-    @patch("agentbox.cli.commands.project.ContainerManager")
-    @patch("agentbox.cli.commands.project._get_project_context")
+    @patch("boxctl.cli.commands.project.ContainerManager")
+    @patch("boxctl.cli.commands.project._get_project_context")
     def test_start_after_init(self, mock_get_ctx, mock_manager_class, runner, temp_project, monkeypatch):
         """Test start works after init."""
         monkeypatch.chdir(temp_project)
@@ -137,7 +137,7 @@ class TestStartCommand:
 
         mock_ctx = MagicMock()
         mock_ctx.manager = mock_manager
-        mock_ctx.container_name = "agentbox-test"
+        mock_ctx.container_name = "boxctl-test"
         mock_ctx.project_dir = temp_project
         mock_get_ctx.return_value = mock_ctx
 
@@ -151,11 +151,11 @@ class TestStartCommand:
 class TestStopCommand:
     """Test 'abox stop' command execution."""
 
-    @patch("agentbox.cli.commands.project.ContainerManager")
+    @patch("boxctl.cli.commands.project.ContainerManager")
     def test_stop_running_container(self, mock_manager_class, runner, temp_project, monkeypatch):
         """Test stop on running container."""
         monkeypatch.chdir(temp_project)
-        (temp_project / ".agentbox").mkdir()
+        (temp_project / ".boxctl").mkdir()
 
         mock_manager = MagicMock()
         mock_manager.is_running.return_value = True
@@ -166,11 +166,11 @@ class TestStopCommand:
         # Should call stop
         assert result.exit_code == 0 or mock_manager.stop_container.called
 
-    @patch("agentbox.cli.commands.project.ContainerManager")
+    @patch("boxctl.cli.commands.project.ContainerManager")
     def test_stop_not_running(self, mock_manager_class, runner, temp_project, monkeypatch):
         """Test stop when container not running."""
         monkeypatch.chdir(temp_project)
-        (temp_project / ".agentbox").mkdir()
+        (temp_project / ".boxctl").mkdir()
 
         mock_manager = MagicMock()
         mock_manager.is_running.return_value = False
@@ -194,7 +194,7 @@ class TestMcpCommands:
         # Should list available MCPs from library
         assert result.exit_code == 0
 
-    @patch("agentbox.cli.commands.mcp.LibraryManager")
+    @patch("boxctl.cli.commands.mcp.LibraryManager")
     def test_mcp_show(self, mock_lib_class, runner):
         """Test mcp show command."""
         mock_lib = MagicMock()
@@ -210,7 +210,7 @@ class TestMcpCommands:
 
         result = runner.invoke(cli, ["mcp", "add", "some-mcp"])
 
-        # Should fail without .agentbox
+        # Should fail without .boxctl
         assert result.exit_code != 0
 
 
@@ -234,7 +234,7 @@ class TestWorkspaceCommands:
 
         result = runner.invoke(cli, ["workspace", "add", "/some/path"])
 
-        # Should fail without .agentbox
+        # Should fail without .boxctl
         assert result.exit_code != 0
 
 
@@ -245,13 +245,13 @@ class TestPackagesCommands:
         """Test packages list with no packages."""
         # Use subprocess which properly sets cwd
         subprocess.run(
-            ["python3", "-m", "agentbox.cli", "init"],
+            ["python3", "-m", "boxctl.cli", "init"],
             cwd=temp_project,
             capture_output=True,
         )
 
         result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", "packages", "list"],
+            ["python3", "-m", "boxctl.cli", "packages", "list"],
             cwd=temp_project,
             capture_output=True,
             text=True,
@@ -263,7 +263,7 @@ class TestPackagesCommands:
         """Test packages init works on already initialized project."""
         # Use subprocess which properly sets cwd
         init_result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", "init"],
+            ["python3", "-m", "boxctl.cli", "init"],
             cwd=temp_project,
             capture_output=True,
             text=True,
@@ -271,7 +271,7 @@ class TestPackagesCommands:
         assert init_result.returncode == 0, f"Init failed: {init_result.stderr}"
 
         result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", "packages", "init"],
+            ["python3", "-m", "boxctl.cli", "packages", "init"],
             cwd=temp_project,
             capture_output=True,
             text=True,
@@ -279,8 +279,8 @@ class TestPackagesCommands:
 
         # packages init should succeed (may show "already configured" if packages exists)
         assert result.returncode == 0
-        # .agentbox.yml is created by init
-        assert (temp_project / ".agentbox.yml").exists()
+        # .boxctl/config.yml is created by init
+        assert (temp_project / ".boxctl" / "config.yml").exists()
 
 
 class TestSkillCommands:
@@ -294,7 +294,7 @@ class TestSkillCommands:
 
         assert result.exit_code == 0
 
-    @patch("agentbox.cli.commands.skill.LibraryManager")
+    @patch("boxctl.cli.commands.skill.LibraryManager")
     def test_skill_show(self, mock_lib_class, runner):
         """Test skill show command."""
         mock_lib = MagicMock()
@@ -322,11 +322,11 @@ class TestConfigCommands:
 class TestSessionCommands:
     """Test session management commands."""
 
-    @patch("agentbox.cli.commands.sessions._get_project_context")
+    @patch("boxctl.cli.commands.sessions._get_project_context")
     def test_session_list(self, mock_get_ctx, runner, temp_project, monkeypatch):
         """Test session list command."""
         monkeypatch.chdir(temp_project)
-        (temp_project / ".agentbox").mkdir()
+        (temp_project / ".boxctl").mkdir()
 
         mock_manager = MagicMock()
         mock_manager.is_running.return_value = True
@@ -334,7 +334,7 @@ class TestSessionCommands:
 
         mock_ctx = MagicMock()
         mock_ctx.manager = mock_manager
-        mock_ctx.container_name = "agentbox-test"
+        mock_ctx.container_name = "boxctl-test"
         mock_get_ctx.return_value = mock_ctx
 
         result = runner.invoke(cli, ["session", "list"])
@@ -346,18 +346,18 @@ class TestSessionCommands:
 class TestInfoCommand:
     """Test info command."""
 
-    @patch("agentbox.cli.commands.project._get_project_context")
-    @patch("agentbox.cli.commands.project.ContainerManager")
+    @patch("boxctl.cli.commands.project._get_project_context")
+    @patch("boxctl.cli.commands.project.ContainerManager")
     def test_info_shows_details(self, mock_manager_class, mock_get_ctx, runner, temp_project, monkeypatch):
         """Test info shows container details."""
         monkeypatch.chdir(temp_project)
-        (temp_project / ".agentbox").mkdir()
+        (temp_project / ".boxctl").mkdir()
 
         mock_manager = MagicMock()
         mock_manager.is_running.return_value = True
         mock_manager.container_exists.return_value = True
         mock_manager.get_container_info.return_value = {
-            "name": "agentbox-test",
+            "name": "boxctl-test",
             "status": "running",
         }
         mock_manager.exec_in_container.return_value = (0, "session-info", "")
@@ -365,7 +365,7 @@ class TestInfoCommand:
 
         mock_ctx = MagicMock()
         mock_ctx.manager = mock_manager
-        mock_ctx.container_name = "agentbox-test"
+        mock_ctx.container_name = "boxctl-test"
         mock_ctx.project_dir = temp_project
         mock_get_ctx.return_value = mock_ctx
 

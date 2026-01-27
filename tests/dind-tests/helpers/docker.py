@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Marc Schütze <scharc@gmail.com>
 # SPDX-License-Identifier: MIT
 
-"""Docker helpers for agentbox DinD tests."""
+"""Docker helpers for boxctl DinD tests."""
 
 import subprocess
 import time

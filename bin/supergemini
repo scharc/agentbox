@@ -4,9 +4,9 @@
 # Gemini reads instructions from ~/.gemini/GEMINI.md
 # For super mode, we swap the symlink to include superagents.md content
 
-AGENTS_MD="/workspace/.agentbox/agents.md"
-SUPER_MD="/workspace/.agentbox/superagents.md"
-COMBINED="/tmp/agentbox-super-instructions.md"
+AGENTS_MD="/workspace/.boxctl/agents.md"
+SUPER_MD="/workspace/.boxctl/superagents.md"
+COMBINED="/tmp/boxctl-super-instructions.md"
 GEMINI_MD="${HOME}/.gemini/GEMINI.md"
 
 # Create combined instructions file
@@ -17,7 +17,7 @@ if [[ -f "${AGENTS_MD}" ]] && [[ -f "${SUPER_MD}" ]]; then
 fi
 
 # Export env var so MCP can also detect super mode
-export AGENTBOX_SUPER_MODE=true
+export BOXCTL_SUPER_MODE=true
 
 exec gemini \
     --non-interactive \

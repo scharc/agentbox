@@ -3,7 +3,7 @@
 import os
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from agentbox.agentctl.helpers import (
+from boxctl.agentctl.helpers import (
     get_tmux_sessions,
     session_exists,
     capture_pane,
@@ -42,14 +42,14 @@ class TestAgentctlHelpers:
         assert get_agent_command("unknown") == "/bin/bash"
         assert get_agent_command("random") == "/bin/bash"
 
-    @patch('agentbox.agentctl.helpers.subprocess.run')
+    @patch('boxctl.agentctl.helpers.subprocess.run')
     def test_get_tmux_sessions_empty(self, mock_run):
         """Test getting sessions when none exist"""
         mock_run.return_value = Mock(returncode=1, stdout="")
         result = get_tmux_sessions()
         assert result == []
 
-    @patch('agentbox.agentctl.helpers.subprocess.run')
+    @patch('boxctl.agentctl.helpers.subprocess.run')
     def test_get_tmux_sessions_with_sessions(self, mock_run):
         """Test getting sessions when they exist"""
         mock_run.return_value = Mock(
@@ -66,7 +66,7 @@ class TestAgentctlHelpers:
         assert result[1]["windows"] == 2
         assert result[1]["attached"] is False
 
-    @patch('agentbox.agentctl.helpers.subprocess.run')
+    @patch('boxctl.agentctl.helpers.subprocess.run')
     def test_session_exists_true(self, mock_run):
         """Test session_exists when session exists"""
         mock_run.return_value = Mock(returncode=0)
@@ -78,13 +78,13 @@ class TestAgentctlHelpers:
             timeout=TMUX_TIMEOUT
         )
 
-    @patch('agentbox.agentctl.helpers.subprocess.run')
+    @patch('boxctl.agentctl.helpers.subprocess.run')
     def test_session_exists_false(self, mock_run):
         """Test session_exists when session doesn't exist"""
         mock_run.return_value = Mock(returncode=1)
         assert session_exists("nonexistent") is False
 
-    @patch('agentbox.agentctl.helpers.subprocess.run')
+    @patch('boxctl.agentctl.helpers.subprocess.run')
     def test_capture_pane_success(self, mock_run):
         """Test capturing pane output"""
         expected_output = "line1\nline2\nline3\n"
@@ -101,14 +101,14 @@ class TestAgentctlHelpers:
             timeout=TMUX_TIMEOUT
         )
 
-    @patch('agentbox.agentctl.helpers.subprocess.run')
+    @patch('boxctl.agentctl.helpers.subprocess.run')
     def test_capture_pane_failure(self, mock_run):
         """Test capturing pane when session doesn't exist"""
         mock_run.return_value = Mock(returncode=1, stdout="")
         result = capture_pane("nonexistent", 50)
         assert result == ""
 
-    @patch('agentbox.agentctl.helpers.subprocess.run')
+    @patch('boxctl.agentctl.helpers.subprocess.run')
     def test_kill_session_success(self, mock_run):
         """Test killing a session successfully"""
         mock_run.return_value = Mock(returncode=0)
@@ -120,13 +120,13 @@ class TestAgentctlHelpers:
             timeout=TMUX_TIMEOUT
         )
 
-    @patch('agentbox.agentctl.helpers.subprocess.run')
+    @patch('boxctl.agentctl.helpers.subprocess.run')
     def test_kill_session_failure(self, mock_run):
         """Test killing a session that doesn't exist"""
         mock_run.return_value = Mock(returncode=1)
         assert kill_session("nonexistent") is False
 
-    @patch('agentbox.agentctl.helpers.subprocess.run')
+    @patch('boxctl.agentctl.helpers.subprocess.run')
     def test_detach_client_success(self, mock_run):
         """Test detaching client successfully"""
         mock_run.return_value = Mock(returncode=0)
@@ -138,7 +138,7 @@ class TestAgentctlHelpers:
             timeout=TMUX_TIMEOUT
         )
 
-    @patch('agentbox.agentctl.helpers.subprocess.run')
+    @patch('boxctl.agentctl.helpers.subprocess.run')
     def test_detach_client_failure(self, mock_run):
         """Test detaching when not in tmux"""
         mock_run.return_value = Mock(returncode=1)
@@ -148,13 +148,13 @@ class TestAgentctlHelpers:
 class TestAgentctlCLI:
     """Test agentctl CLI commands"""
 
-    @patch('agentbox.agentctl.cli.get_tmux_sessions')
+    @patch('boxctl.agentctl.cli.get_tmux_sessions')
     def test_ls_command_empty(self, mock_get_sessions):
         """Test ls command with no sessions"""
         mock_get_sessions.return_value = []
 
         from click.testing import CliRunner
-        from agentbox.agentctl.cli import cli
+        from boxctl.agentctl.cli import cli
 
         runner = CliRunner()
         result = runner.invoke(cli, ['list'])
@@ -162,7 +162,7 @@ class TestAgentctlCLI:
         assert result.exit_code == 0
         assert "No tmux sessions found" in result.output
 
-    @patch('agentbox.agentctl.cli.get_tmux_sessions')
+    @patch('boxctl.agentctl.cli.get_tmux_sessions')
     def test_ls_command_with_sessions(self, mock_get_sessions):
         """Test ls command with sessions"""
         mock_get_sessions.return_value = [
@@ -171,7 +171,7 @@ class TestAgentctlCLI:
         ]
 
         from click.testing import CliRunner
-        from agentbox.agentctl.cli import cli
+        from boxctl.agentctl.cli import cli
 
         runner = CliRunner()
         result = runner.invoke(cli, ['list'])
@@ -180,7 +180,7 @@ class TestAgentctlCLI:
         assert "claude" in result.output
         assert "codex" in result.output
 
-    @patch('agentbox.agentctl.cli.get_tmux_sessions')
+    @patch('boxctl.agentctl.cli.get_tmux_sessions')
     def test_ls_command_json_output(self, mock_get_sessions):
         """Test ls command with JSON output"""
         mock_get_sessions.return_value = [
@@ -188,7 +188,7 @@ class TestAgentctlCLI:
         ]
 
         from click.testing import CliRunner
-        from agentbox.agentctl.cli import cli
+        from boxctl.agentctl.cli import cli
         import json
 
         runner = CliRunner()
@@ -200,9 +200,9 @@ class TestAgentctlCLI:
         assert len(data["sessions"]) == 1
         assert data["sessions"][0]["name"] == "claude"
 
-    @patch('agentbox.agentctl.cli.session_exists')
-    @patch('agentbox.agentctl.cli.capture_pane')
-    @patch('agentbox.agentctl.cli.get_tmux_sessions')
+    @patch('boxctl.agentctl.cli.session_exists')
+    @patch('boxctl.agentctl.cli.capture_pane')
+    @patch('boxctl.agentctl.cli.get_tmux_sessions')
     def test_peek_command_existing_session(self, mock_get_sessions, mock_capture, mock_exists):
         """Test peek command on existing session"""
         mock_exists.return_value = True
@@ -212,7 +212,7 @@ class TestAgentctlCLI:
         ]
 
         from click.testing import CliRunner
-        from agentbox.agentctl.cli import cli
+        from boxctl.agentctl.cli import cli
 
         runner = CliRunner()
         result = runner.invoke(cli, ['peek', 'claude', '3'])
@@ -221,13 +221,13 @@ class TestAgentctlCLI:
         assert "line1" in result.output
         mock_capture.assert_called_once_with("claude", 3)
 
-    @patch('agentbox.agentctl.cli.session_exists')
+    @patch('boxctl.agentctl.cli.session_exists')
     def test_peek_command_nonexistent_session(self, mock_exists):
         """Test peek command on nonexistent session"""
         mock_exists.return_value = False
 
         from click.testing import CliRunner
-        from agentbox.agentctl.cli import cli
+        from boxctl.agentctl.cli import cli
 
         runner = CliRunner()
         result = runner.invoke(cli, ['peek', 'nonexistent'])
@@ -235,15 +235,15 @@ class TestAgentctlCLI:
         assert result.exit_code == 1
         assert "not found" in result.output
 
-    @patch('agentbox.agentctl.cli.session_exists')
-    @patch('agentbox.agentctl.cli.kill_session_helper')
+    @patch('boxctl.agentctl.cli.session_exists')
+    @patch('boxctl.agentctl.cli.kill_session_helper')
     def test_kill_command_with_force(self, mock_kill, mock_exists):
         """Test kill command with force flag"""
         mock_exists.return_value = True
         mock_kill.return_value = True
 
         from click.testing import CliRunner
-        from agentbox.agentctl.cli import cli
+        from boxctl.agentctl.cli import cli
 
         runner = CliRunner()
         result = runner.invoke(cli, ['kill', 'claude', '-f'])
@@ -252,13 +252,13 @@ class TestAgentctlCLI:
         assert "killed" in result.output
         mock_kill.assert_called_once_with("claude")
 
-    @patch('agentbox.agentctl.cli.session_exists')
+    @patch('boxctl.agentctl.cli.session_exists')
     def test_kill_command_nonexistent_session(self, mock_exists):
         """Test kill command on nonexistent session"""
         mock_exists.return_value = False
 
         from click.testing import CliRunner
-        from agentbox.agentctl.cli import cli
+        from boxctl.agentctl.cli import cli
 
         runner = CliRunner()
         result = runner.invoke(cli, ['kill', 'nonexistent', '-f'])

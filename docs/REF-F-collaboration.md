@@ -1,6 +1,6 @@
 # Agent Collaboration
 
-Sometimes it helps to have a second opinion. Different models think differently - they catch different things. The agentbox-analyst MCP lets agents ask each other for help.
+Sometimes it helps to have a second opinion. Different models think differently - they catch different things. The boxctl-analyst MCP lets agents ask each other for help.
 
 ## The Idea
 
@@ -23,8 +23,8 @@ The primary agent considers the feedback. Maybe incorporates it. Maybe disagrees
 ## Enabling It
 
 ```bash
-agentbox mcp add agentbox-analyst
-agentbox rebase
+boxctl mcp add boxctl-analyst
+boxctl rebase
 ```
 
 Now agents have access to the analyst tools.

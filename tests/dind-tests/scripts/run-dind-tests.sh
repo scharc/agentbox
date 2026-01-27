@@ -1,5 +1,5 @@
 #!/bin/bash
-# Agentbox DinD Test Runner
+# Boxctl DinD Test Runner
 # Copyright (c) 2025 Marc Schütze <scharc@gmail.com>
 # SPDX-License-Identifier: MIT
 #
@@ -31,8 +31,8 @@ log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 log_step() { echo -e "${BLUE}[====]${NC} $*"; }
 
 # Default options
-IMAGE_NAME="agentbox-dind-test:latest"
-CONTAINER_NAME="agentbox-dind-test-runner"
+IMAGE_NAME="boxctl-dind-test:latest"
+CONTAINER_NAME="boxctl-dind-test-runner"
 WITH_AUTH=false
 BUILD_ONLY=false
 REBUILD=false
@@ -95,7 +95,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --help|-h)
-            echo "Agentbox DinD Test Runner"
+            echo "Boxctl DinD Test Runner"
             echo ""
             echo "Usage: $0 [OPTIONS] [TEST_FILE|TEST_PATTERN]"
             echo ""
@@ -169,14 +169,14 @@ fi
 
 echo ""
 echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║         Agentbox DinD Test Runner                          ║${NC}"
+echo -e "${CYAN}║         Boxctl DinD Test Runner                          ║${NC}"
 echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
 # Step 1: Ensure base image exists
 log_step "Checking base image..."
 
-BASE_IMAGE="agentbox-base:latest"
+BASE_IMAGE="boxctl-base:latest"
 if [ "$REBUILD_BASE" = true ] || ! docker image inspect "$BASE_IMAGE" > /dev/null 2>&1; then
     log_info "Building base image: $BASE_IMAGE..."
     cd "$REPO_ROOT"

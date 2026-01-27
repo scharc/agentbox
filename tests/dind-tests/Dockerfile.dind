@@ -1,19 +1,19 @@
-# True Docker-in-Docker Test Container for Agentbox
+# True Docker-in-Docker Test Container for Boxctl
 # Copyright (c) 2025 Marc Schütze <scharc@gmail.com>
 # SPDX-License-Identifier: MIT
 #
 # This is a MINIMAL test controller container. It runs dockerd internally
-# and executes pytest against agentbox. The actual agentbox containers
+# and executes pytest against boxctl. The actual boxctl containers
 # (with node, uv, etc.) are built and run inside this container.
 #
-# Usage:
-#   docker build -f dind-tests/Dockerfile.dind -t agentbox-dind-test:latest .
-#   docker run --privileged --rm agentbox-dind-test:latest
+# Usage (from project root):
+#   docker build -f tests/dind-tests/Dockerfile.dind -t boxctl-dind-test:latest .
+#   docker run --privileged --rm boxctl-dind-test:latest
 
 FROM ubuntu:24.04
 
 LABEL maintainer="Marc Schuetze <marc@schuetze.io>"
-LABEL description="Agentbox True DinD Test Controller"
+LABEL description="Boxctl True DinD Test Controller"
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -30,7 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg \
     lsb-release \
     sudo \
-    # Python (for pytest + agentbox CLI)
+    # Python (for pytest + boxctl CLI)
     python3.12 \
     python3-pip \
     python3.12-venv \
@@ -52,10 +52,10 @@ RUN install -m 0755 -d /etc/apt/keyrings \
 
 # Configure Docker daemon for DinD (vfs storage driver for nested Docker)
 RUN mkdir -p /etc/docker
-COPY dind-tests/scripts/daemon.json /etc/docker/daemon.json
+COPY tests/dind-tests/scripts/daemon.json /etc/docker/daemon.json
 
 # =============================================================================
-# Poetry + agentbox installation
+# Poetry + boxctl installation
 # =============================================================================
 
 # Install poetry
@@ -72,10 +72,10 @@ RUN poetry config virtualenvs.create false \
     && poetry install --without dev --no-root --no-interaction
 
 # Copy source
-COPY agentbox ./agentbox
+COPY boxctl ./boxctl
 COPY README.md ./
 
-# Install agentbox package
+# Install boxctl package
 RUN poetry install --without dev --no-interaction
 
 # Install test dependencies (minimal - just what pytest needs)
@@ -86,14 +86,13 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     pytest-json-report
 
 # =============================================================================
-# Files needed to build agentbox-base:latest inside DinD
+# Files needed to build boxctl-base:latest inside DinD
 # =============================================================================
 
 COPY Dockerfile.base ./
 COPY bin ./bin
 COPY library ./library
-COPY completions ./completions
-COPY dind-tests ./dind-tests
+COPY tests/dind-tests ./dind-tests
 
 # =============================================================================
 # Test user setup
@@ -108,7 +107,7 @@ RUN mkdir -p \
     /home/testuser/.claude \
     /home/testuser/.codex \
     /home/testuser/.ssh \
-    /home/testuser/.config/agentbox \
+    /home/testuser/.config/boxctl \
     && chown -R testuser:testuser /home/testuser
 
 RUN mkdir -p /test-workspace /test-results \
@@ -118,8 +117,8 @@ RUN mkdir -p /test-workspace /test-results \
 # Entrypoint
 # =============================================================================
 
-COPY dind-tests/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY dind-tests/scripts/wait-for-docker.sh /usr/local/bin/wait-for-docker.sh
+COPY tests/dind-tests/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY tests/dind-tests/scripts/wait-for-docker.sh /usr/local/bin/wait-for-docker.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/wait-for-docker.sh
 
 ENV PYTHONPATH=/build:/build/dind-tests

@@ -16,10 +16,10 @@ from helpers.docker import (
 
 
 class TestProjectInit:
-    """Test 'agentbox init' command."""
+    """Test 'boxctl init' command."""
 
     def test_init_creates_agentbox_dir(self, module_workspace):
-        """Test init creates .agentbox directory."""
+        """Test init creates .boxctl directory."""
         import uuid
 
         project_dir = module_workspace / f"init-test-{uuid.uuid4().hex[:8]}"
@@ -28,8 +28,8 @@ class TestProjectInit:
         result = run_abox("init", cwd=project_dir)
 
         assert result.returncode == 0, f"Init failed: {result.stderr}"
-        assert (project_dir / ".agentbox").is_dir()
-        assert (project_dir / ".agentbox" / "claude").is_dir()
+        assert (project_dir / ".boxctl").is_dir()
+        assert (project_dir / ".boxctl" / "claude").is_dir()
 
     def test_init_creates_mcp_config(self, module_workspace):
         """Test init creates MCP configuration."""
@@ -40,7 +40,7 @@ class TestProjectInit:
 
         run_abox("init", cwd=project_dir)
 
-        mcp_config = project_dir / ".agentbox" / "claude" / "mcp.json"
+        mcp_config = project_dir / ".boxctl" / "claude" / "mcp.json"
         assert mcp_config.exists()
 
     def test_init_idempotent(self, test_project):
@@ -51,11 +51,11 @@ class TestProjectInit:
 
 
 class TestProjectStart:
-    """Test 'agentbox start' command."""
+    """Test 'boxctl start' command."""
 
     def test_start_creates_container(self, test_project):
         """Test start creates a Docker container."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         result = run_abox("start", cwd=test_project)
 
@@ -68,7 +68,7 @@ class TestProjectStart:
 
     def test_start_container_becomes_healthy(self, test_project):
         """Test started container becomes healthy."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         run_abox("start", cwd=test_project)
 
@@ -85,7 +85,7 @@ class TestProjectStart:
         This is a critical True DinD test - verifies that bind mounts work
         correctly in the nested Docker environment.
         """
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Create a test file on the host (test container filesystem)
         test_content = f"True DinD bind mount test - {container_name}"
@@ -135,11 +135,11 @@ class TestProjectStart:
 
 
 class TestProjectStop:
-    """Test 'agentbox stop' command."""
+    """Test 'boxctl stop' command."""
 
     def test_stop_running_container(self, test_project):
         """Test stopping a running container."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Start first
         run_abox("start", cwd=test_project)
@@ -161,11 +161,11 @@ class TestProjectStop:
 
 
 class TestProjectRebuild:
-    """Test 'agentbox rebuild' command."""
+    """Test 'boxctl rebuild' command."""
 
     def test_rebuild_recreates_container(self, test_project):
         """Test rebuild creates a new container."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Start and get original container ID
         run_abox("start", cwd=test_project)
@@ -192,7 +192,7 @@ class TestProjectRebuild:
 
 
 class TestProjectList:
-    """Test 'agentbox list' command."""
+    """Test 'boxctl list' command."""
 
     def test_list_shows_running_container(self, running_container, test_project):
         """Test list shows running container."""
@@ -203,7 +203,7 @@ class TestProjectList:
 
 
 class TestProjectShell:
-    """Test 'agentbox shell' command."""
+    """Test 'boxctl shell' command."""
 
     def test_shell_container_accessible(self, running_container, test_project):
         """Test shell command can access container."""
@@ -216,7 +216,7 @@ class TestProjectShell:
 
 
 class TestProjectInfo:
-    """Test 'agentbox info' command."""
+    """Test 'boxctl info' command."""
 
     def test_info_shows_container_details(self, running_container, test_project):
         """Test info shows container details."""
@@ -229,11 +229,11 @@ class TestProjectInfo:
 
 
 class TestProjectRemove:
-    """Test 'agentbox remove' command."""
+    """Test 'boxctl remove' command."""
 
     def test_remove_deletes_container(self, test_project):
         """Test remove deletes the container."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Start first
         run_abox("start", cwd=test_project)
@@ -254,7 +254,7 @@ class TestProjectRemove:
 class TestTrueDinD:
     """True DinD capability tests.
 
-    These tests verify that agentbox containers can perform Docker operations
+    These tests verify that boxctl containers can perform Docker operations
     themselves - the core value of True DinD architecture.
 
     Note: Docker socket is only mounted when Docker MCP is enabled.
@@ -264,7 +264,7 @@ class TestTrueDinD:
     @pytest.fixture
     def docker_enabled_container(self, test_project):
         """Start container with Docker MCP enabled."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Enable Docker MCP to mount the socket
         result = run_abox("mcp", "add", "docker", cwd=test_project)
@@ -285,17 +285,17 @@ class TestTrueDinD:
         run_abox("stop", cwd=test_project)
 
     def test_nested_container_creation(self, docker_enabled_container, test_project):
-        """Test that agentbox container can create nested containers.
+        """Test that boxctl container can create nested containers.
 
         This is THE critical True DinD test. It verifies that:
-        1. Docker socket is properly mounted in the agentbox container
+        1. Docker socket is properly mounted in the boxctl container
         2. The container has proper permissions to use Docker
         3. We can actually create and run nested containers
 
         Without this working, features like 'docker build' inside the
         container would fail.
         """
-        # Create a nested container from inside the agentbox container
+        # Create a nested container from inside the boxctl container
         nested_container = f"nested-test-{docker_enabled_container}"
 
         # Run a simple alpine container from inside
@@ -315,9 +315,9 @@ class TestTrueDinD:
         )
 
     def test_nested_docker_build(self, docker_enabled_container, test_project):
-        """Test that agentbox container can build Docker images.
+        """Test that boxctl container can build Docker images.
 
-        This verifies docker build works inside the agentbox container,
+        This verifies docker build works inside the boxctl container,
         which is essential for development workflows.
         """
         # Create a simple Dockerfile inside the container
@@ -370,11 +370,11 @@ class TestTrueDinD:
 
 
 class TestVersionTracking:
-    """Test agentbox version tracking in project lifecycle."""
+    """Test boxctl version tracking in project lifecycle."""
 
     def test_version_recorded_on_rebuild(self, test_project):
         """Test that agentbox_version is recorded in config after rebuild."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Start the container first
         result = run_abox("start", cwd=test_project)
@@ -390,12 +390,12 @@ class TestVersionTracking:
         result = exec_in_container(
             container_name,
             "python3 -c '"
-            "from agentbox.config import ProjectConfig; "
-            "from agentbox import __version__; "
+            "from boxctl.config import ProjectConfig; "
+            "from boxctl import __version__; "
             "config = ProjectConfig(); "
-            "print(f\"VERSION:{config.agentbox_version}\"); "
+            "print(f\"VERSION:{config.boxctl_version}\"); "
             "print(f\"CURRENT:{__version__}\"); "
-            "print(f\"MATCH:{config.agentbox_version == __version__}\")'"
+            "print(f\"MATCH:{config.boxctl_version == __version__}\")'"
         )
 
         assert result.returncode == 0, f"Version check failed: {result.stderr}"
@@ -414,11 +414,11 @@ class TestVersionTracking:
         result = exec_in_container(
             container_name,
             "python3 -c '"
-            "from agentbox.config import ProjectConfig; "
+            "from boxctl.config import ProjectConfig; "
             "config = ProjectConfig(); "
-            "config.agentbox_version = \"0.0.1\"; "
+            "config.boxctl_version = \"0.0.1\"; "
             "config.save(quiet=True); "
-            "print(f\"SET:{config.agentbox_version}\"); "
+            "print(f\"SET:{config.boxctl_version}\"); "
             "print(f\"OUTDATED:{config.is_version_outdated()}\")'"
         )
 
@@ -437,10 +437,10 @@ class TestVersionTracking:
         result = exec_in_container(
             container_name,
             "python3 -c '"
-            "from agentbox.config import ProjectConfig; "
-            "from agentbox import __version__; "
+            "from boxctl.config import ProjectConfig; "
+            "from boxctl import __version__; "
             "config = ProjectConfig(); "
-            "config.agentbox_version = __version__; "
+            "config.boxctl_version = __version__; "
             "config.save(quiet=True); "
             "print(f\"OUTDATED:{config.is_version_outdated()}\")'"
         )
@@ -461,7 +461,7 @@ class TestOutdatedEnvironmentWarning:
         result = exec_in_container(
             container_name,
             "python3 -c '"
-            "from agentbox.cli.helpers.tmux_ops import _warn_if_base_outdated; "
+            "from boxctl.cli.helpers.tmux_ops import _warn_if_base_outdated; "
             "print(f\"CALLABLE:{callable(_warn_if_base_outdated)}\")'"
         )
 
@@ -478,10 +478,10 @@ class TestOutdatedEnvironmentWarning:
         result = exec_in_container(
             container_name,
             "python3 -c '"
-            "from agentbox.config import ProjectConfig; "
-            "from agentbox.container import ContainerManager; "
+            "from boxctl.config import ProjectConfig; "
+            "from boxctl.container import ContainerManager; "
             "config = ProjectConfig(); "
-            "config.agentbox_version = \"0.0.1\"; "
+            "config.boxctl_version = \"0.0.1\"; "
             "config.save(quiet=True); "
             "manager = ContainerManager(); "
             "base_outdated = manager.is_base_image_outdated(\"" + container_name + "\"); "
@@ -506,7 +506,7 @@ class TestOutdatedEnvironmentWarning:
         result = exec_in_container(
             container_name,
             "python3 -c '"
-            "from agentbox.cli.helpers.tmux_ops import _warn_if_base_outdated; "
+            "from boxctl.cli.helpers.tmux_ops import _warn_if_base_outdated; "
             "import inspect; "
             "source = inspect.getsource(_warn_if_base_outdated); "
             "print(f\"HAS_PANEL:{'Panel' in source}\"); "
@@ -538,7 +538,7 @@ class TestRebaseCommand:
 
     def test_rebase_recreates_container(self, test_project):
         """Test rebase recreates the container with new base image."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Start and get original container ID
         result = run_abox("start", cwd=test_project)
@@ -567,7 +567,7 @@ class TestRebaseCommand:
 
     def test_rebase_updates_version(self, test_project):
         """Test rebase updates the config version."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Start first
         result = run_abox("start", cwd=test_project)
@@ -578,9 +578,9 @@ class TestRebaseCommand:
         exec_in_container(
             container_name,
             "python3 -c '"
-            "from agentbox.config import ProjectConfig; "
+            "from boxctl.config import ProjectConfig; "
             "config = ProjectConfig(); "
-            "config.agentbox_version = \"0.0.1\"; "
+            "config.boxctl_version = \"0.0.1\"; "
             "config.save(quiet=True)'"
         )
 
@@ -588,8 +588,8 @@ class TestRebaseCommand:
         result = exec_in_container(
             container_name,
             "python3 -c '"
-            "from agentbox.config import ProjectConfig; "
-            "print(ProjectConfig().agentbox_version)'"
+            "from boxctl.config import ProjectConfig; "
+            "print(ProjectConfig().boxctl_version)'"
         )
         assert "0.0.1" in result.stdout, "Old version should be set"
 
@@ -602,11 +602,11 @@ class TestRebaseCommand:
         result = exec_in_container(
             container_name,
             "python3 -c '"
-            "from agentbox.config import ProjectConfig; "
-            "from agentbox import __version__; "
+            "from boxctl.config import ProjectConfig; "
+            "from boxctl import __version__; "
             "config = ProjectConfig(); "
-            "print(f\"VERSION:{config.agentbox_version}\"); "
-            "print(f\"MATCH:{config.agentbox_version == __version__}\")'"
+            "print(f\"VERSION:{config.boxctl_version}\"); "
+            "print(f\"MATCH:{config.boxctl_version == __version__}\")'"
         )
 
         assert result.returncode == 0, f"Version check failed: {result.stderr}"
@@ -623,7 +623,7 @@ class TestOutdatedBaseImageDetectionIntegration:
 
     def test_fresh_container_not_outdated(self, test_project):
         """Test that a freshly created container is not marked as outdated."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Start fresh container
         result = run_abox("start", cwd=test_project)
@@ -634,7 +634,7 @@ class TestOutdatedBaseImageDetectionIntegration:
         result = exec_in_container(
             container_name,
             f"python3 -c '"
-            "from agentbox.container import ContainerManager; "
+            "from boxctl.container import ContainerManager; "
             f"m = ContainerManager(); "
             f"print(f\"OUTDATED:{{m.is_base_image_outdated(\"{container_name}\")}}\")'"
         )

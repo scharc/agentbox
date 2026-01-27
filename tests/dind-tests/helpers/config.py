@@ -21,11 +21,11 @@ def _merge_dicts(base: Dict[str, Any], updates: Dict[str, Any]) -> None:
 
 
 def update_project_config(project_dir: Path, updates: Dict[str, Any]) -> Dict[str, Any]:
-    """Update .agentbox.yml with provided values.
+    """Update .boxctl.yml with provided values.
 
     Returns the updated config dict.
     """
-    config_path = project_dir / ".agentbox.yml"
+    config_path = project_dir / ".boxctl.yml"
     config: Dict[str, Any] = {}
 
     if config_path.exists():

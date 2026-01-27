@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Marc Schütze <scharc@gmail.com>
 # SPDX-License-Identifier: MIT
 
-"""Git repository helpers for agentbox DinD tests."""
+"""Git repository helpers for boxctl DinD tests."""
 
 import subprocess
 from pathlib import Path

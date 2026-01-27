@@ -20,14 +20,14 @@ class TestPackagesPersistence:
 
     def test_npm_package_survives_rebuild(self, test_project):
         """Test npm package persists after rebuild."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # 1. Add npm package to config
         result = run_abox("packages", "add", "npm", "cowsay", cwd=test_project)
         assert result.returncode == 0, f"Failed to add package: {result.stderr}"
 
         # Verify package is in config
-        config_path = test_project / ".agentbox.yml"
+        config_path = test_project / ".boxctl.yml"
         if config_path.exists():
             with open(config_path) as f:
                 config = yaml.safe_load(f) or {}
@@ -71,7 +71,7 @@ class TestPackagesPersistence:
 
     def test_pip_package_survives_rebuild(self, test_project):
         """Test pip package persists after rebuild."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # 1. Add pip package to config
         result = run_abox("packages", "add", "pip", "httpie", cwd=test_project)
@@ -92,8 +92,8 @@ class TestPackagesPersistence:
         time.sleep(5)
 
         # 4. Verify package is in config
-        config_path = test_project / ".agentbox.yml"
-        assert config_path.exists(), ".agentbox.yml not created"
+        config_path = test_project / ".boxctl.yml"
+        assert config_path.exists(), ".boxctl.yml not created"
         with open(config_path) as f:
             config = yaml.safe_load(f) or {}
         assert "httpie" in config.get("packages", {}).get("pip", []), (
@@ -115,7 +115,7 @@ class TestPackagesPersistence:
 
     def test_apt_package_survives_rebuild(self, test_project):
         """Test apt package persists after rebuild."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # 1. Add apt package to config
         result = run_abox("packages", "add", "apt", "tree", cwd=test_project)
@@ -135,8 +135,8 @@ class TestPackagesPersistence:
         time.sleep(10)  # Give time for apt install
 
         # 3. Verify package is in config
-        config_path = test_project / ".agentbox.yml"
-        assert config_path.exists(), ".agentbox.yml not created"
+        config_path = test_project / ".boxctl.yml"
+        assert config_path.exists(), ".boxctl.yml not created"
         with open(config_path) as f:
             config = yaml.safe_load(f) or {}
         assert "tree" in config.get("packages", {}).get("apt", []), (
@@ -183,7 +183,7 @@ class TestPackagesConfig:
         # Add package
         run_abox("packages", "add", "npm", "cowsay", cwd=test_project)
 
-        config_path = test_project / ".agentbox.yml"
+        config_path = test_project / ".boxctl.yml"
         if config_path.exists():
             with open(config_path) as f:
                 config = yaml.safe_load(f) or {}

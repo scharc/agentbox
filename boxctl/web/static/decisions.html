@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Make a Decision</title>
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#4a90e2">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="boxctl">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    <link rel="stylesheet" href="/static/css/style.css?v=CACHE_BUST">
+    <style>
+        .decisions-page {
+            padding: 1rem;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .decision-maker {
+            background: var(--surface-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .question-input {
+            width: 100%;
+            padding: 1rem;
+            background: var(--bg-color);
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-color);
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+            resize: vertical;
+            min-height: 60px;
+            font-family: inherit;
+        }
+
+        .question-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+        }
+
+        .option-input-row {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .option-input {
+            flex: 1;
+            padding: 0.75rem;
+            background: var(--bg-color);
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-color);
+            font-size: 1rem;
+        }
+
+        .option-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+        }
+
+        .remove-option-btn {
+            width: 40px;
+            background: var(--danger-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1.2rem;
+        }
+
+        .remove-option-btn:active {
+            transform: scale(0.9);
+        }
+
+        .add-option-btn {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--border-color);
+            color: var(--text-color);
+            border: 2px dashed var(--text-muted);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            margin: 1rem 0;
+        }
+
+        .add-option-btn:active {
+            transform: scale(0.98);
+        }
+
+        .choice-buttons {
+            display: grid;
+            gap: 0.75rem;
+            margin-top: 1.5rem;
+        }
+
+        .choice-btn {
+            padding: 1.25rem;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-weight: 600;
+            text-align: left;
+            transition: all 0.2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .choice-btn:active {
+            transform: scale(0.97);
+            background: #3a7bc8;
+        }
+
+        .choice-btn-label {
+            font-size: 0.8rem;
+            opacity: 0.8;
+            margin-bottom: 0.25rem;
+        }
+
+        .reset-btn {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--text-muted);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin-top: 1rem;
+        }
+
+        .reset-btn:active {
+            transform: scale(0.98);
+        }
+
+        .decision-result {
+            background: var(--secondary-color);
+            color: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+
+        .decision-result h2 {
+            font-size: 1.3rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .decision-result p {
+            font-size: 1rem;
+            opacity: 0.9;
+            margin-bottom: 1rem;
+        }
+
+        .decision-result .chosen-option {
+            font-size: 1.4rem;
+            font-weight: 700;
+            padding: 1rem;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+
+        .new-decision-btn {
+            padding: 0.75rem 1.5rem;
+            background: white;
+            color: var(--secondary-color);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .new-decision-btn:active {
+            transform: scale(0.95);
+        }
+
+        .history-section {
+            margin-top: 2rem;
+        }
+
+        .history-title {
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+            color: var(--text-muted);
+        }
+
+        .history-item {
+            background: var(--surface-color);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 0.75rem;
+            border-left: 4px solid var(--secondary-color);
+        }
+
+        .history-question {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--primary-color);
+        }
+
+        .history-choice {
+            color: var(--secondary-color);
+            font-weight: 500;
+        }
+
+        .history-time {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.5rem;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1><a href="/" style="color: inherit; text-decoration: none;">🤖 boxctl</a></h1>
+        <a href="/decisions" style="color: var(--primary-color); text-decoration: none; font-weight: 600;">? Decide</a>
+    </header>
+
+    <div class="decisions-page">
+        <div id="decision-input" class="decision-maker">
+            <textarea
+                id="question"
+                class="question-input"
+                placeholder="What decision do you need to make?&#10;&#10;Example: Should I refactor this code or add new features first?"
+            ></textarea>
+
+            <div id="options-list">
+                <div class="option-input-row">
+                    <input type="text" class="option-input" placeholder="Option A" value="">
+                    <button class="remove-option-btn" onclick="removeOption(this)" style="visibility: hidden;">×</button>
+                </div>
+                <div class="option-input-row">
+                    <input type="text" class="option-input" placeholder="Option B" value="">
+                    <button class="remove-option-btn" onclick="removeOption(this)" style="visibility: hidden;">×</button>
+                </div>
+            </div>
+
+            <button class="add-option-btn" onclick="addOption()">+ Add Option</button>
+
+            <div class="choice-buttons" id="choice-buttons"></div>
+
+            <button class="reset-btn" onclick="resetForm()">Clear All</button>
+        </div>
+
+        <div id="decision-result" style="display: none;"></div>
+
+        <div class="history-section" id="history-section" style="display: none;">
+            <h3 class="history-title">Recent Decisions</h3>
+            <div id="history-list"></div>
+        </div>
+    </div>
+
+    <script>
+        let history = [];
+
+        // Load history from localStorage
+        function loadHistory() {
+            const saved = localStorage.getItem('boxctl-decision-history');
+            if (saved) {
+                try {
+                    history = JSON.parse(saved);
+                    renderHistory();
+                } catch (e) {
+                    history = [];
+                }
+            }
+        }
+
+        // Save history to localStorage
+        function saveHistory() {
+            localStorage.setItem('boxctl-decision-history', JSON.stringify(history));
+            renderHistory();
+        }
+
+        // Add option
+        function addOption() {
+            const optionsList = document.getElementById('options-list');
+            const optionCount = optionsList.children.length;
+            const letter = String.fromCharCode(65 + optionCount); // A, B, C, etc.
+
+            const row = document.createElement('div');
+            row.className = 'option-input-row';
+            row.innerHTML = `
+                <input type="text" class="option-input" placeholder="Option ${letter}" value="">
+                <button class="remove-option-btn" onclick="removeOption(this)">×</button>
+            `;
+            optionsList.appendChild(row);
+            updateChoiceButtons();
+        }
+
+        // Remove option
+        function removeOption(btn) {
+            const row = btn.parentElement;
+            row.remove();
+            updateChoiceButtons();
+        }
+
+        // Update choice buttons based on options
+        function updateChoiceButtons() {
+            const question = document.getElementById('question').value.trim();
+            const optionInputs = document.querySelectorAll('.option-input');
+            const options = Array.from(optionInputs)
+                .map(input => input.value.trim())
+                .filter(val => val);
+
+            const choiceButtons = document.getElementById('choice-buttons');
+
+            if (!question || options.length < 2) {
+                choiceButtons.innerHTML = '';
+                return;
+            }
+
+            choiceButtons.innerHTML = options.map((option, index) => {
+                const letter = String.fromCharCode(65 + index);
+                return `
+                    <button class="choice-btn" onclick="makeChoice(${index})">
+                        <div class="choice-btn-label">Option ${letter}</div>
+                        <div>${escapeHtml(option)}</div>
+                    </button>
+                `;
+            }).join('');
+        }
+
+        // Make a choice
+        function makeChoice(index) {
+            const question = document.getElementById('question').value.trim();
+            const optionInputs = document.querySelectorAll('.option-input');
+            const options = Array.from(optionInputs)
+                .map(input => input.value.trim())
+                .filter(val => val);
+
+            const chosen = options[index];
+            const letter = String.fromCharCode(65 + index);
+
+            // Save to history
+            history.unshift({
+                question,
+                options,
+                chosen,
+                chosenIndex: index,
+                timestamp: new Date().toISOString()
+            });
+
+            // Keep only last 10 decisions
+            if (history.length > 10) {
+                history = history.slice(0, 10);
+            }
+
+            saveHistory();
+            showResult(question, chosen, letter);
+        }
+
+        // Show result
+        function showResult(question, chosen, letter) {
+            const resultDiv = document.getElementById('decision-result');
+            resultDiv.innerHTML = `
+                <h2>✓ Decision Made!</h2>
+                <p>${escapeHtml(question)}</p>
+                <div class="chosen-option">
+                    Option ${letter}: ${escapeHtml(chosen)}
+                </div>
+                <button class="new-decision-btn" onclick="newDecision()">Make Another Decision</button>
+            `;
+            resultDiv.style.display = 'block';
+            document.getElementById('decision-input').style.display = 'none';
+        }
+
+        // New decision
+        function newDecision() {
+            document.getElementById('decision-result').style.display = 'none';
+            document.getElementById('decision-input').style.display = 'block';
+            resetForm();
+        }
+
+        // Reset form
+        function resetForm() {
+            document.getElementById('question').value = '';
+            const optionInputs = document.querySelectorAll('.option-input');
+            optionInputs.forEach(input => input.value = '');
+
+            // Keep only first 2 options
+            const optionsList = document.getElementById('options-list');
+            while (optionsList.children.length > 2) {
+                optionsList.lastChild.remove();
+            }
+
+            updateChoiceButtons();
+        }
+
+        // Render history
+        function renderHistory() {
+            if (history.length === 0) {
+                document.getElementById('history-section').style.display = 'none';
+                return;
+            }
+
+            document.getElementById('history-section').style.display = 'block';
+            const historyList = document.getElementById('history-list');
+
+            historyList.innerHTML = history.map(item => {
+                const letter = String.fromCharCode(65 + item.chosenIndex);
+                const time = new Date(item.timestamp).toLocaleString();
+
+                return `
+                    <div class="history-item">
+                        <div class="history-question">${escapeHtml(item.question)}</div>
+                        <div class="history-choice">✓ Option ${letter}: ${escapeHtml(item.chosen)}</div>
+                        <div class="history-time">${time}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Event listeners
+        document.getElementById('question').addEventListener('input', updateChoiceButtons);
+        document.getElementById('options-list').addEventListener('input', updateChoiceButtons);
+
+        // Load on page load
+        loadHistory();
+    </script>
+    <footer>
+        <p>
+            <a href="/">Sessions</a> &bull;
+            <a href="/status">Status</a> &bull;
+            <a href="/decisions" class="active">Decisions</a>
+        </p>
+    </footer>
+    <script src="/static/js/pwa-init.js?v=CACHE_BUST"></script>
+</body>
+</html>

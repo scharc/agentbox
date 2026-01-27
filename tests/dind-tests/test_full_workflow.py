@@ -4,7 +4,7 @@
 """
 Comprehensive DinD Test Suite - Full Workflow Testing
 
-This test suite tests ALL agentbox commands and subcommands in realistic
+This test suite tests ALL boxctl commands and subcommands in realistic
 workflows. No config file checking - real Docker operations with verification.
 
 Test Order (Dependencies):
@@ -74,8 +74,8 @@ def run_abox(
     env: Optional[dict] = None,
     input: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
-    """Run agentbox CLI command."""
-    cmd = ["agentbox", *[str(a) for a in args]]
+    """Run boxctl CLI command."""
+    cmd = ["boxctl", *[str(a) for a in args]]
     run_env = os.environ.copy()
     if env:
         run_env.update(env)
@@ -153,12 +153,12 @@ def create_git_repo(path: Path, branches: List[str] = None) -> None:
 
 
 def copy_agentbox_repo(dest: Path, branches: List[str] = None) -> None:
-    """Copy the agentbox repo as a realistic test project.
+    """Copy the boxctl repo as a realistic test project.
 
-    This copies the actual agentbox source code to use as a test project,
+    This copies the actual boxctl source code to use as a test project,
     which is more realistic than creating empty fake repos.
     """
-    # The agentbox repo is at /build in the DinD container
+    # The boxctl repo is at /build in the DinD container
     source = Path("/build")
 
     if not source.exists():
@@ -169,7 +169,7 @@ def copy_agentbox_repo(dest: Path, branches: List[str] = None) -> None:
     dest.mkdir(parents=True, exist_ok=True)
 
     # Copy essential files (not everything - keep it fast)
-    essential_dirs = ["agentbox", "library", "bin"]
+    essential_dirs = ["boxctl", "library", "bin"]
     essential_files = ["pyproject.toml", "README.md"]
 
     for d in essential_dirs:
@@ -187,7 +187,7 @@ def copy_agentbox_repo(dest: Path, branches: List[str] = None) -> None:
     subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=dest, capture_output=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=dest, capture_output=True)
     subprocess.run(["git", "add", "."], cwd=dest, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "Initial commit from agentbox repo"], cwd=dest, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "Initial commit from boxctl repo"], cwd=dest, capture_output=True)
 
     # Create additional branches if requested
     for branch in (branches or []):
@@ -234,8 +234,8 @@ def test_root(dind_ready) -> Generator[Path, None, None]:
     root.mkdir(parents=True, exist_ok=True)
     yield root
     # Cleanup all test containers
-    cleanup_containers_matching("agentbox-test-")
-    cleanup_containers_matching("agentbox-workflow-")
+    cleanup_containers_matching("boxctl-test-")
+    cleanup_containers_matching("boxctl-workflow-")
     # Cleanup directory
     for item in root.iterdir():
         if item.is_dir():
@@ -246,7 +246,7 @@ def test_root(dind_ready) -> Generator[Path, None, None]:
 def base_image_built(dind_ready) -> bool:
     """Ensure base image exists (build if needed)."""
     # Check if base image exists
-    result = run_docker("images", "agentbox-base:latest", "--format", "{{.ID}}")
+    result = run_docker("images", "boxctl-base:latest", "--format", "{{.ID}}")
     if result.stdout.strip():
         return True
 
@@ -265,7 +265,7 @@ class TestPhase1_BaseImage:
     """Test base image management commands."""
 
     def test_base_rebuild_help(self, dind_ready):
-        """Test 'agentbox base rebuild --help' shows usage."""
+        """Test 'boxctl base rebuild --help' shows usage."""
         result = run_abox("base", "rebuild", "--help")
         assert result.returncode == 0
         assert "rebuild" in result.stdout.lower() or "base" in result.stdout.lower()
@@ -275,14 +275,14 @@ class TestPhase1_BaseImage:
     def test_base_rebuild_creates_image(self, dind_ready):
         """Test base rebuild creates the image."""
         # Remove existing image first
-        run_docker("rmi", "agentbox-base:latest", "-f")
+        run_docker("rmi", "boxctl-base:latest", "-f")
 
         result = run_abox("base", "rebuild", timeout=BASE_BUILD_TIMEOUT)
         assert result.returncode == 0, f"Build failed: {result.stderr}"
 
         # Verify image exists
-        result = run_docker("images", "agentbox-base:latest", "--format", "{{.Repository}}")
-        assert "agentbox-base" in result.stdout
+        result = run_docker("images", "boxctl-base:latest", "--format", "{{.Repository}}")
+        assert "boxctl-base" in result.stdout
 
 
 # ============================================================================
@@ -301,28 +301,28 @@ class TestPhase2_ProjectLifecycle:
         copy_agentbox_repo(project)
         yield project
         # Cleanup
-        container_name = f"agentbox-{project.name}"
+        container_name = f"boxctl-{project.name}"
         cleanup_container(container_name)
         shutil.rmtree(project, ignore_errors=True)
 
     # --- init ---
 
     def test_init_creates_agentbox_dir(self, project_dir):
-        """Test 'agentbox init' creates .agentbox directory."""
+        """Test 'boxctl init' creates .boxctl directory."""
         result = run_abox("init", cwd=project_dir)
         assert result.returncode == 0, f"Init failed: {result.stderr}"
-        assert (project_dir / ".agentbox").is_dir()
+        assert (project_dir / ".boxctl").is_dir()
 
     def test_init_creates_claude_dir(self, project_dir):
-        """Test init creates .agentbox/claude directory."""
+        """Test init creates .boxctl/claude directory."""
         run_abox("init", cwd=project_dir)
-        assert (project_dir / ".agentbox" / "claude").is_dir()
+        assert (project_dir / ".boxctl" / "claude").is_dir()
 
     def test_init_creates_mcp_config(self, project_dir):
         """Test init creates MCP configuration file (unified at root level)."""
         run_abox("init", cwd=project_dir)
         # mcp.json is now at root level (unified for all agents)
-        mcp_config = project_dir / ".agentbox" / "mcp.json"
+        mcp_config = project_dir / ".boxctl" / "mcp.json"
         assert mcp_config.exists(), f"mcp.json not found at {mcp_config}"
         # Verify it's valid JSON
         data = json.loads(mcp_config.read_text())
@@ -331,7 +331,7 @@ class TestPhase2_ProjectLifecycle:
     def test_init_creates_config_toml(self, project_dir):
         """Test init creates config.toml."""
         run_abox("init", cwd=project_dir)
-        config = project_dir / ".agentbox" / "config.toml"
+        config = project_dir / ".boxctl" / "config.toml"
         assert config.exists()
 
     def test_init_idempotent(self, project_dir):
@@ -343,9 +343,9 @@ class TestPhase2_ProjectLifecycle:
     # --- start ---
 
     def test_start_creates_container(self, project_dir):
-        """Test 'agentbox start' creates and runs container."""
+        """Test 'boxctl start' creates and runs container."""
         run_abox("init", cwd=project_dir)
-        container_name = f"agentbox-{project_dir.name}"
+        container_name = f"boxctl-{project_dir.name}"
 
         result = run_abox("start", cwd=project_dir)
         assert result.returncode == 0, f"Start failed: {result.stderr}"
@@ -356,7 +356,7 @@ class TestPhase2_ProjectLifecycle:
     def test_start_container_becomes_ready(self, project_dir):
         """Test started container can execute commands."""
         run_abox("init", cwd=project_dir)
-        container_name = f"agentbox-{project_dir.name}"
+        container_name = f"boxctl-{project_dir.name}"
 
         run_abox("start", cwd=project_dir)
 
@@ -366,7 +366,7 @@ class TestPhase2_ProjectLifecycle:
     def test_start_mounts_workspace(self, project_dir):
         """Test /workspace is properly mounted in container."""
         run_abox("init", cwd=project_dir)
-        container_name = f"agentbox-{project_dir.name}"
+        container_name = f"boxctl-{project_dir.name}"
 
         # Create test file
         test_file = project_dir / "mount_test.txt"
@@ -383,7 +383,7 @@ class TestPhase2_ProjectLifecycle:
     def test_start_bidirectional_mount(self, project_dir):
         """Test writes from container are visible on host."""
         run_abox("init", cwd=project_dir)
-        container_name = f"agentbox-{project_dir.name}"
+        container_name = f"boxctl-{project_dir.name}"
 
         run_abox("start", cwd=project_dir)
         wait_for_container(container_name)
@@ -407,9 +407,9 @@ class TestPhase2_ProjectLifecycle:
     # --- stop ---
 
     def test_stop_running_container(self, project_dir):
-        """Test 'agentbox stop' stops a running container."""
+        """Test 'boxctl stop' stops a running container."""
         run_abox("init", cwd=project_dir)
-        container_name = f"agentbox-{project_dir.name}"
+        container_name = f"boxctl-{project_dir.name}"
 
         run_abox("start", cwd=project_dir)
         wait_for_container(container_name)
@@ -430,9 +430,9 @@ class TestPhase2_ProjectLifecycle:
     # --- list / ps ---
 
     def test_list_shows_running_containers(self, project_dir):
-        """Test 'agentbox list' shows running containers."""
+        """Test 'boxctl list' shows running containers."""
         run_abox("init", cwd=project_dir)
-        container_name = f"agentbox-{project_dir.name}"
+        container_name = f"boxctl-{project_dir.name}"
 
         run_abox("start", cwd=project_dir)
         wait_for_container(container_name)
@@ -442,7 +442,7 @@ class TestPhase2_ProjectLifecycle:
         assert container_name in result.stdout or project_dir.name in result.stdout
 
     def test_ps_alias_works(self, project_dir):
-        """Test 'agentbox ps' works as alias for list."""
+        """Test 'boxctl ps' works as alias for list."""
         run_abox("init", cwd=project_dir)
         run_abox("start", cwd=project_dir)
 
@@ -452,9 +452,9 @@ class TestPhase2_ProjectLifecycle:
     # --- info ---
 
     def test_info_shows_container_details(self, project_dir):
-        """Test 'agentbox info' shows container information."""
+        """Test 'boxctl info' shows container information."""
         run_abox("init", cwd=project_dir)
-        container_name = f"agentbox-{project_dir.name}"
+        container_name = f"boxctl-{project_dir.name}"
 
         run_abox("start", cwd=project_dir)
         wait_for_container(container_name)
@@ -469,7 +469,7 @@ class TestPhase2_ProjectLifecycle:
     def test_shell_access_works(self, project_dir):
         """Test shell access to container works."""
         run_abox("init", cwd=project_dir)
-        container_name = f"agentbox-{project_dir.name}"
+        container_name = f"boxctl-{project_dir.name}"
 
         run_abox("start", cwd=project_dir)
         wait_for_container(container_name)
@@ -482,16 +482,16 @@ class TestPhase2_ProjectLifecycle:
     # --- connect ---
 
     def test_connect_help(self, project_dir):
-        """Test 'agentbox connect --help' shows usage."""
+        """Test 'boxctl connect --help' shows usage."""
         result = run_abox("connect", "--help")
         assert result.returncode == 0
 
     # --- remove ---
 
     def test_remove_deletes_container(self, project_dir):
-        """Test 'agentbox remove' deletes the container."""
+        """Test 'boxctl remove' deletes the container."""
         run_abox("init", cwd=project_dir)
-        container_name = f"agentbox-{project_dir.name}"
+        container_name = f"boxctl-{project_dir.name}"
 
         run_abox("start", cwd=project_dir)
         wait_for_container(container_name)
@@ -507,28 +507,28 @@ class TestPhase2_ProjectLifecycle:
     # --- setup ---
 
     def test_setup_help(self, project_dir):
-        """Test 'agentbox setup --help' shows usage."""
+        """Test 'boxctl setup --help' shows usage."""
         result = run_abox("setup", "--help", cwd=project_dir)
         assert result.returncode == 0
 
     # --- reconfigure ---
 
     def test_reconfigure_help(self, project_dir):
-        """Test 'agentbox reconfigure --help' shows usage."""
+        """Test 'boxctl reconfigure --help' shows usage."""
         result = run_abox("reconfigure", "--help", cwd=project_dir)
         assert result.returncode == 0
 
     # --- project migrate ---
 
     def test_project_migrate_help(self, project_dir):
-        """Test 'agentbox project migrate --help' shows usage."""
+        """Test 'boxctl project migrate --help' shows usage."""
         result = run_abox("project", "migrate", "--help", cwd=project_dir)
         assert result.returncode == 0
 
     # --- cleanup ---
 
     def test_cleanup_help(self, project_dir):
-        """Test 'agentbox cleanup --help' shows usage."""
+        """Test 'boxctl cleanup --help' shows usage."""
         result = run_abox("cleanup", "--help", cwd=project_dir)
         assert result.returncode == 0
 
@@ -551,7 +551,7 @@ class TestPhase3_SessionManagement:
         run_abox("init", cwd=project)
         run_abox("start", cwd=project)
 
-        container_name = f"agentbox-{project.name}"
+        container_name = f"boxctl-{project.name}"
         wait_for_container(container_name)
 
         yield project, container_name
@@ -561,14 +561,14 @@ class TestPhase3_SessionManagement:
         shutil.rmtree(project, ignore_errors=True)
 
     def test_session_list(self, running_project):
-        """Test 'agentbox session list' shows tmux sessions."""
+        """Test 'boxctl session list' shows tmux sessions."""
         project, container = running_project
 
         result = run_abox("session", "list", cwd=project)
         assert result.returncode == 0
 
     def test_session_list_all(self, running_project):
-        """Test 'agentbox session list all' lists across all containers."""
+        """Test 'boxctl session list all' lists across all containers."""
         project, container = running_project
 
         result = run_abox("session", "list", "all", cwd=project)
@@ -586,14 +586,14 @@ class TestPhase3_SessionManagement:
         assert "test-session-1" in result.stdout
 
     def test_session_attach_help(self, running_project):
-        """Test 'agentbox session attach --help'."""
+        """Test 'boxctl session attach --help'."""
         project, container = running_project
 
         result = run_abox("session", "attach", "--help", cwd=project)
         assert result.returncode == 0
 
     def test_session_rename(self, running_project):
-        """Test 'agentbox session rename' renames a session."""
+        """Test 'boxctl session rename' renames a session."""
         project, container = running_project
 
         # Create session
@@ -608,7 +608,7 @@ class TestPhase3_SessionManagement:
         assert "rename-test" not in result.stdout
 
     def test_session_remove(self, running_project):
-        """Test 'agentbox session remove' kills a session."""
+        """Test 'boxctl session remove' kills a session."""
         project, container = running_project
 
         # Create session
@@ -627,7 +627,7 @@ class TestPhase3_SessionManagement:
         assert "remove-test" not in result.stdout
 
     def test_session_help(self, running_project):
-        """Test 'agentbox session --help' shows all subcommands."""
+        """Test 'boxctl session --help' shows all subcommands."""
         project, container = running_project
 
         result = run_abox("session", "--help", cwd=project)
@@ -660,22 +660,22 @@ class TestPhase4_WorkspaceMounts:
 
         run_abox("init", cwd=project)
 
-        yield project, f"agentbox-{project.name}", extra_mount
+        yield project, f"boxctl-{project.name}", extra_mount
 
         # Cleanup
-        cleanup_container(f"agentbox-{project.name}")
+        cleanup_container(f"boxctl-{project.name}")
         shutil.rmtree(project, ignore_errors=True)
         shutil.rmtree(extra_mount, ignore_errors=True)
 
     def test_workspace_list_empty(self, workspace_project):
-        """Test 'agentbox workspace list' with no extra mounts."""
+        """Test 'boxctl workspace list' with no extra mounts."""
         project, container, extra = workspace_project
 
         result = run_abox("workspace", "list", cwd=project)
         assert result.returncode == 0
 
     def test_workspace_add(self, workspace_project):
-        """Test 'agentbox workspace add' adds a mount."""
+        """Test 'boxctl workspace add' adds a mount."""
         project, container, extra = workspace_project
 
         result = run_abox("workspace", "add", str(extra), cwd=project)
@@ -702,7 +702,7 @@ class TestPhase4_WorkspaceMounts:
         assert "extra-content" in result.stdout
 
     def test_workspace_remove(self, workspace_project):
-        """Test 'agentbox workspace remove' removes a mount."""
+        """Test 'boxctl workspace remove' removes a mount."""
         project, container, extra = workspace_project
 
         # Add then remove
@@ -733,7 +733,7 @@ class TestPhase5_WorktreeCommands:
         run_abox("init", cwd=project)
         run_abox("start", cwd=project)
 
-        container = f"agentbox-{project.name}"
+        container = f"boxctl-{project.name}"
         wait_for_container(container)
 
         yield project, container
@@ -747,14 +747,14 @@ class TestPhase5_WorktreeCommands:
         shutil.rmtree(project, ignore_errors=True)
 
     def test_worktree_list_initial(self, git_project):
-        """Test 'agentbox worktree list' shows main worktree."""
+        """Test 'boxctl worktree list' shows main worktree."""
         project, container = git_project
 
         result = run_abox("worktree", "list", cwd=project)
         assert result.returncode == 0
 
     def test_worktree_add(self, git_project):
-        """Test 'agentbox worktree add' creates worktree."""
+        """Test 'boxctl worktree add' creates worktree."""
         project, container = git_project
 
         result = run_abox("worktree", "add", "feature-1", cwd=project)
@@ -765,7 +765,7 @@ class TestPhase5_WorktreeCommands:
         assert "feature-1" in result.stdout
 
     def test_worktree_remove(self, git_project):
-        """Test 'agentbox worktree remove' removes worktree."""
+        """Test 'boxctl worktree remove' removes worktree."""
         project, container = git_project
 
         # Add first
@@ -776,14 +776,14 @@ class TestPhase5_WorktreeCommands:
         assert result.returncode == 0
 
     def test_worktree_prune(self, git_project):
-        """Test 'agentbox worktree prune' cleans up."""
+        """Test 'boxctl worktree prune' cleans up."""
         project, container = git_project
 
         result = run_abox("worktree", "prune", cwd=project)
         assert result.returncode == 0
 
     def test_worktree_list_json(self, git_project):
-        """Test 'agentbox worktree list json' returns JSON."""
+        """Test 'boxctl worktree list json' returns JSON."""
         project, container = git_project
 
         result = run_abox("worktree", "list", "json", cwd=project)
@@ -791,7 +791,7 @@ class TestPhase5_WorktreeCommands:
         # Should be valid JSON or JSON-like output
 
     def test_worktree_remove_force(self, git_project):
-        """Test 'agentbox worktree remove' with force option."""
+        """Test 'boxctl worktree remove' with force option."""
         project, container = git_project
 
         # Add worktree
@@ -802,7 +802,7 @@ class TestPhase5_WorktreeCommands:
         assert result.returncode == 0
 
     def test_worktree_help(self, git_project):
-        """Test 'agentbox worktree --help' shows all subcommands."""
+        """Test 'boxctl worktree --help' shows all subcommands."""
         project, container = git_project
 
         result = run_abox("worktree", "--help", cwd=project)
@@ -830,20 +830,20 @@ class TestPhase6_PortForwarding:
 
         run_abox("init", cwd=project)
 
-        yield project, f"agentbox-{project.name}"
+        yield project, f"boxctl-{project.name}"
 
-        cleanup_container(f"agentbox-{project.name}")
+        cleanup_container(f"boxctl-{project.name}")
         shutil.rmtree(project, ignore_errors=True)
 
     def test_ports_list_empty(self, port_project):
-        """Test 'agentbox ports list' with no ports configured."""
+        """Test 'boxctl ports list' with no ports configured."""
         project, container = port_project
 
         result = run_abox("ports", "list", cwd=project)
         assert result.returncode == 0
 
     def test_ports_expose(self, port_project):
-        """Test 'agentbox ports expose' exposes container port."""
+        """Test 'boxctl ports expose' exposes container port."""
         project, container = port_project
 
         result = run_abox("ports", "expose", "8080", cwd=project)
@@ -854,7 +854,7 @@ class TestPhase6_PortForwarding:
         assert "8080" in result.stdout
 
     def test_ports_forward(self, port_project):
-        """Test 'agentbox ports forward' forwards host port."""
+        """Test 'boxctl ports forward' forwards host port."""
         project, container = port_project
 
         result = run_abox("ports", "forward", "9000", cwd=project)
@@ -865,7 +865,7 @@ class TestPhase6_PortForwarding:
         assert "9000" in result.stdout
 
     def test_ports_unexpose(self, port_project):
-        """Test 'agentbox ports unexpose' removes exposed port."""
+        """Test 'boxctl ports unexpose' removes exposed port."""
         project, container = port_project
 
         run_abox("ports", "expose", "8081", cwd=project)
@@ -873,7 +873,7 @@ class TestPhase6_PortForwarding:
         assert result.returncode == 0
 
     def test_ports_unforward(self, port_project):
-        """Test 'agentbox ports unforward' removes forwarded port."""
+        """Test 'boxctl ports unforward' removes forwarded port."""
         project, container = port_project
 
         run_abox("ports", "forward", "9001", cwd=project)
@@ -881,7 +881,7 @@ class TestPhase6_PortForwarding:
         assert result.returncode == 0
 
     def test_ports_status(self, port_project):
-        """Test 'agentbox ports status' shows forwarding status."""
+        """Test 'boxctl ports status' shows forwarding status."""
         project, container = port_project
 
         run_abox("start", cwd=project)
@@ -908,13 +908,13 @@ class TestPhase7_MCPServers:
 
         run_abox("init", cwd=project)
 
-        yield project, f"agentbox-{project.name}"
+        yield project, f"boxctl-{project.name}"
 
-        cleanup_container(f"agentbox-{project.name}")
+        cleanup_container(f"boxctl-{project.name}")
         shutil.rmtree(project, ignore_errors=True)
 
     def test_mcp_list(self, mcp_project):
-        """Test 'agentbox mcp list' shows available servers."""
+        """Test 'boxctl mcp list' shows available servers."""
         project, container = mcp_project
 
         result = run_abox("mcp", "list", cwd=project)
@@ -923,33 +923,33 @@ class TestPhase7_MCPServers:
         assert "fetch" in result.stdout.lower() or "Available" in result.stdout or len(result.stdout) > 10
 
     def test_mcps_alias(self, mcp_project):
-        """Test 'agentbox mcps' works as alias."""
+        """Test 'boxctl mcps' works as alias."""
         project, container = mcp_project
 
         result = run_abox("mcps", "list", cwd=project)
         assert result.returncode == 0
 
     def test_mcp_add(self, mcp_project):
-        """Test 'agentbox mcp add' adds an MCP server."""
+        """Test 'boxctl mcp add' adds an MCP server."""
         project, container = mcp_project
 
         result = run_abox("mcp", "add", "fetch", cwd=project)
         assert result.returncode == 0 or "already" in result.stdout.lower()
 
         # Verify in config (mcp.json is at root level, unified for all agents)
-        mcp_config = project / ".agentbox" / "mcp.json"
+        mcp_config = project / ".boxctl" / "mcp.json"
         data = json.loads(mcp_config.read_text())
         assert "mcpServers" in data
 
     def test_mcp_show(self, mcp_project):
-        """Test 'agentbox mcp show' displays MCP details."""
+        """Test 'boxctl mcp show' displays MCP details."""
         project, container = mcp_project
 
         result = run_abox("mcp", "show", "fetch", cwd=project)
         assert result.returncode == 0
 
     def test_mcp_remove(self, mcp_project):
-        """Test 'agentbox mcp remove' removes an MCP server."""
+        """Test 'boxctl mcp remove' removes an MCP server."""
         project, container = mcp_project
 
         # Add first
@@ -960,21 +960,21 @@ class TestPhase7_MCPServers:
         assert result.returncode == 0
 
     def test_mcp_init(self, mcp_project):
-        """Test 'agentbox mcp init' initializes MCP config."""
+        """Test 'boxctl mcp init' initializes MCP config."""
         project, container = mcp_project
 
         result = run_abox("mcp", "init", cwd=project)
         assert result.returncode == 0
 
     def test_mcp_manage_help(self, mcp_project):
-        """Test 'agentbox mcp manage --help' shows usage."""
+        """Test 'boxctl mcp manage --help' shows usage."""
         project, container = mcp_project
 
         result = run_abox("mcp", "manage", "--help", cwd=project)
         assert result.returncode == 0
 
     def test_mcp_help(self, mcp_project):
-        """Test 'agentbox mcp --help' shows all subcommands."""
+        """Test 'boxctl mcp --help' shows all subcommands."""
         project, container = mcp_project
 
         result = run_abox("mcp", "--help", cwd=project)
@@ -1002,27 +1002,27 @@ class TestPhase8_Skills:
 
         run_abox("init", cwd=project)
 
-        yield project, f"agentbox-{project.name}"
+        yield project, f"boxctl-{project.name}"
 
-        cleanup_container(f"agentbox-{project.name}")
+        cleanup_container(f"boxctl-{project.name}")
         shutil.rmtree(project, ignore_errors=True)
 
     def test_skill_list(self, skill_project):
-        """Test 'agentbox skill list' shows available skills."""
+        """Test 'boxctl skill list' shows available skills."""
         project, container = skill_project
 
         result = run_abox("skill", "list", cwd=project)
         assert result.returncode == 0
 
     def test_skills_alias(self, skill_project):
-        """Test 'agentbox skills' works as alias."""
+        """Test 'boxctl skills' works as alias."""
         project, container = skill_project
 
         result = run_abox("skills", "list", cwd=project)
         assert result.returncode == 0
 
     def test_skill_add(self, skill_project):
-        """Test 'agentbox skill add' adds a skill."""
+        """Test 'boxctl skill add' adds a skill."""
         project, container = skill_project
 
         # Try to add a skill (westworld is usually available)
@@ -1031,7 +1031,7 @@ class TestPhase8_Skills:
         assert result.returncode == 0 or "already" in result.stdout.lower() or "not found" in result.stdout.lower()
 
     def test_skill_remove(self, skill_project):
-        """Test 'agentbox skill remove' removes a skill."""
+        """Test 'boxctl skill remove' removes a skill."""
         project, container = skill_project
 
         # Add then remove
@@ -1040,7 +1040,7 @@ class TestPhase8_Skills:
         assert result.returncode == 0 or "not found" in result.stdout.lower()
 
     def test_skill_show(self, skill_project):
-        """Test 'agentbox skill show' displays skill details."""
+        """Test 'boxctl skill show' displays skill details."""
         project, container = skill_project
 
         result = run_abox("skill", "show", "westworld", cwd=project)
@@ -1048,14 +1048,14 @@ class TestPhase8_Skills:
         assert result.returncode == 0 or "not found" in result.stdout.lower()
 
     def test_skill_manage_help(self, skill_project):
-        """Test 'agentbox skill manage --help' shows usage."""
+        """Test 'boxctl skill manage --help' shows usage."""
         project, container = skill_project
 
         result = run_abox("skill", "manage", "--help", cwd=project)
         assert result.returncode == 0
 
     def test_skill_help(self, skill_project):
-        """Test 'agentbox skill --help' shows all subcommands."""
+        """Test 'boxctl skill --help' shows all subcommands."""
         project, container = skill_project
 
         result = run_abox("skill", "--help", cwd=project)
@@ -1082,20 +1082,20 @@ class TestPhase9_Packages:
 
         run_abox("init", cwd=project)
 
-        yield project, f"agentbox-{project.name}"
+        yield project, f"boxctl-{project.name}"
 
-        cleanup_container(f"agentbox-{project.name}")
+        cleanup_container(f"boxctl-{project.name}")
         shutil.rmtree(project, ignore_errors=True)
 
     def test_packages_list(self, pkg_project):
-        """Test 'agentbox packages list' shows packages."""
+        """Test 'boxctl packages list' shows packages."""
         project, container = pkg_project
 
         result = run_abox("packages", "list", cwd=project)
         assert result.returncode == 0
 
     def test_packages_add_pip(self, pkg_project):
-        """Test 'agentbox packages add' adds a pip package."""
+        """Test 'boxctl packages add' adds a pip package."""
         project, container = pkg_project
 
         result = run_abox("packages", "add", "requests", "pip", cwd=project)
@@ -1106,21 +1106,21 @@ class TestPhase9_Packages:
         assert "requests" in result.stdout
 
     def test_packages_add_npm(self, pkg_project):
-        """Test 'agentbox packages add' adds an npm package."""
+        """Test 'boxctl packages add' adds an npm package."""
         project, container = pkg_project
 
         result = run_abox("packages", "add", "lodash", "npm", cwd=project)
         assert result.returncode == 0
 
     def test_packages_add_apt(self, pkg_project):
-        """Test 'agentbox packages add' adds an apt package."""
+        """Test 'boxctl packages add' adds an apt package."""
         project, container = pkg_project
 
         result = run_abox("packages", "add", "jq", "apt", cwd=project)
         assert result.returncode == 0
 
     def test_packages_remove(self, pkg_project):
-        """Test 'agentbox packages remove' removes a package."""
+        """Test 'boxctl packages remove' removes a package."""
         project, container = pkg_project
 
         run_abox("packages", "add", "flask", "pip", cwd=project)
@@ -1143,14 +1143,14 @@ class TestPhase9_Packages:
         assert result.returncode == 0 or "cowsay" in result.stdout
 
     def test_packages_init(self, pkg_project):
-        """Test 'agentbox packages init' initializes package config."""
+        """Test 'boxctl packages init' initializes package config."""
         project, container = pkg_project
 
         result = run_abox("packages", "init", cwd=project)
         assert result.returncode == 0
 
     def test_packages_help(self, pkg_project):
-        """Test 'agentbox packages --help' shows all subcommands."""
+        """Test 'boxctl packages --help' shows all subcommands."""
         project, container = pkg_project
 
         result = run_abox("packages", "--help", cwd=project)
@@ -1177,20 +1177,20 @@ class TestPhase10_DockerSocket:
 
         run_abox("init", cwd=project)
 
-        yield project, f"agentbox-{project.name}"
+        yield project, f"boxctl-{project.name}"
 
-        cleanup_container(f"agentbox-{project.name}")
+        cleanup_container(f"boxctl-{project.name}")
         shutil.rmtree(project, ignore_errors=True)
 
     def test_docker_status(self, docker_project):
-        """Test 'agentbox docker status' shows socket status."""
+        """Test 'boxctl docker status' shows socket status."""
         project, container = docker_project
 
         result = run_abox("docker", "status", cwd=project)
         assert result.returncode == 0
 
     def test_docker_enable(self, docker_project):
-        """Test 'agentbox docker enable' enables socket access."""
+        """Test 'boxctl docker enable' enables socket access."""
         project, container = docker_project
 
         result = run_abox("docker", "enable", cwd=project)
@@ -1201,7 +1201,7 @@ class TestPhase10_DockerSocket:
         assert "enabled" in result.stdout.lower() or "true" in result.stdout.lower()
 
     def test_docker_disable(self, docker_project):
-        """Test 'agentbox docker disable' disables socket access."""
+        """Test 'boxctl docker disable' disables socket access."""
         project, container = docker_project
 
         run_abox("docker", "enable", cwd=project)
@@ -1245,7 +1245,7 @@ class TestPhase11_Network:
         run_abox("docker", "enable", cwd=project)
         run_abox("start", cwd=project)
 
-        container = f"agentbox-{project.name}"
+        container = f"boxctl-{project.name}"
         wait_for_container(container)
 
         # Create target container
@@ -1261,7 +1261,7 @@ class TestPhase11_Network:
         shutil.rmtree(project, ignore_errors=True)
 
     def test_network_available(self, network_setup):
-        """Test 'agentbox network available' shows containers."""
+        """Test 'boxctl network available' shows containers."""
         project, container, target = network_setup
 
         result = run_abox("network", "available", cwd=project)
@@ -1269,14 +1269,14 @@ class TestPhase11_Network:
         assert target in result.stdout or "nginx" in result.stdout
 
     def test_network_list_empty(self, network_setup):
-        """Test 'agentbox network list' with no connections."""
+        """Test 'boxctl network list' with no connections."""
         project, container, target = network_setup
 
         result = run_abox("network", "list", cwd=project)
         assert result.returncode == 0
 
     def test_network_connect(self, network_setup):
-        """Test 'agentbox network connect' connects to container."""
+        """Test 'boxctl network connect' connects to container."""
         project, container, target = network_setup
 
         result = run_abox("network", "connect", target, cwd=project)
@@ -1287,7 +1287,7 @@ class TestPhase11_Network:
         assert target in result.stdout
 
     def test_network_disconnect(self, network_setup):
-        """Test 'agentbox network disconnect' disconnects."""
+        """Test 'boxctl network disconnect' disconnects."""
         project, container, target = network_setup
 
         run_abox("network", "connect", target, cwd=project)
@@ -1295,14 +1295,14 @@ class TestPhase11_Network:
         assert result.returncode == 0
 
     def test_network_available_all(self, network_setup):
-        """Test 'agentbox network available all' includes agentbox containers."""
+        """Test 'boxctl network available all' includes boxctl containers."""
         project, container, target = network_setup
 
         result = run_abox("network", "available", "all", cwd=project)
         assert result.returncode == 0
 
     def test_network_help(self, network_setup):
-        """Test 'agentbox network --help' shows all subcommands."""
+        """Test 'boxctl network --help' shows all subcommands."""
         project, container, target = network_setup
 
         result = run_abox("network", "--help", cwd=project)
@@ -1329,20 +1329,20 @@ class TestPhase12_Devices:
 
         run_abox("init", cwd=project)
 
-        yield project, f"agentbox-{project.name}"
+        yield project, f"boxctl-{project.name}"
 
-        cleanup_container(f"agentbox-{project.name}")
+        cleanup_container(f"boxctl-{project.name}")
         shutil.rmtree(project, ignore_errors=True)
 
     def test_devices_list(self, device_project):
-        """Test 'agentbox devices list' shows devices."""
+        """Test 'boxctl devices list' shows devices."""
         project, container = device_project
 
         result = run_abox("devices", "list", cwd=project)
         assert result.returncode == 0
 
     def test_devices_add(self, device_project):
-        """Test 'agentbox devices add' adds a device."""
+        """Test 'boxctl devices add' adds a device."""
         project, container = device_project
 
         # Add /dev/null as a safe test device
@@ -1350,7 +1350,7 @@ class TestPhase12_Devices:
         assert result.returncode == 0
 
     def test_devices_remove(self, device_project):
-        """Test 'agentbox devices remove' removes a device."""
+        """Test 'boxctl devices remove' removes a device."""
         project, container = device_project
 
         run_abox("devices", "add", "/dev/null", cwd=project)
@@ -1358,7 +1358,7 @@ class TestPhase12_Devices:
         assert result.returncode == 0
 
     def test_devices_clear(self, device_project):
-        """Test 'agentbox devices clear' clears all devices."""
+        """Test 'boxctl devices clear' clears all devices."""
         project, container = device_project
 
         run_abox("devices", "add", "/dev/null", cwd=project)
@@ -1366,14 +1366,14 @@ class TestPhase12_Devices:
         assert result.returncode == 0
 
     def test_devices_choose_help(self, device_project):
-        """Test 'agentbox devices choose --help' shows usage."""
+        """Test 'boxctl devices choose --help' shows usage."""
         project, container = device_project
 
         result = run_abox("devices", "choose", "--help", cwd=project)
         assert result.returncode == 0
 
     def test_devices_help(self, device_project):
-        """Test 'agentbox devices --help' shows all subcommands."""
+        """Test 'boxctl devices --help' shows all subcommands."""
         project, container = device_project
 
         result = run_abox("devices", "--help", cwd=project)
@@ -1402,7 +1402,7 @@ class TestPhase13_Rebase:
         run_abox("init", cwd=project)
         run_abox("start", cwd=project)
 
-        container = f"agentbox-{project.name}"
+        container = f"boxctl-{project.name}"
         wait_for_container(container)
 
         yield project, container
@@ -1411,7 +1411,7 @@ class TestPhase13_Rebase:
         shutil.rmtree(project, ignore_errors=True)
 
     def test_rebase_recreates_container(self, rebase_project):
-        """Test 'agentbox rebase' recreates container."""
+        """Test 'boxctl rebase' recreates container."""
         project, container = rebase_project
 
         # Get original container ID
@@ -1431,7 +1431,7 @@ class TestPhase13_Rebase:
         assert old_id != new_id, "Container should be recreated"
 
     def test_rebuild_alias(self, rebase_project):
-        """Test 'agentbox rebuild' works as alias."""
+        """Test 'boxctl rebuild' works as alias."""
         project, container = rebase_project
 
         result = run_abox("rebuild", "--help", cwd=project)
@@ -1456,7 +1456,7 @@ class TestPhase14_MultiSession:
         run_abox("init", cwd=project)
         run_abox("start", cwd=project)
 
-        container = f"agentbox-{project.name}"
+        container = f"boxctl-{project.name}"
         wait_for_container(container)
 
         yield project, container
@@ -1514,7 +1514,7 @@ class TestPhase15_MultiProject:
             run_abox("init", cwd=project)
             run_abox("start", cwd=project)
 
-            container = f"agentbox-{project.name}"
+            container = f"boxctl-{project.name}"
             wait_for_container(container)
 
             projects.append((project, container))
@@ -1582,46 +1582,46 @@ class TestPhase16_MultiAgent:
 
         yield project
 
-        cleanup_container(f"agentbox-{project.name}")
+        cleanup_container(f"boxctl-{project.name}")
         shutil.rmtree(project, ignore_errors=True)
 
     def test_claude_help(self, agent_project):
-        """Test 'agentbox claude --help' shows usage."""
+        """Test 'boxctl claude --help' shows usage."""
         result = run_abox("claude", "--help")
         assert result.returncode == 0
 
     def test_superclaude_help(self, agent_project):
-        """Test 'agentbox superclaude --help' shows usage."""
+        """Test 'boxctl superclaude --help' shows usage."""
         result = run_abox("superclaude", "--help")
         assert result.returncode == 0
 
     def test_codex_help(self, agent_project):
-        """Test 'agentbox codex --help' shows usage."""
+        """Test 'boxctl codex --help' shows usage."""
         result = run_abox("codex", "--help")
         assert result.returncode == 0
 
     def test_gemini_help(self, agent_project):
-        """Test 'agentbox gemini --help' shows usage."""
+        """Test 'boxctl gemini --help' shows usage."""
         result = run_abox("gemini", "--help")
         assert result.returncode == 0
 
     def test_supergemini_help(self, agent_project):
-        """Test 'agentbox supergemini --help' shows usage."""
+        """Test 'boxctl supergemini --help' shows usage."""
         result = run_abox("supergemini", "--help")
         assert result.returncode == 0
 
     def test_qwen_help(self, agent_project):
-        """Test 'agentbox qwen --help' shows usage."""
+        """Test 'boxctl qwen --help' shows usage."""
         result = run_abox("qwen", "--help")
         assert result.returncode == 0
 
     def test_superqwen_help(self, agent_project):
-        """Test 'agentbox superqwen --help' shows usage."""
+        """Test 'boxctl superqwen --help' shows usage."""
         result = run_abox("superqwen", "--help")
         assert result.returncode == 0
 
     def test_supercodex_help(self, agent_project):
-        """Test 'agentbox supercodex --help' shows usage."""
+        """Test 'boxctl supercodex --help' shows usage."""
         result = run_abox("supercodex", "--help")
         assert result.returncode == 0
 
@@ -1646,7 +1646,7 @@ class TestPhase16b_AgentLaunch:
         run_abox("mcp", "add", "fetch", cwd=project)
         run_abox("start", cwd=project)
 
-        container = f"agentbox-{project.name}"
+        container = f"boxctl-{project.name}"
         wait_for_container(container)
 
         yield project, container
@@ -1661,7 +1661,7 @@ class TestPhase16b_AgentLaunch:
         project, container = agent_ready_project
 
         # mcp.json is now at root level (unified for all agents)
-        result = exec_in_container(container, "cat /workspace/.agentbox/mcp.json")
+        result = exec_in_container(container, "cat /workspace/.boxctl/mcp.json")
         assert result.returncode == 0, f"MCP config not found: {result.stderr}"
 
         # Verify it's valid JSON
@@ -1673,12 +1673,12 @@ class TestPhase16b_AgentLaunch:
         project, container = agent_ready_project
 
         # Check agents.md
-        result = exec_in_container(container, "test -f /workspace/.agentbox/agents.md && echo exists")
+        result = exec_in_container(container, "test -f /workspace/.boxctl/agents.md && echo exists")
         assert result.returncode == 0
         assert "exists" in result.stdout
 
         # Check superagents.md
-        result = exec_in_container(container, "test -f /workspace/.agentbox/superagents.md && echo exists")
+        result = exec_in_container(container, "test -f /workspace/.boxctl/superagents.md && echo exists")
         assert result.returncode == 0
         assert "exists" in result.stdout
 
@@ -1705,7 +1705,7 @@ class TestPhase16b_AgentLaunch:
         project, container = agent_ready_project
         session = "claude-test-session"
 
-        # Create session like agentbox does
+        # Create session like boxctl does
         result = exec_in_container(
             container,
             f"tmux new-session -d -s {session} -c /workspace 'echo claude-session-started; sleep 10'"
@@ -1791,7 +1791,7 @@ class TestPhase16b_AgentLaunch:
         # mcp.json is now at root level (unified for all agents)
         result = exec_in_container(
             container,
-            "tmux new-session -d -s mcp-test 'cat /workspace/.agentbox/mcp.json > /tmp/mcp_out.txt; sleep 2'"
+            "tmux new-session -d -s mcp-test 'cat /workspace/.boxctl/mcp.json > /tmp/mcp_out.txt; sleep 2'"
         )
         assert result.returncode == 0
 
@@ -1962,7 +1962,7 @@ class TestPhase16c_AgentLaunchWithAuth:
         run_abox("init", cwd=project)
         run_abox("start", cwd=project)
 
-        container = f"agentbox-{project.name}"
+        container = f"boxctl-{project.name}"
         wait_for_container(container)
 
         # Check auth
@@ -2018,59 +2018,59 @@ class TestPhase17_Service:
     """Test service commands: status, config, logs, serve, install, start, stop."""
 
     def test_service_status(self, dind_ready):
-        """Test 'agentbox service status' shows daemon status."""
+        """Test 'boxctl service status' shows daemon status."""
         result = run_abox("service", "status")
         # May be running or not, but command should work
         assert result.returncode == 0 or "not running" in result.stdout.lower()
 
     def test_service_config(self, dind_ready):
-        """Test 'agentbox service config' shows configuration."""
+        """Test 'boxctl service config' shows configuration."""
         result = run_abox("service", "config")
         assert result.returncode == 0
 
     def test_service_logs(self, dind_ready):
-        """Test 'agentbox service logs' shows logs."""
+        """Test 'boxctl service logs' shows logs."""
         result = run_abox("service", "logs")
         # May have no logs if not running
         assert result.returncode == 0 or "no logs" in result.stdout.lower() or "not" in result.stdout.lower()
 
     def test_service_install_help(self, dind_ready):
-        """Test 'agentbox service install --help'."""
+        """Test 'boxctl service install --help'."""
         result = run_abox("service", "install", "--help")
         assert result.returncode == 0
 
     def test_service_start_help(self, dind_ready):
-        """Test 'agentbox service start --help'."""
+        """Test 'boxctl service start --help'."""
         result = run_abox("service", "start", "--help")
         assert result.returncode == 0
 
     def test_service_stop_help(self, dind_ready):
-        """Test 'agentbox service stop --help'."""
+        """Test 'boxctl service stop --help'."""
         result = run_abox("service", "stop", "--help")
         assert result.returncode == 0
 
     def test_service_restart_help(self, dind_ready):
-        """Test 'agentbox service restart --help'."""
+        """Test 'boxctl service restart --help'."""
         result = run_abox("service", "restart", "--help")
         assert result.returncode == 0
 
     def test_service_uninstall_help(self, dind_ready):
-        """Test 'agentbox service uninstall --help'."""
+        """Test 'boxctl service uninstall --help'."""
         result = run_abox("service", "uninstall", "--help")
         assert result.returncode == 0
 
     def test_service_follow_help(self, dind_ready):
-        """Test 'agentbox service follow --help'."""
+        """Test 'boxctl service follow --help'."""
         result = run_abox("service", "follow", "--help")
         assert result.returncode == 0
 
     def test_service_serve_help(self, dind_ready):
-        """Test 'agentbox service serve --help'."""
+        """Test 'boxctl service serve --help'."""
         result = run_abox("service", "serve", "--help")
         assert result.returncode == 0
 
     def test_service_help(self, dind_ready):
-        """Test 'agentbox service --help' shows all subcommands."""
+        """Test 'boxctl service --help' shows all subcommands."""
         result = run_abox("service", "--help")
         assert result.returncode == 0
         output = result.stdout.lower()
@@ -2080,12 +2080,12 @@ class TestPhase17_Service:
 
 
 # ============================================================================
-# PHASE 17b: Agentboxd Server Tests
+# PHASE 17b: Boxctld Server Tests
 # ============================================================================
 
 
-class TestPhase17b_AgentboxdServer:
-    """Test agentboxd daemon server functionality."""
+class TestPhase17b_BoxctldServer:
+    """Test boxctld daemon server functionality."""
 
     @pytest.fixture
     def daemon_test_project(self, test_root, base_image_built) -> Generator[Tuple[Path, str], None, None]:
@@ -2097,7 +2097,7 @@ class TestPhase17b_AgentboxdServer:
         run_abox("init", cwd=project)
         run_abox("start", cwd=project)
 
-        container = f"agentbox-{project.name}"
+        container = f"boxctl-{project.name}"
         wait_for_container(container)
 
         yield project, container
@@ -2112,7 +2112,7 @@ class TestPhase17b_AgentboxdServer:
         # Start daemon in background (it should exit gracefully or run)
         result = exec_in_container(
             container,
-            "timeout 5 agentboxd serve --port 8765 2>&1 || true",
+            "timeout 5 boxctld serve --port 8765 2>&1 || true",
             timeout=10
         )
         # Should not hard crash
@@ -2125,7 +2125,7 @@ class TestPhase17b_AgentboxdServer:
         # Check daemon module can be imported
         result = exec_in_container(
             container,
-            "python3 -c 'from agentbox.daemon.server import create_app; print(\"ok\")'"
+            "python3 -c 'from boxctl.daemon.server import create_app; print(\"ok\")'"
         )
         assert result.returncode == 0 or "ok" in result.stdout
 
@@ -2148,7 +2148,7 @@ class TestPhase17c_Notifications:
         run_abox("init", cwd=project)
         run_abox("start", cwd=project)
 
-        container = f"agentbox-{project.name}"
+        container = f"boxctl-{project.name}"
         wait_for_container(container)
 
         yield project, container
@@ -2170,7 +2170,7 @@ class TestPhase17c_Notifications:
 
         result = exec_in_container(
             container,
-            "python3 -c 'from agentbox.notifications import NotificationClient; print(\"ok\")'"
+            "python3 -c 'from boxctl.notifications import NotificationClient; print(\"ok\")'"
         )
         assert result.returncode == 0
         assert "ok" in result.stdout
@@ -2182,7 +2182,7 @@ class TestPhase17c_Notifications:
         result = exec_in_container(
             container,
             "python3 -c '"
-            "from agentbox.notifications import NotificationClient; "
+            "from boxctl.notifications import NotificationClient; "
             "client = NotificationClient(); "
             "print(f\"created:{client is not None}\")'"
         )
@@ -2196,7 +2196,7 @@ class TestPhase17c_Notifications:
         result = exec_in_container(
             container,
             "python3 -c '"
-            "from agentbox.notifications import NotificationClient; "
+            "from boxctl.notifications import NotificationClient; "
             "client = NotificationClient(); "
             "# Just test the interface exists "
             "hasattr(client, \"send\") and print(\"has_send:True\")'"
@@ -2225,18 +2225,18 @@ class TestPhase18_ConfigMigration:
 
         yield project
 
-        cleanup_container(f"agentbox-{project.name}")
+        cleanup_container(f"boxctl-{project.name}")
         shutil.rmtree(project, ignore_errors=True)
 
     def test_config_migrate_dryrun(self, migration_project):
-        """Test 'agentbox config migrate --dry-run'."""
+        """Test 'boxctl config migrate --dry-run'."""
         project = migration_project
 
         result = run_abox("config", "migrate", "--dry-run", cwd=project)
         assert result.returncode == 0
 
     def test_config_migrate(self, migration_project):
-        """Test 'agentbox config migrate' migrates config."""
+        """Test 'boxctl config migrate' migrates config."""
         project = migration_project
 
         result = run_abox("config", "migrate", cwd=project)
@@ -2252,12 +2252,12 @@ class TestPhase19_QuickCommands:
     """Test quick/TUI commands."""
 
     def test_quick_help(self, dind_ready):
-        """Test 'agentbox quick --help'."""
+        """Test 'boxctl quick --help'."""
         result = run_abox("quick", "--help")
         assert result.returncode == 0
 
     def test_q_alias(self, dind_ready):
-        """Test 'agentbox q --help' works as alias."""
+        """Test 'boxctl q --help' works as alias."""
         result = run_abox("q", "--help")
         assert result.returncode == 0
 
@@ -2271,7 +2271,7 @@ class TestPhase20_FixTerminal:
     """Test fix-terminal command."""
 
     def test_fix_terminal_help(self, dind_ready):
-        """Test 'agentbox fix-terminal --help'."""
+        """Test 'boxctl fix-terminal --help'."""
         result = run_abox("fix-terminal", "--help")
         assert result.returncode == 0
 
@@ -2285,7 +2285,7 @@ class TestPhase21_Cleanup:
     """Test cleanup command."""
 
     def test_cleanup_help(self, dind_ready):
-        """Test 'agentbox cleanup --help'."""
+        """Test 'boxctl cleanup --help'."""
         result = run_abox("cleanup", "--help")
         assert result.returncode == 0
 
@@ -2308,7 +2308,7 @@ class TestIntegration_FullWorkflow:
         yield project
 
         # Cleanup everything
-        cleanup_containers_matching(f"agentbox-{project.name}")
+        cleanup_containers_matching(f"boxctl-{project.name}")
         for wt in project.parent.glob(f"{project.name}-*"):
             if wt.is_dir():
                 shutil.rmtree(wt, ignore_errors=True)
@@ -2317,7 +2317,7 @@ class TestIntegration_FullWorkflow:
     def test_full_project_lifecycle(self, workflow_project):
         """Test complete project lifecycle: init -> configure -> start -> use -> stop -> remove."""
         project = workflow_project
-        container = f"agentbox-{project.name}"
+        container = f"boxctl-{project.name}"
 
         # 1. Initialize
         result = run_abox("init", cwd=project)
@@ -2361,7 +2361,7 @@ class TestIntegration_FullWorkflow:
     def test_worktree_multi_branch_workflow(self, workflow_project):
         """Test working with multiple branches via worktrees."""
         project = workflow_project
-        container = f"agentbox-{project.name}"
+        container = f"boxctl-{project.name}"
 
         # Initialize and start
         run_abox("init", cwd=project)
@@ -2384,7 +2384,7 @@ class TestIntegration_FullWorkflow:
     def test_network_connection_workflow(self, workflow_project, base_image_built):
         """Test connecting to other containers."""
         project = workflow_project
-        container = f"agentbox-{project.name}"
+        container = f"boxctl-{project.name}"
 
         # Create target container
         target = f"net-target-{uuid.uuid4().hex[:8]}"

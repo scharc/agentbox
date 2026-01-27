@@ -1,5 +1,5 @@
 #!/bin/bash
-# Agentbox DinD Test Container Entrypoint
+# Boxctl DinD Test Container Entrypoint
 # Copyright (c) 2025 Marc Schütze <scharc@gmail.com>
 # SPDX-License-Identifier: MIT
 #
@@ -22,7 +22,7 @@ log_step() { echo -e "${BLUE}[STEP]${NC} $*"; }
 
 echo ""
 echo "========================================"
-echo "  Agentbox True DinD Test Container"
+echo "  Boxctl True DinD Test Container"
 echo "========================================"
 echo ""
 
@@ -52,24 +52,34 @@ log_info "Docker daemon is ready (PID: ${DOCKERD_PID})"
 docker info --format '{{.ServerVersion}}' | xargs -I{} echo -e "${GREEN}[INFO]${NC} Docker version: {}"
 
 # =============================================================================
-# Pre-pull or build the agentbox base image
+# Pre-pull or build the boxctl base image
 # =============================================================================
 
-log_step "Checking for agentbox-base:latest image..."
+log_step "Checking for boxctl-base:latest image..."
 
-# First try to pull from registry (if available)
-if ! docker image inspect agentbox-base:latest > /dev/null 2>&1; then
-    log_info "agentbox-base:latest not found, building from source..."
+# First check if we have a cached image from the host
+if [ -f /cache/boxctl-base.tar ]; then
+    log_info "Loading boxctl-base:latest from host cache..."
+    if docker load -i /cache/boxctl-base.tar; then
+        log_info "Loaded boxctl-base:latest from cache"
+    else
+        log_warn "Failed to load cached image, will build from source"
+    fi
+fi
+
+# Check if image exists now (either loaded or already present)
+if ! docker image inspect boxctl-base:latest > /dev/null 2>&1; then
+    log_info "boxctl-base:latest not found, building from source..."
 
     # Build the base image inside the DinD container
     if [ -f /build/Dockerfile.base ]; then
-        docker build -f /build/Dockerfile.base -t agentbox-base:latest /build
-        log_info "Built agentbox-base:latest image"
+        docker build -f /build/Dockerfile.base -t boxctl-base:latest /build
+        log_info "Built boxctl-base:latest image"
     else
-        log_warn "Dockerfile.base not found, tests requiring agentbox image may fail"
+        log_warn "Dockerfile.base not found, tests requiring boxctl image may fail"
     fi
 else
-    log_info "agentbox-base:latest image already available"
+    log_info "boxctl-base:latest image available"
 fi
 
 # =============================================================================
@@ -97,14 +107,46 @@ else
 fi
 
 # =============================================================================
-# Run the provided command
+# Build command to run
 # =============================================================================
 
-log_step "Running: $*"
+# Default command if none provided
+CMD=("$@")
+
+# If no args or first arg looks like a test selector option, use pytest
+if [[ ${#CMD[@]} -eq 0 ]]; then
+    CMD=("python3" "-m" "pytest" "dind-tests/" "-v" "--tb=short")
+elif [[ "${CMD[0]}" == --* ]]; then
+    # Arguments like --integration, --unit, -k, etc. need to be passed to pytest
+    # Map our custom options to pytest paths
+    case "${CMD[0]}" in
+        --integration)
+            CMD=("python3" "-m" "pytest" "dind-tests/integration/" "-v" "--tb=short" "${CMD[@]:1}")
+            ;;
+        --unit)
+            CMD=("python3" "-m" "pytest" "dind-tests/unit/" "-v" "--tb=short" "${CMD[@]:1}")
+            ;;
+        --chains)
+            CMD=("python3" "-m" "pytest" "dind-tests/chains/" "-v" "--tb=short" "${CMD[@]:1}")
+            ;;
+        --e2e)
+            CMD=("python3" "-m" "pytest" "dind-tests/e2e/" "-v" "--tb=short" "${CMD[@]:1}")
+            ;;
+        --all)
+            CMD=("python3" "-m" "pytest" "dind-tests/" "-v" "--tb=short" "${CMD[@]:1}")
+            ;;
+        -*)
+            # Other pytest options like -k, -x, etc.
+            CMD=("python3" "-m" "pytest" "dind-tests/" "-v" "--tb=short" "${CMD[@]}")
+            ;;
+    esac
+fi
+
+log_step "Running: ${CMD[*]}"
 echo ""
 
 # Run the command as testuser for realistic testing
-# (agentbox is typically run by a regular user, not root)
+# (boxctl is typically run by a regular user, not root)
 exec sudo -u testuser -E \
     HOME=/home/testuser \
     AGENTBOX_DIR="${AGENTBOX_DIR}" \
@@ -113,4 +155,4 @@ exec sudo -u testuser -E \
     PYTHONPATH="${PYTHONPATH}" \
     XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}" \
     PATH="${PATH}" \
-    "$@"
+    "${CMD[@]}"

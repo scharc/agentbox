@@ -11,7 +11,7 @@ The proxy provides:
 - OpenAI-compatible API on localhost
 - Rate limit and context window error handling
 
-Configuration is in ~/.config/agentbox/config.yml under the 'litellm' key.
+Configuration is in ~/.config/boxctl/config.yml under the 'litellm' key.
 """
 
 import os
@@ -35,7 +35,7 @@ def resolve_env_vars(value: str) -> str:
 
 
 def generate_litellm_config(host_config: dict) -> dict:
-    """Convert agentbox config to LiteLLM config.yaml format.
+    """Convert boxctl config to LiteLLM config.yaml format.
 
     Args:
         host_config: The host configuration dict from config.yml
@@ -126,9 +126,9 @@ def generate_litellm_config(host_config: dict) -> dict:
 def main():
     # Look for host config in multiple locations
     config_paths = [
-        Path("/host-config/agentbox/config.yml"),  # Mounted from host
-        Path.home() / ".config" / "agentbox" / "config.yml",  # Direct path
-        Path("/workspace/.agentbox/host-config.yml"),  # Alternative location
+        Path("/host-config/boxctl/config.yml"),  # Mounted from host
+        Path.home() / ".config" / "boxctl" / "config.yml",  # Direct path
+        Path("/workspace/.boxctl/host-config.yml"),  # Alternative location
     ]
 
     host_config = {}
@@ -146,7 +146,7 @@ def main():
 
     if not litellm_cfg.get("enabled"):
         print("LiteLLM not enabled in config (litellm.enabled: false)")
-        print("Enable it in ~/.config/agentbox/config.yml:")
+        print("Enable it in ~/.config/boxctl/config.yml:")
         print("  litellm:")
         print("    enabled: true")
         sys.exit(0)
@@ -154,7 +154,7 @@ def main():
     # Check if we have any models configured
     if not litellm_cfg.get("models"):
         print("No models configured for LiteLLM")
-        print("Add models in ~/.config/agentbox/config.yml:")
+        print("Add models in ~/.config/boxctl/config.yml:")
         print("  litellm:")
         print("    models:")
         print("      default:")

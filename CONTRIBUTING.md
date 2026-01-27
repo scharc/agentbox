@@ -1,6 +1,6 @@
-# Contributing to Agentbox
+# Contributing to Boxctl
 
-Thank you for considering contributing to Agentbox! This guide will help you get started.
+Thank you for considering contributing to Boxctl! This guide will help you get started.
 
 ## Table of Contents
 
@@ -16,7 +16,7 @@ Thank you for considering contributing to Agentbox! This guide will help you get
 
 ## We Need Help!
 
-Agentbox is a daily-driver work-in-progress. Some areas work great, others need love. Here's where you can make the biggest impact:
+Boxctl is a daily-driver work-in-progress. Some areas work great, others need love. Here's where you can make the biggest impact:
 
 ### 🔴 Critical (High Priority)
 
@@ -25,21 +25,21 @@ Agentbox is a daily-driver work-in-progress. Some areas work great, others need 
 - **Problem:** Tmux session handling in mobile browsers
 - **Impact:** Web UI unusable on phones/tablets
 - **Skills needed:** Web development, xterm.js, tmux, mobile browsers
-- **Entry point:** `agentbox/web/static/terminal.html`, `agentbox/web/static/js/terminal.js`
+- **Entry point:** `boxctl/web/static/terminal.html`, `boxctl/web/static/js/terminal.js`
 
 **2. PWA/HTTPS Setup**
 - **Status:** PWA code exists but untested
 - **Problem:** Service worker requires HTTPS, Tailscale HTTPS setup unclear
 - **Impact:** Offline mode, install prompts don't work
 - **Skills needed:** PWA, HTTPS/TLS, Tailscale configuration
-- **Entry point:** `agentbox/web/static/sw.js`, `agentbox/web/static/manifest.json`
+- **Entry point:** `boxctl/web/static/sw.js`, `boxctl/web/static/manifest.json`
 
 **3. Skills System**
 - **Status:** Completely untested, not used in production
 - **Problem:** Unknown stability, no test coverage
 - **Impact:** Feature exists but may be broken
 - **Skills needed:** Python, CLI development, testing
-- **Entry point:** `agentbox/skills/`, needs full test suite
+- **Entry point:** `boxctl/skills/`, needs full test suite
 
 ### 🟡 Important (Medium Priority)
 
@@ -48,7 +48,7 @@ Agentbox is a daily-driver work-in-progress. Some areas work great, others need 
 - **Problem:** Some packages don't install correctly in certain scenarios
 - **Impact:** MCPs may not activate after rebuild
 - **Skills needed:** Python, package managers (npm, pip, cargo)
-- **Entry point:** `agentbox/mcp.py`, `library/mcp/*/install_manifest.json`
+- **Entry point:** `boxctl/mcp.py`, `library/mcp/*/install_manifest.json`
 
 **5. Experimental MCP Testing**
 - **Status:** 16 MCPs configured but not battle-tested
@@ -93,8 +93,8 @@ Agentbox is a daily-driver work-in-progress. Some areas work great, others need 
 
 **1. Clone repository:**
 ```bash
-git clone https://github.com/yourusername/agentbox.git
-cd agentbox
+git clone https://github.com/yourusername/boxctl.git
+cd boxctl
 ```
 
 **2. Install dependencies:**
@@ -131,7 +131,7 @@ This runs linters and formatters automatically on commit.
 **4. Verify installation:**
 ```bash
 # Check version
-agentbox --version
+boxctl --version
 
 # Run tests
 poetry run pytest
@@ -149,25 +149,25 @@ git checkout -b feature/your-feature-name
 **2. Make changes:**
 ```bash
 # Edit code
-vim agentbox/container.py
+vim boxctl/container.py
 
 # Run tests
 poetry run pytest
 
 # Format code
-poetry run black agentbox/
-poetry run ruff check agentbox/
+poetry run black boxctl/
+poetry run ruff check boxctl/
 ```
 
 **3. Test locally:**
 ```bash
 # Rebuild base image with changes
-agentbox rebuild base
+boxctl rebuild base
 
 # Test in a project
 cd /tmp/test-project
-agentbox init
-agentbox start
+boxctl init
+boxctl start
 abox superclaude
 ```
 
@@ -197,7 +197,7 @@ git push origin feature/your-feature-name
 
 ### The NO FLAGS Policy
 
-**Critical:** Agentbox uses positional arguments only. NEVER add flags.
+**Critical:** Boxctl uses positional arguments only. NEVER add flags.
 
 **Bad:**
 ```python
@@ -218,18 +218,18 @@ def start(project, force):
     pass
 ```
 
-**Why?** Natural English syntax: `agentbox start myproject` not `agentbox start --project myproject`
+**Why?** Natural English syntax: `boxctl start myproject` not `boxctl start --project myproject`
 
 ### Python Style
 
 **Use Black formatter:**
 ```bash
-poetry run black agentbox/
+poetry run black boxctl/
 ```
 
 **Use Ruff linter:**
 ```bash
-poetry run ruff check agentbox/
+poetry run ruff check boxctl/
 ```
 
 **Follow PEP 8:**
@@ -245,7 +245,7 @@ def create_container(
     config: ProjectConfig,
     network: Optional[str] = None
 ) -> Container:
-    """Create a new agentbox container.
+    """Create a new boxctl container.
 
     Args:
         project_name: Name of the project
@@ -270,7 +270,7 @@ def create_container(
 
 **File structure:**
 ```
-agentbox/
+boxctl/
 ├── __init__.py           # Package initialization, version
 ├── cli/                  # CLI commands
 │   ├── __init__.py       # Main CLI entry point
@@ -381,7 +381,7 @@ poetry run pytest
 
 **With coverage:**
 ```bash
-poetry run pytest --cov=agentbox --cov-report=html
+poetry run pytest --cov=boxctl --cov-report=html
 # Open htmlcov/index.html
 ```
 
@@ -402,7 +402,7 @@ poetry run pytest -m "not slow"
 **Quick example:**
 ```python
 import pytest
-from agentbox.container import Container
+from boxctl.container import Container
 
 @pytest.mark.integration
 def test_container_lifecycle(tmp_path):
@@ -674,8 +674,8 @@ docs/
 - Describe what you're trying to do
 - Show what you've tried
 - Include error messages (full text)
-- Provide versions: `agentbox --version`, `docker --version`
-- Include config (`.agentbox.yml`) if relevant
+- Provide versions: `boxctl --version`, `docker --version`
+- Include config (`.boxctl.yml`) if relevant
 
 ---
 
@@ -687,11 +687,11 @@ For maintainers:
 ```bash
 # Update version in:
 # - pyproject.toml
-# - agentbox/__init__.py
-# - agentbox/cli/__init__.py
-# - agentbox/web/__init__.py
-# - agentbox/agentctl/cli.py
-# - agentbox/web/host_server.py
+# - boxctl/__init__.py
+# - boxctl/cli/__init__.py
+# - boxctl/web/__init__.py
+# - boxctl/agentctl/cli.py
+# - boxctl/web/host_server.py
 ```
 
 **2. Update CHANGELOG.md:**
@@ -706,10 +706,10 @@ For maintainers:
 
 ### Changed
 - CLI now uses positional arguments instead of flags
-- Package configuration moved to .agentbox.yml
+- Package configuration moved to .boxctl.yml
 
 ### Deprecated
-- packages.json (use .agentbox.yml instead)
+- packages.json (use .boxctl.yml instead)
 
 ### Fixed
 - Session name conflicts
@@ -737,7 +737,7 @@ poetry publish
 
 ## Thank You!
 
-Every contribution helps make Agentbox better. Whether you:
+Every contribution helps make Boxctl better. Whether you:
 - Fix a typo in docs
 - Report a bug
 - Add a test
@@ -754,5 +754,5 @@ Every contribution helps make Agentbox better. Whether you:
 - [Architecture](docs/architecture.md) - System design
 - [Testing Guide](docs/testing.md) - How to test
 - [CLI Reference](docs/cli-reference.md) - All commands
-- [Issues](https://github.com/yourusername/agentbox/issues) - Report bugs
-- [Discussions](https://github.com/yourusername/agentbox/discussions) - Ask questions
+- [Issues](https://github.com/yourusername/boxctl/issues) - Report bugs
+- [Discussions](https://github.com/yourusername/boxctl/discussions) - Ask questions

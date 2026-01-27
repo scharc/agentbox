@@ -10,11 +10,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-# Import from the agentbox package
+# Import from the boxctl package
 import sys
 sys.path.insert(0, '/workspace')
 
-from agentbox.host_config import HostConfig, get_config, get_tailscale_ip
+from boxctl.host_config import HostConfig, get_config, get_tailscale_ip
 
 
 class TestHostConfigDefaults:
@@ -75,7 +75,7 @@ class TestHostConfigLoading:
         """Test loading a valid config file."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"
@@ -98,7 +98,7 @@ class TestHostConfigLoading:
         """Test that loaded config merges with defaults."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"
@@ -123,7 +123,7 @@ class TestHostConfigLoading:
         """Test that invalid YAML falls back to defaults."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"
@@ -143,7 +143,7 @@ class TestHostConfigLoading:
         """Test that empty config file uses defaults."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"
@@ -159,20 +159,20 @@ class TestHostConfigProperties:
     """Test configuration properties."""
 
     def test_agentbox_dir_from_env(self, tmp_path, monkeypatch):
-        """Test agentbox_dir from AGENTBOX_DIR environment variable."""
+        """Test agentbox_dir from BOXCTL_DIR environment variable."""
         test_dir = tmp_path / "custom_agentbox"
-        monkeypatch.setenv("AGENTBOX_DIR", str(test_dir))
+        monkeypatch.setenv("BOXCTL_DIR", str(test_dir))
         monkeypatch.setenv("HOME", str(tmp_path))
 
         config = HostConfig()
 
-        assert config.agentbox_dir == test_dir
+        assert config.boxctl_dir == test_dir
 
     def test_agentbox_dir_from_config(self, tmp_path, monkeypatch):
         """Test agentbox_dir from config file."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         test_dir = tmp_path / "config_agentbox"
@@ -188,7 +188,7 @@ class TestHostConfigProperties:
 
         config = HostConfig()
 
-        assert config.agentbox_dir == test_dir
+        assert config.boxctl_dir == test_dir
 
     def test_socket_path_default(self, tmp_path, monkeypatch):
         """Test default socket path."""
@@ -202,7 +202,7 @@ class TestHostConfigProperties:
 
         socket_path = config.socket_path
         assert str(socket_path).startswith(str(runtime_dir))
-        assert "agentbox" in str(socket_path)
+        assert "boxctl" in str(socket_path)
         assert ".sock" in str(socket_path)
 
     def test_web_server_url(self, tmp_path, monkeypatch):
@@ -219,7 +219,7 @@ class TestHostConfigProperties:
         """Test web server URL with custom port."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"
@@ -287,7 +287,7 @@ class TestDeepMerge:
         """Test that deep merge preserves base values."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"
@@ -312,7 +312,7 @@ class TestDeepMerge:
         """Test deep merge with nested dictionaries."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"
@@ -370,7 +370,7 @@ class TestTailscaleIntegration:
         """Test checking for Tailscale in hosts."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"
@@ -404,7 +404,7 @@ class TestConfigEdgeCases:
         """Test config with null values."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"
@@ -429,7 +429,7 @@ class TestConfigEdgeCases:
         """Test config with keys not in defaults."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"
@@ -454,7 +454,7 @@ class TestConfigEdgeCases:
 
         config = HostConfig()
 
-        assert config.config_path == tmp_path / ".config" / "agentbox" / "config.yml"
+        assert config.config_path == tmp_path / ".config" / "boxctl" / "config.yml"
 
 
 class TestNetworkBindAddresses:
@@ -495,7 +495,7 @@ class TestNetworkBindAddresses:
         """Test custom bind addresses from config."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"
@@ -518,7 +518,7 @@ class TestNetworkBindAddresses:
         """Test has_tailscale_in_bind_addresses when tailscale is present."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"
@@ -539,7 +539,7 @@ class TestNetworkBindAddresses:
         """Test has_tailscale_in_bind_addresses when tailscale is not present."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"
@@ -560,7 +560,7 @@ class TestNetworkBindAddresses:
         """Test uses_tailscale when only web_server has tailscale."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"
@@ -584,7 +584,7 @@ class TestNetworkBindAddresses:
         """Test uses_tailscale when only bind_addresses has tailscale."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"
@@ -608,7 +608,7 @@ class TestNetworkBindAddresses:
         """Test uses_tailscale when neither has tailscale."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"
@@ -632,7 +632,7 @@ class TestNetworkBindAddresses:
         """Test bind addresses with only localhost (no tailscale)."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        config_dir = tmp_path / ".config" / "agentbox"
+        config_dir = tmp_path / ".config" / "boxctl"
         config_dir.mkdir(parents=True)
 
         config_file = config_dir / "config.yml"

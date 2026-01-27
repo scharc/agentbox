@@ -30,7 +30,7 @@ class TestWorkspaceMounts:
 
         result = run_abox("start", cwd=test_project)
         assert result.returncode == 0, f"start failed: {result.stderr}"
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         assert wait_for_container_ready(container_name, timeout=60), "container not ready"
 
         result = exec_in_container(container_name, "cat /context/extra/hello.txt")
@@ -52,7 +52,7 @@ class TestWorkspaceMounts:
 
         result = run_abox("start", cwd=test_project)
         assert result.returncode == 0, f"start failed: {result.stderr}"
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         assert wait_for_container_ready(container_name, timeout=60), "container not ready"
 
         result = exec_in_container(container_name, "test -d /context/extras")

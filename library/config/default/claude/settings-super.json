@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/abox-notify '' 'Task completed' 'normal' \"${AGENTBOX_CONTAINER}\" \"${AGENTBOX_SESSION_NAME}\""
+            "command": "/usr/local/bin/abox-notify '' 'Task completed' 'normal' \"${BOXCTL_CONTAINER}\" \"${BOXCTL_SESSION_NAME}\""
           }
         ]
       }
@@ -41,7 +41,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/abox-notify '' 'Needs permission' 'critical' \"${AGENTBOX_CONTAINER}\" \"${AGENTBOX_SESSION_NAME}\""
+            "command": "/usr/local/bin/abox-notify '' 'Needs permission' 'critical' \"${BOXCTL_CONTAINER}\" \"${BOXCTL_SESSION_NAME}\""
           }
         ]
       }

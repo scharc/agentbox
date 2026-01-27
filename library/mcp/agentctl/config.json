@@ -1,9 +1,9 @@
 {
   "name": "agentctl",
-  "description": "Control agentbox sessions and git worktrees. Enables agents to switch branches, work in parallel, and manage their environment.",
+  "description": "Control boxctl sessions and git worktrees. Enables agents to switch branches, work in parallel, and manage their environment.",
   "config": {
     "command": "python3",
-    "args": ["/workspace/.agentbox/mcp/agentctl/server_fastmcp.py"],
+    "args": ["/workspace/.boxctl/mcp/agentctl/server_fastmcp.py"],
     "env": {}
   },
   "install": {

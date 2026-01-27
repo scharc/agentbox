@@ -5,9 +5,9 @@ Not all agents are the same. You choose based on how much autonomy you want to g
 ## Interactive Agents (Ask Permission)
 
 ```bash
-agentbox claude                    # Claude Code
-agentbox codex                     # OpenAI Codex
-agentbox gemini                    # Google Gemini
+boxctl claude                    # Claude Code
+boxctl codex                     # OpenAI Codex
+boxctl gemini                    # Google Gemini
 ```
 
 Interactive agents ask permission before running commands or editing files. They show you what they want to do and wait for your approval.
@@ -23,9 +23,9 @@ The tradeoff: more control, but you need to be present. The agent can't make pro
 ## Autonomous Agents (Auto-Approve)
 
 ```bash
-agentbox superclaude               # Claude with --dangerously-skip-permissions
-agentbox supercodex                # Codex autonomous
-agentbox supergemini               # Gemini autonomous
+boxctl superclaude               # Claude with --dangerously-skip-permissions
+boxctl supercodex                # Codex autonomous
+boxctl supergemini               # Gemini autonomous
 ```
 
 Autonomous agents execute without asking. They make changes, run commands, fix their mistakes, and keep going.
@@ -45,7 +45,7 @@ The "super" in `superclaude` signals elevated permissions. It's a visual reminde
 ## Shell (No Agent)
 
 ```bash
-agentbox shell                     # Just bash
+boxctl shell                     # Just bash
 ```
 
 Opens a shell inside the container with no AI. Useful for:
@@ -70,9 +70,9 @@ The `superagents.md` file contains additional instructions for autonomous behavi
 
 **Start interactive, graduate to autonomous.**
 
-When working on something new, start with `agentbox claude`. Watch what the agent does. Get comfortable with its patterns. See how it handles your codebase.
+When working on something new, start with `boxctl claude`. Watch what the agent does. Get comfortable with its patterns. See how it handles your codebase.
 
-Once you trust it with a type of task - say, writing tests or refactoring - switch to `agentbox superclaude` for that work. The agent works faster, and you can do other things.
+Once you trust it with a type of task - say, writing tests or refactoring - switch to `boxctl superclaude` for that work. The agent works faster, and you can do other things.
 
 **Match autonomy to task clarity.**
 
@@ -91,9 +91,9 @@ Sitting at your desk? Either works. Interactive gives you more control; autonomo
 You can run multiple agents simultaneously - that's covered in [Parallel Work](05-parallel.md). But here's a preview:
 
 ```bash
-agentbox superclaude                      # Main branch
-agentbox session new superclaude feature  # Feature branch
-agentbox session new codex tests          # Different agent for tests
+boxctl superclaude                      # Main branch
+boxctl session new superclaude feature  # Feature branch
+boxctl session new codex tests          # Different agent for tests
 ```
 
 Three agents, working in parallel, each in their own session. Mix and match agent types based on what each task needs.

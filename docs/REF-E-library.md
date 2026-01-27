@@ -1,20 +1,20 @@
 # Library - MCPs and Skills
 
-Agentbox provides a library of MCP servers and skills. You can also add your own.
+Boxctl provides a library of MCP servers and skills. You can also add your own.
 
 ## Directory Structure
 
 ```
 Library (built-in, read-only)
-├── /agentbox/library/mcp/          # Inside container
-└── /agentbox/library/skills/
+├── /boxctl/library/mcp/          # Inside container
+└── /boxctl/library/skills/
 
 Custom (user overrides, read-write)
-├── ~/.config/agentbox/mcp/         # On host, mounted into container
-└── ~/.config/agentbox/skills/
+├── ~/.config/boxctl/mcp/         # On host, mounted into container
+└── ~/.config/boxctl/skills/
 ```
 
-**Priority:** Custom overrides library. If you have `~/.config/agentbox/mcp/my-server/`, it replaces any built-in MCP with the same name.
+**Priority:** Custom overrides library. If you have `~/.config/boxctl/mcp/my-server/`, it replaces any built-in MCP with the same name.
 
 ---
 
@@ -44,8 +44,8 @@ abox mcp manage
 | Name | Description |
 |------|-------------|
 | `agentctl` | Session and worktree management (enabled by default) |
-| `agentbox-analyst` | Cross-agent analysis - see [agentbox-analyst](agentbox-analyst.md) |
-| `notify` | Desktop notifications via agentboxd |
+| `boxctl-analyst` | Cross-agent analysis - see [boxctl-analyst](boxctl-analyst.md) |
+| `notify` | Desktop notifications via boxctld |
 
 **Agent bridge MCPs** (invoke one agent from another):
 
@@ -59,10 +59,10 @@ For additional MCPs (databases, APIs, web search, etc.), create custom MCPs or u
 
 ### Adding Custom MCPs
 
-Create a directory in `~/.config/agentbox/mcp/`:
+Create a directory in `~/.config/boxctl/mcp/`:
 
 ```
-~/.config/agentbox/mcp/my-server/
+~/.config/boxctl/mcp/my-server/
 ├── config.json       # Required
 ├── .env              # Optional: environment variables
 ├── server.py         # Or package.json for npm servers
@@ -94,7 +94,7 @@ MY_SECRET=your-secret
 ```
 
 When added to a project, `.env` values are merged into the MCP's environment. This allows you to:
-- Store API keys once in `~/.config/agentbox/mcp/<name>/.env`
+- Store API keys once in `~/.config/boxctl/mcp/<name>/.env`
 - Have them automatically available in all projects using that MCP
 - Keep secrets out of git (the `.env` file stays in your home directory)
 
@@ -102,7 +102,7 @@ Then add to your project: `abox mcp add my-server && abox rebase`
 
 ### Updating Custom MCPs
 
-When you modify files in `~/.config/agentbox/mcp/`:
+When you modify files in `~/.config/boxctl/mcp/`:
 
 ```bash
 # After editing config.json, .env, or server code
@@ -140,10 +140,10 @@ abox skill manage
 
 ### Adding Custom Skills
 
-Create a directory in `~/.config/agentbox/skills/`:
+Create a directory in `~/.config/boxctl/skills/`:
 
 ```
-~/.config/agentbox/skills/my-skill/
+~/.config/boxctl/skills/my-skill/
 ├── SKILL.md          # Required
 └── commands/         # Optional slash commands
     └── my-command.md
@@ -167,10 +167,10 @@ Then add to your project: `abox skill add my-skill`
 
 ## Environment Variables
 
-MCPs that need credentials read from `.agentbox/.env`:
+MCPs that need credentials read from `.boxctl/.env`:
 
 ```bash
-# .agentbox/.env (gitignored)
+# .boxctl/.env (gitignored)
 MY_API_KEY=xxx
 ```
 
@@ -180,12 +180,12 @@ Check individual MCP's `config.json` or README for required variables.
 
 ## Project Configuration
 
-MCPs and skills are configured in `.agentbox.yml`:
+MCPs and skills are configured in `.boxctl.yml`:
 
 ```yaml
 mcp_servers:
   - agentctl
-  - agentbox-analyst
+  - boxctl-analyst
 
 skills:
   - westworld
@@ -199,4 +199,4 @@ Changes require `abox rebase` to take effect.
 
 - [CLI Reference](REF-A-cli.md) - `abox mcp` and `abox skill` commands
 - [Configuration](08-configuration.md) - Full config reference
-- [agentbox-analyst](agentbox-analyst.md) - Cross-agent analysis MCP
+- [boxctl-analyst](boxctl-analyst.md) - Cross-agent analysis MCP

@@ -3,13 +3,13 @@
 # SPDX-License-Identifier: MIT
 # See LICENSE file in the project root for full license information.
 
-"""Send clipboard data to host via agentboxd socket.
+"""Send clipboard data to host via boxctld socket.
 
 Usage:
     echo "text" | abox-clipboard [--selection primary|clipboard]
 
 This script reads from stdin and sends the data to the host's clipboard
-via the agentboxd socket. The agentboxd then uses wl-copy (Wayland)
+via the boxctld socket. The boxctld then uses wl-copy (Wayland)
 or xclip (X11) to set the actual clipboard.
 
 Design: Never blocks tmux. Reads stdin immediately, attempts host clipboard
@@ -23,16 +23,16 @@ import os
 
 
 def _get_socket_path() -> str:
-    """Find the agentboxd socket path."""
+    """Find the boxctld socket path."""
     uid = os.getuid()
-    path = f"/run/user/{uid}/agentboxd/agentboxd.sock"
+    path = f"/run/user/{uid}/boxctld/boxctld.sock"
     if os.path.exists(path):
         return path
     # Scan for socket in other user dirs (container may run as different UID)
     run_user = "/run/user"
     if os.path.exists(run_user):
         for user_dir in os.listdir(run_user):
-            sock_path = os.path.join(run_user, user_dir, "agentboxd", "agentboxd.sock")
+            sock_path = os.path.join(run_user, user_dir, "boxctld", "boxctld.sock")
             if os.path.exists(sock_path):
                 return sock_path
     return path
@@ -59,8 +59,8 @@ def send_to_host(data: str, selection: str) -> None:
 
         sock.sendall(request.encode("utf-8"))
 
-        # Must wait for response - agentboxd processes request during this time
-        # Without waiting, connection closes before agentboxd handles the request
+        # Must wait for response - boxctld processes request during this time
+        # Without waiting, connection closes before boxctld handles the request
         sock.settimeout(2.0)
         try:
             sock.recv(1024)  # Wait for {"ok": true} response

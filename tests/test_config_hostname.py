@@ -7,7 +7,7 @@
 import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
-from agentbox.config import ProjectConfig
+from boxctl.config import ProjectConfig
 
 
 def test_config_hostname_property():
@@ -18,7 +18,8 @@ def test_config_hostname_property():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         project_dir = Path(tmpdir)
-        config_file = project_dir / ".agentbox.yml"
+        config_file = project_dir / ".boxctl" / "config.yml"
+        config_file.parent.mkdir(exist_ok=True)
 
         # Create config with hostname
         config_data = {
@@ -43,7 +44,8 @@ def test_config_no_hostname():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         project_dir = Path(tmpdir)
-        config_file = project_dir / ".agentbox.yml"
+        config_file = project_dir / ".boxctl" / "config.yml"
+        config_file.parent.mkdir(exist_ok=True)
 
         # Create config without hostname
         config_data = {
@@ -67,7 +69,8 @@ def test_config_rebuild_with_hostname_doesnt_crash():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         project_dir = Path(tmpdir)
-        config_file = project_dir / ".agentbox.yml"
+        config_file = project_dir / ".boxctl" / "config.yml"
+        config_file.parent.mkdir(exist_ok=True)
 
         # Create config with hostname
         config_data = {
@@ -86,7 +89,7 @@ def test_config_rebuild_with_hostname_doesnt_crash():
 
         # This should not crash even though NetworkManager doesn't exist
         # The code now prints a warning instead of importing non-existent module
-        with patch('agentbox.config.console'):
+        with patch('boxctl.config.console'):
             # Should not raise ImportError
             config.rebuild(mock_manager, "test-container")
 
@@ -98,7 +101,8 @@ def test_config_rebuild_without_hostname():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         project_dir = Path(tmpdir)
-        config_file = project_dir / ".agentbox.yml"
+        config_file = project_dir / ".boxctl" / "config.yml"
+        config_file.parent.mkdir(exist_ok=True)
 
         # Create config without hostname
         config_data = {
@@ -115,5 +119,5 @@ def test_config_rebuild_without_hostname():
         mock_manager = Mock()
 
         # Should work fine
-        with patch('agentbox.config.console'):
+        with patch('boxctl.config.console'):
             config.rebuild(mock_manager, "test-container")

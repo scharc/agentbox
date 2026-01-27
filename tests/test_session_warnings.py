@@ -7,8 +7,8 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
-from agentbox.cli.helpers import _warn_if_agents_running
-from agentbox.container import ContainerManager
+from boxctl.cli.helpers import _warn_if_agents_running
+from boxctl.container import ContainerManager
 
 
 class TestWarnIfAgentsRunning:
@@ -43,7 +43,7 @@ class TestWarnIfAgentsRunning:
         mock_manager.container_exists.assert_called_once_with("test-container")
         mock_manager.is_running.assert_called_once_with("test-container")
 
-    @patch('agentbox.cli.helpers.tmux_ops._get_tmux_sessions')
+    @patch('boxctl.cli.helpers.tmux_ops._get_tmux_sessions')
     def test_no_warning_if_no_sessions(self, mock_get_sessions, mock_manager):
         """Should return True without warning if no tmux sessions exist."""
         mock_get_sessions.return_value = []
@@ -53,7 +53,7 @@ class TestWarnIfAgentsRunning:
         assert result is True
         mock_get_sessions.assert_called_once_with(mock_manager, "test-container")
 
-    @patch('agentbox.cli.helpers.tmux_ops._get_tmux_sessions')
+    @patch('boxctl.cli.helpers.tmux_ops._get_tmux_sessions')
     def test_no_warning_if_only_non_agent_sessions(self, mock_get_sessions, mock_manager):
         """Should return True without warning if only non-agent sessions exist."""
         mock_get_sessions.return_value = [
@@ -65,8 +65,8 @@ class TestWarnIfAgentsRunning:
 
         assert result is True
 
-    @patch('agentbox.cli.helpers.tmux_ops.click.confirm')
-    @patch('agentbox.cli.helpers.tmux_ops._get_tmux_sessions')
+    @patch('boxctl.cli.helpers.tmux_ops.click.confirm')
+    @patch('boxctl.cli.helpers.tmux_ops._get_tmux_sessions')
     def test_warning_shown_for_claude_session(self, mock_get_sessions, mock_confirm, mock_manager):
         """Should show warning and ask for confirmation when claude session exists."""
         mock_get_sessions.return_value = [
@@ -79,8 +79,8 @@ class TestWarnIfAgentsRunning:
         assert result is True
         mock_confirm.assert_called_once_with("\nProceed with rebuild?", default=False)
 
-    @patch('agentbox.cli.helpers.tmux_ops.click.confirm')
-    @patch('agentbox.cli.helpers.tmux_ops._get_tmux_sessions')
+    @patch('boxctl.cli.helpers.tmux_ops.click.confirm')
+    @patch('boxctl.cli.helpers.tmux_ops._get_tmux_sessions')
     def test_warning_shown_for_superclaude_session(self, mock_get_sessions, mock_confirm, mock_manager):
         """Should show warning for superclaude session."""
         mock_get_sessions.return_value = [
@@ -93,8 +93,8 @@ class TestWarnIfAgentsRunning:
         assert result is True
         mock_confirm.assert_called_once()
 
-    @patch('agentbox.cli.helpers.tmux_ops.click.confirm')
-    @patch('agentbox.cli.helpers.tmux_ops._get_tmux_sessions')
+    @patch('boxctl.cli.helpers.tmux_ops.click.confirm')
+    @patch('boxctl.cli.helpers.tmux_ops._get_tmux_sessions')
     def test_warning_shown_for_codex_session(self, mock_get_sessions, mock_confirm, mock_manager):
         """Should show warning for codex session."""
         mock_get_sessions.return_value = [
@@ -106,8 +106,8 @@ class TestWarnIfAgentsRunning:
 
         assert result is True
 
-    @patch('agentbox.cli.helpers.tmux_ops.click.confirm')
-    @patch('agentbox.cli.helpers.tmux_ops._get_tmux_sessions')
+    @patch('boxctl.cli.helpers.tmux_ops.click.confirm')
+    @patch('boxctl.cli.helpers.tmux_ops._get_tmux_sessions')
     def test_warning_shown_for_gemini_session(self, mock_get_sessions, mock_confirm, mock_manager):
         """Should show warning for gemini session."""
         mock_get_sessions.return_value = [
@@ -119,8 +119,8 @@ class TestWarnIfAgentsRunning:
 
         assert result is True
 
-    @patch('agentbox.cli.helpers.tmux_ops.click.confirm')
-    @patch('agentbox.cli.helpers.tmux_ops._get_tmux_sessions')
+    @patch('boxctl.cli.helpers.tmux_ops.click.confirm')
+    @patch('boxctl.cli.helpers.tmux_ops._get_tmux_sessions')
     def test_warning_shown_for_multiple_agent_sessions(self, mock_get_sessions, mock_confirm, mock_manager):
         """Should show warning for multiple agent sessions."""
         mock_get_sessions.return_value = [
@@ -135,8 +135,8 @@ class TestWarnIfAgentsRunning:
         assert result is True
         mock_confirm.assert_called_once()
 
-    @patch('agentbox.cli.helpers.tmux_ops.click.confirm')
-    @patch('agentbox.cli.helpers.tmux_ops._get_tmux_sessions')
+    @patch('boxctl.cli.helpers.tmux_ops.click.confirm')
+    @patch('boxctl.cli.helpers.tmux_ops._get_tmux_sessions')
     def test_returns_false_when_user_declines(self, mock_get_sessions, mock_confirm, mock_manager):
         """Should return False when user declines to proceed."""
         mock_get_sessions.return_value = [
@@ -148,9 +148,9 @@ class TestWarnIfAgentsRunning:
 
         assert result is False
 
-    @patch('agentbox.cli.helpers.tmux_ops.click.confirm')
-    @patch('agentbox.cli.helpers.tmux_ops._get_tmux_sessions')
-    @patch('agentbox.cli.helpers.tmux_ops.console')
+    @patch('boxctl.cli.helpers.tmux_ops.click.confirm')
+    @patch('boxctl.cli.helpers.tmux_ops._get_tmux_sessions')
+    @patch('boxctl.cli.helpers.tmux_ops.console')
     def test_displays_session_info(self, mock_console, mock_get_sessions, mock_confirm, mock_manager):
         """Should display session information in warning."""
         mock_get_sessions.return_value = [
@@ -169,8 +169,8 @@ class TestWarnIfAgentsRunning:
         warning_text = ''.join(calls)
         assert 'Warning: Active agent sessions detected' in warning_text or 'Active agent sessions' in warning_text
 
-    @patch('agentbox.cli.helpers.tmux_ops.click.confirm')
-    @patch('agentbox.cli.helpers.tmux_ops._get_tmux_sessions')
+    @patch('boxctl.cli.helpers.tmux_ops.click.confirm')
+    @patch('boxctl.cli.helpers.tmux_ops._get_tmux_sessions')
     def test_custom_action_message(self, mock_get_sessions, mock_confirm, mock_manager):
         """Should use custom action message in confirmation."""
         mock_get_sessions.return_value = [
@@ -182,8 +182,8 @@ class TestWarnIfAgentsRunning:
 
         mock_confirm.assert_called_once_with("\nProceed with workspace update?", default=False)
 
-    @patch('agentbox.cli.helpers.tmux_ops.click.confirm')
-    @patch('agentbox.cli.helpers.tmux_ops._get_tmux_sessions')
+    @patch('boxctl.cli.helpers.tmux_ops.click.confirm')
+    @patch('boxctl.cli.helpers.tmux_ops._get_tmux_sessions')
     def test_case_insensitive_agent_detection(self, mock_get_sessions, mock_confirm, mock_manager):
         """Should detect agent sessions case-insensitively."""
         mock_get_sessions.return_value = [

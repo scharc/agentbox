@@ -61,7 +61,7 @@ def get_current_session_info() -> dict:
     }
 
     # Check for super mode via environment variable (set by super* wrapper scripts)
-    info["super_mode"] = os.environ.get("AGENTBOX_SUPER_MODE", "").lower() in ("true", "1", "yes")
+    info["super_mode"] = os.environ.get("BOXCTL_SUPER_MODE", "").lower() in ("true", "1", "yes")
 
     # Get session name
     if os.environ.get("TMUX"):
@@ -158,9 +158,9 @@ def get_worktree_for_branch(branch: str) -> Optional[str]:
 
 
 def setup_worktree_configs(worktree_path: str) -> tuple[bool, str]:
-    """Setup .agentbox for worktree with symlinks to shared project configs
+    """Setup .boxctl for worktree with symlinks to shared project configs
 
-    Creates symlinks to shared project files in /workspace/.agentbox.
+    Creates symlinks to shared project files in /workspace/.boxctl.
     Agent configs are in home directories (shared across worktrees).
 
     Args:
@@ -171,28 +171,28 @@ def setup_worktree_configs(worktree_path: str) -> tuple[bool, str]:
     """
     try:
         # Source and destination paths
-        source_agentbox = "/workspace/.agentbox"
-        dest_agentbox = f"{worktree_path}/.agentbox"
+        source_boxctl = "/workspace/.boxctl"
+        dest_boxctl = f"{worktree_path}/.boxctl"
 
         # Skip if already configured
-        if os.path.exists(f"{dest_agentbox}/agents.md"):
+        if os.path.exists(f"{dest_boxctl}/agents.md"):
             return True, ""
 
         # Create directory structure
-        os.makedirs(dest_agentbox, exist_ok=True)
+        os.makedirs(dest_boxctl, exist_ok=True)
 
         # Symlink shared project files (not agent configs - those are in ~/.claude etc)
         symlinks = [
-            ("agents.md", f"{dest_agentbox}/agents.md"),
-            ("superagents.md", f"{dest_agentbox}/superagents.md"),
-            ("skills", f"{dest_agentbox}/skills"),
-            ("mcp", f"{dest_agentbox}/mcp"),
-            ("mcp-meta.json", f"{dest_agentbox}/mcp-meta.json"),
-            (".gitignore", f"{dest_agentbox}/.gitignore"),
+            ("agents.md", f"{dest_boxctl}/agents.md"),
+            ("superagents.md", f"{dest_boxctl}/superagents.md"),
+            ("skills", f"{dest_boxctl}/skills"),
+            ("mcp", f"{dest_boxctl}/mcp"),
+            ("mcp-meta.json", f"{dest_boxctl}/mcp-meta.json"),
+            (".gitignore", f"{dest_boxctl}/.gitignore"),
         ]
 
         for source_rel, dest in symlinks:
-            source = f"{source_agentbox}/{source_rel}"
+            source = f"{source_boxctl}/{source_rel}"
             if os.path.exists(source) and not os.path.exists(dest):
                 os.symlink(source, dest)
 
@@ -244,13 +244,13 @@ def create_worktree_helper(branch: str, create_new: bool) -> tuple[bool, str, st
 
 
 def _configure_tmux_session(session_name: str, branch: str, agent_type: str) -> None:
-    """Apply tmux configuration to match agentbox-created sessions.
+    """Apply tmux configuration to match boxctl-created sessions.
 
     This ensures sessions created via agentctl have the same look and feel
-    as sessions created via 'agentbox superclaude'.
+    as sessions created via 'boxctl superclaude'.
     """
     # Get container name from hostname
-    container_name = socket.gethostname().replace("agentbox-", "")
+    container_name = socket.gethostname().replace("boxctl-", "")
 
     # Display name for status bar
     display = f"{branch} | {agent_type}"
@@ -261,7 +261,7 @@ def _configure_tmux_session(session_name: str, branch: str, agent_type: str) -> 
         ["set-option", "-t", session_name, "status", "on"],
         ["set-option", "-t", session_name, "status-position", "top"],
         ["set-option", "-t", session_name, "status-style", "bg=colour226,fg=colour232"],
-        ["set-option", "-t", session_name, "status-left", f" AGENTBOX {container_name} | {display} "],
+        ["set-option", "-t", session_name, "status-left", f" BOXCTL {container_name} | {display} "],
         ["set-option", "-t", session_name, "status-right", ""],
         # Mouse and history
         ["set-option", "-t", session_name, "mouse", "off"],
@@ -269,7 +269,7 @@ def _configure_tmux_session(session_name: str, branch: str, agent_type: str) -> 
         # Pane border
         ["set-option", "-t", session_name, "pane-border-status", "top"],
         ["set-option", "-t", session_name, "pane-border-style", "fg=colour226"],
-        ["set-option", "-t", session_name, "pane-border-format", f" AGENTBOX {container_name} | {display} "],
+        ["set-option", "-t", session_name, "pane-border-format", f" BOXCTL {container_name} | {display} "],
     ]
 
     # Key bindings (global, not session-specific)
@@ -352,7 +352,7 @@ def spawn_session_in_worktree(worktree_path: str, agent_type: str, branch: str) 
         if result.returncode != 0:
             return False, "", f"Failed to create session: {result.stderr}"
 
-        # Apply tmux configuration to match agentbox-created sessions
+        # Apply tmux configuration to match boxctl-created sessions
         _configure_tmux_session(session_name, sanitized_branch, agent_type)
 
         return True, session_name, ""
@@ -1247,7 +1247,7 @@ def get_current_context() -> dict:
 
         # Fallback to /workspace if not in tmux or tmux query failed
         if not working_directory:
-            # Try /workspace first (standard agentbox location), then fall back to process cwd
+            # Try /workspace first (standard boxctl location), then fall back to process cwd
             if os.path.isdir("/workspace") and os.path.isdir("/workspace/.git"):
                 working_directory = "/workspace"
             else:
@@ -1325,7 +1325,7 @@ def _send_usage_request(action: str, payload: dict) -> Optional[dict]:
     from pathlib import Path
     import socket as sock
 
-    ipc_socket = Path("/tmp/agentbox-local.sock")
+    ipc_socket = Path("/tmp/boxctl-local.sock")
     if not ipc_socket.exists():
         return None
 
@@ -1395,7 +1395,7 @@ def check_agent_available(agent: str) -> dict:
 
     # Fallback to local state check
     try:
-        from agentbox.usage.client import is_agent_available, get_fallback_agent
+        from boxctl.usage.client import is_agent_available, get_fallback_agent
         available = is_agent_available(agent)
         result = {"agent": agent, "available": available}
         if not available:
@@ -1428,7 +1428,7 @@ def get_agent_status() -> dict:
 
     # Fallback to local state
     try:
-        from agentbox.usage.client import get_usage_status
+        from boxctl.usage.client import get_usage_status
         return {
             "source": "local",
             "agents": get_usage_status(),
@@ -1480,7 +1480,7 @@ def report_agent_limit(
 
     # Fallback to local state
     try:
-        from agentbox.usage.client import report_rate_limit
+        from boxctl.usage.client import report_rate_limit
         report_rate_limit(agent, resets_in_seconds, error_type)
         return {"ok": True, "reported_to": "local"}
     except ImportError:
@@ -1507,7 +1507,7 @@ def clear_agent_limit(agent: str) -> dict:
 
     # Fallback to local state
     try:
-        from agentbox.usage.client import clear_rate_limit
+        from boxctl.usage.client import clear_rate_limit
         clear_rate_limit(agent)
         return {"ok": True, "cleared_from": "local"}
     except ImportError:

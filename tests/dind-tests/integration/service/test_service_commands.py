@@ -17,52 +17,52 @@ class TestServiceFileGeneration:
 
     def test_install_creates_config_file(self, running_container, test_project):
         """Test that service install creates config file."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Run install (will fail on systemctl but should create files)
         result = exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         # Check config file was created
         result = exec_in_container(
             container_name,
-            "test -f /home/abox/.config/agentbox/config.yml"
+            "test -f /home/abox/.config/boxctl/config.yml"
         )
 
         assert result.returncode == 0, "Config file should be created"
 
     def test_config_file_has_valid_yaml(self, running_container, test_project):
         """Test that generated config is valid YAML."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Install to create config
         exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         # Verify YAML is parseable
         result = exec_in_container(
             container_name,
-            "python3 -c \"import yaml; yaml.safe_load(open('/home/abox/.config/agentbox/config.yml'))\""
+            "python3 -c \"import yaml; yaml.safe_load(open('/home/abox/.config/boxctl/config.yml'))\""
         )
 
         assert result.returncode == 0, f"Config should be valid YAML: {result.stderr}"
 
     def test_config_contains_web_server_settings(self, running_container, test_project):
         """Test that config contains expected web server settings."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         result = exec_in_container(
             container_name,
-            "cat /home/abox/.config/agentbox/config.yml"
+            "cat /home/abox/.config/boxctl/config.yml"
         )
 
         assert result.returncode == 0
@@ -73,33 +73,33 @@ class TestServiceFileGeneration:
 
     def test_install_creates_systemd_service_file(self, running_container, test_project):
         """Test that service install creates systemd unit file."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         # Check service file exists
         result = exec_in_container(
             container_name,
-            "test -f /home/abox/.config/systemd/user/agentboxd.service"
+            "test -f /home/abox/.config/systemd/user/boxctld.service"
         )
 
         assert result.returncode == 0, "Systemd service file should be created"
 
     def test_service_file_has_valid_systemd_format(self, running_container, test_project):
         """Test that service file is valid systemd unit format."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         result = exec_in_container(
             container_name,
-            "cat /home/abox/.config/systemd/user/agentboxd.service"
+            "cat /home/abox/.config/systemd/user/boxctld.service"
         )
 
         assert result.returncode == 0
@@ -111,16 +111,16 @@ class TestServiceFileGeneration:
 
     def test_service_file_references_serve_command(self, running_container, test_project):
         """Test that service file ExecStart uses 'service serve'."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         result = exec_in_container(
             container_name,
-            "grep ExecStart /home/abox/.config/systemd/user/agentboxd.service"
+            "grep ExecStart /home/abox/.config/systemd/user/boxctld.service"
         )
 
         assert result.returncode == 0
@@ -129,26 +129,26 @@ class TestServiceFileGeneration:
 
     def test_install_idempotent(self, running_container, test_project):
         """Test that running install multiple times is safe."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # First install
         result1 = exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         # Second install
         result2 = exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         # Both should succeed (exit 0 or just create files)
         # Verify files still exist and are valid
         result = exec_in_container(
             container_name,
-            "test -f /home/abox/.config/agentbox/config.yml && "
-            "test -f /home/abox/.config/systemd/user/agentboxd.service"
+            "test -f /home/abox/.config/boxctl/config.yml && "
+            "test -f /home/abox/.config/systemd/user/boxctld.service"
         )
 
         assert result.returncode == 0, "Files should exist after multiple installs"
@@ -160,49 +160,49 @@ class TestServiceUninstall:
 
     def test_uninstall_removes_service_file(self, running_container, test_project):
         """Test that uninstall removes systemd service file."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Install first
         exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         # Verify file exists
         result = exec_in_container(
             container_name,
-            "test -f /home/abox/.config/systemd/user/agentboxd.service"
+            "test -f /home/abox/.config/systemd/user/boxctld.service"
         )
         assert result.returncode == 0
 
         # Uninstall
         exec_in_container(
             container_name,
-            "agentbox service uninstall 2>&1 || true"
+            "boxctl service uninstall 2>&1 || true"
         )
 
         # Verify file is gone
         result = exec_in_container(
             container_name,
-            "test -f /home/abox/.config/systemd/user/agentboxd.service"
+            "test -f /home/abox/.config/systemd/user/boxctld.service"
         )
 
         assert result.returncode != 0, "Service file should be removed"
 
     def test_uninstall_when_not_installed(self, running_container, test_project):
         """Test that uninstall handles non-existent service gracefully."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Ensure service is not installed
         exec_in_container(
             container_name,
-            "rm -f /home/abox/.config/systemd/user/agentboxd.service"
+            "rm -f /home/abox/.config/systemd/user/boxctld.service"
         )
 
         # Uninstall should not error
         result = exec_in_container(
             container_name,
-            "agentbox service uninstall 2>&1"
+            "boxctl service uninstall 2>&1"
         )
 
         # Should handle gracefully (may show "not installed" message)
@@ -210,24 +210,24 @@ class TestServiceUninstall:
 
     def test_uninstall_preserves_config(self, running_container, test_project):
         """Test that uninstall preserves config file."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Install
         exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         # Uninstall
         exec_in_container(
             container_name,
-            "agentbox service uninstall 2>&1 || true"
+            "boxctl service uninstall 2>&1 || true"
         )
 
         # Config should still exist
         result = exec_in_container(
             container_name,
-            "test -f /home/abox/.config/agentbox/config.yml"
+            "test -f /home/abox/.config/boxctl/config.yml"
         )
 
         assert result.returncode == 0, "Config should be preserved after uninstall"
@@ -239,35 +239,35 @@ class TestServiceConfig:
 
     def test_config_shows_path_when_exists(self, running_container, test_project):
         """Test that config command shows config file path."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Install to create config
         exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         # Run config command (will try to open editor, but we can check output)
         result = exec_in_container(
             container_name,
-            "agentbox service config 2>&1 || true"
+            "boxctl service config 2>&1 || true"
         )
 
-        assert ".config/agentbox/config.yml" in result.stdout or ".config/agentbox/config.yml" in result.stderr
+        assert ".config/boxctl/config.yml" in result.stdout or ".config/boxctl/config.yml" in result.stderr
 
     def test_config_message_when_not_installed(self, running_container, test_project):
         """Test config command when config doesn't exist."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Ensure config doesn't exist
         exec_in_container(
             container_name,
-            "rm -f /home/abox/.config/agentbox/config.yml"
+            "rm -f /home/abox/.config/boxctl/config.yml"
         )
 
         result = exec_in_container(
             container_name,
-            "agentbox service config 2>&1"
+            "boxctl service config 2>&1"
         )
 
         assert "not found" in result.stdout.lower() or "install" in result.stdout.lower()
@@ -279,12 +279,12 @@ class TestServiceServe:
 
     def test_serve_command_exists(self, running_container, test_project):
         """Test that serve command is available."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Check help for serve command
         result = exec_in_container(
             container_name,
-            "agentbox service serve --help",
+            "boxctl service serve --help",
             timeout=5
         )
 
@@ -293,12 +293,12 @@ class TestServiceServe:
 
     def test_serve_can_start_and_stop(self, running_container, test_project):
         """Test that serve can be started and stopped."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Start serve in background
         result = exec_in_container(
             container_name,
-            "timeout 2 agentbox service serve /tmp/test-proxy.sock 2>&1 || true",
+            "timeout 2 boxctl service serve /tmp/test-proxy.sock 2>&1 || true",
             timeout=5
         )
 
@@ -308,13 +308,13 @@ class TestServiceServe:
 
     def test_serve_with_custom_socket_path(self, running_container, test_project):
         """Test serve with custom socket path argument."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Try to start with custom socket (will timeout)
         custom_socket = "/tmp/custom-test.sock"
         result = exec_in_container(
             container_name,
-            f"timeout 1 agentbox service serve {custom_socket} 2>&1 || true",
+            f"timeout 1 boxctl service serve {custom_socket} 2>&1 || true",
             timeout=3
         )
 
@@ -329,11 +329,11 @@ class TestServiceLogs:
 
     def test_logs_command_exists(self, running_container, test_project):
         """Test that logs command is available."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         result = exec_in_container(
             container_name,
-            "agentbox service logs --help || agentbox service --help",
+            "boxctl service logs --help || boxctl service --help",
             timeout=5
         )
 
@@ -342,12 +342,12 @@ class TestServiceLogs:
 
     def test_logs_with_lines_argument(self, running_container, test_project):
         """Test logs command with custom line count."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # This will fail if journalctl not available, which is expected in DinD
         result = exec_in_container(
             container_name,
-            "agentbox service logs 10 2>&1 || true",
+            "boxctl service logs 10 2>&1 || true",
             timeout=5
         )
 
@@ -361,28 +361,28 @@ class TestServicePaths:
 
     def test_config_directory_created(self, running_container, test_project):
         """Test that config directory is created on install."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         # Check directory exists
         result = exec_in_container(
             container_name,
-            "test -d /home/abox/.config/agentbox"
+            "test -d /home/abox/.config/boxctl"
         )
 
         assert result.returncode == 0, "Config directory should be created"
 
     def test_systemd_directory_created(self, running_container, test_project):
         """Test that systemd user directory is created."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         result = exec_in_container(
@@ -394,16 +394,16 @@ class TestServicePaths:
 
     def test_service_file_permissions(self, running_container, test_project):
         """Test that service file has appropriate permissions."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         result = exec_in_container(
             container_name,
-            "stat -c '%a' /home/abox/.config/systemd/user/agentboxd.service"
+            "stat -c '%a' /home/abox/.config/systemd/user/boxctld.service"
         )
 
         assert result.returncode == 0
@@ -413,16 +413,16 @@ class TestServicePaths:
 
     def test_config_file_permissions(self, running_container, test_project):
         """Test that config file has appropriate permissions."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         result = exec_in_container(
             container_name,
-            "stat -c '%a' /home/abox/.config/agentbox/config.yml"
+            "stat -c '%a' /home/abox/.config/boxctl/config.yml"
         )
 
         assert result.returncode == 0
@@ -436,133 +436,133 @@ class TestServiceIntegration:
 
     def test_install_uninstall_cycle(self, running_container, test_project):
         """Test complete install/uninstall cycle."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # 1. Install
         result = exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         # 2. Verify files exist
         result = exec_in_container(
             container_name,
-            "test -f /home/abox/.config/agentbox/config.yml && "
-            "test -f /home/abox/.config/systemd/user/agentboxd.service"
+            "test -f /home/abox/.config/boxctl/config.yml && "
+            "test -f /home/abox/.config/systemd/user/boxctld.service"
         )
         assert result.returncode == 0
 
         # 3. Uninstall
         exec_in_container(
             container_name,
-            "agentbox service uninstall 2>&1 || true"
+            "boxctl service uninstall 2>&1 || true"
         )
 
         # 4. Verify service file removed
         result = exec_in_container(
             container_name,
-            "test -f /home/abox/.config/systemd/user/agentboxd.service"
+            "test -f /home/abox/.config/systemd/user/boxctld.service"
         )
         assert result.returncode != 0
 
         # 5. Config should still exist
         result = exec_in_container(
             container_name,
-            "test -f /home/abox/.config/agentbox/config.yml"
+            "test -f /home/abox/.config/boxctl/config.yml"
         )
         assert result.returncode == 0
 
     def test_multiple_install_uninstall_cycles(self, running_container, test_project):
         """Test multiple install/uninstall cycles."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         for i in range(3):
             # Install
             exec_in_container(
                 container_name,
-                "agentbox service install 2>&1 || true"
+                "boxctl service install 2>&1 || true"
             )
 
             # Verify
             result = exec_in_container(
                 container_name,
-                "test -f /home/abox/.config/systemd/user/agentboxd.service"
+                "test -f /home/abox/.config/systemd/user/boxctld.service"
             )
             assert result.returncode == 0, f"Cycle {i}: Service file should exist after install"
 
             # Uninstall
             exec_in_container(
                 container_name,
-                "agentbox service uninstall 2>&1 || true"
+                "boxctl service uninstall 2>&1 || true"
             )
 
             # Verify
             result = exec_in_container(
                 container_name,
-                "test -f /home/abox/.config/systemd/user/agentboxd.service"
+                "test -f /home/abox/.config/systemd/user/boxctld.service"
             )
             assert result.returncode != 0, f"Cycle {i}: Service file should not exist after uninstall"
 
     def test_config_persists_across_install_uninstall(self, running_container, test_project):
         """Test that config modifications persist."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Install
         exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         # Modify config
         test_marker = "# TEST_MARKER_12345"
         exec_in_container(
             container_name,
-            f"echo '{test_marker}' >> /home/abox/.config/agentbox/config.yml"
+            f"echo '{test_marker}' >> /home/abox/.config/boxctl/config.yml"
         )
 
         # Uninstall
         exec_in_container(
             container_name,
-            "agentbox service uninstall 2>&1 || true"
+            "boxctl service uninstall 2>&1 || true"
         )
 
         # Verify marker still exists
         result = exec_in_container(
             container_name,
-            "grep TEST_MARKER_12345 /home/abox/.config/agentbox/config.yml"
+            "grep TEST_MARKER_12345 /home/abox/.config/boxctl/config.yml"
         )
 
         assert result.returncode == 0, "Config modifications should persist"
 
     def test_service_file_content_consistency(self, running_container, test_project):
         """Test that service file content is consistent across reinstalls."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # First install
         exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         result1 = exec_in_container(
             container_name,
-            "cat /home/abox/.config/systemd/user/agentboxd.service"
+            "cat /home/abox/.config/systemd/user/boxctld.service"
         )
         content1 = result1.stdout
 
         # Uninstall and reinstall
         exec_in_container(
             container_name,
-            "agentbox service uninstall 2>&1 || true"
+            "boxctl service uninstall 2>&1 || true"
         )
         exec_in_container(
             container_name,
-            "agentbox service install 2>&1 || true"
+            "boxctl service install 2>&1 || true"
         )
 
         result2 = exec_in_container(
             container_name,
-            "cat /home/abox/.config/systemd/user/agentboxd.service"
+            "cat /home/abox/.config/systemd/user/boxctld.service"
         )
         content2 = result2.stdout
 

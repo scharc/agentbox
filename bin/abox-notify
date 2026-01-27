@@ -3,16 +3,19 @@
 # SPDX-License-Identifier: MIT
 # See LICENSE file in the project root for full license information.
 
-# Send notifications to host via agentboxd socket
+# Send notifications to host via boxctld socket
 # Usage: abox-notify <title> <message> <urgency> [container] [session]
 
 set -euo pipefail
 
-TITLE="${1:-Agentbox}"
+# Note: First argument (title) is intentionally unused - we construct an enhanced title
+# from container/session metadata instead. Keeping the parameter for API compatibility.
+# shellcheck disable=SC2034
+_UNUSED_TITLE="${1:-boxctl}"
 MESSAGE="${2:-Notification}"
 URGENCY="${3:-normal}"
-CONTAINER="${4:-${AGENTBOX_CONTAINER:-}}"
-SESSION="${5:-${AGENTBOX_SESSION_NAME:-}}"
+CONTAINER="${4:-${BOXCTL_CONTAINER:-}}"
+SESSION="${5:-${BOXCTL_SESSION_NAME:-}}"
 
 # Get tmux socket from TMUX env var (format: /path/to/socket,pid,index)
 # This ensures we talk to the same tmux server as the current session
@@ -32,8 +35,8 @@ if [[ -z "$SESSION" ]]; then
     SESSION=$($TMUX_CMD display-message -p '#S' 2>/dev/null || echo "unknown")
 fi
 
-# Extract project name from container (remove 'agentbox-' prefix)
-PROJECT="${CONTAINER#agentbox-}"
+# Extract project name from container (remove 'boxctl-' prefix)
+PROJECT="${CONTAINER#boxctl-}"
 
 # Extract agent type from session name (e.g., "claude-1234567890" -> "claude")
 AGENT_TYPE="${SESSION%%-*}"
@@ -41,7 +44,7 @@ AGENT_TYPE="${SESSION%%-*}"
 AGENT_TYPE="$(echo "${AGENT_TYPE:0:1}" | tr '[:lower:]' '[:upper:]')${AGENT_TYPE:1}"
 
 # Detect notification type from message
-if [[ -n "${AGENTBOX_STALL_BUFFER:-}" ]] || [[ "$MESSAGE" == *"No output"* ]]; then
+if [[ -n "${BOXCTL_STALL_BUFFER:-}" ]] || [[ "$MESSAGE" == *"No output"* ]]; then
     NOTIFY_TYPE="Stalled"
 elif [[ "$MESSAGE" == *"Task completed"* ]] || [[ "$MESSAGE" == *"completed"* ]]; then
     NOTIFY_TYPE="Done"
@@ -64,7 +67,7 @@ CONFIG=$(python3 -c "
 import sys
 try:
     import yaml
-    with open('/workspace/.agentbox/config.yml', 'r') as f:
+    with open('/workspace/.boxctl/config.yml', 'r') as f:
         config = yaml.safe_load(f) or {}
         task_config = config.get('task_agents', {})
         print(task_config.get('enabled', False))
@@ -99,17 +102,17 @@ fi
 
 # Debug mode - set ABOX_NOTIFY_DEBUG=1 to see what's happening
 DEBUG="${ABOX_NOTIFY_DEBUG:-}"
-debug() { [[ -n "$DEBUG" ]] && echo "[abox-notify] $*" >&2 || true; }
+debug() { if [[ -n "$DEBUG" ]]; then echo "[abox-notify] $*" >&2; fi; }
 
 debug "ENABLED=$ENABLED AGENT=$AGENT MODEL=$MODEL"
 debug "TMUX=$TMUX SESSION=$SESSION"
 
 # If enhancement enabled, try AI analysis
-if [[ "$ENABLED" == "True" ]] && [[ -z "${AGENTBOX_INVOCATION_DEPTH:-}" ]]; then
+if [[ "$ENABLED" == "True" ]] && [[ -z "${BOXCTL_INVOCATION_DEPTH:-}" ]]; then
     debug "Enhancement enabled, checking buffer..."
     # Get buffer from env var (stall detection) or capture from tmux (hook mode)
-    if [[ -n "${AGENTBOX_STALL_BUFFER:-}" ]]; then
-        BUFFER="$AGENTBOX_STALL_BUFFER"
+    if [[ -n "${BOXCTL_STALL_BUFFER:-}" ]]; then
+        BUFFER="$BOXCTL_STALL_BUFFER"
         debug "Using stall buffer (${#BUFFER} chars)"
     else
         # Capture last 50 lines of session buffer
@@ -143,7 +146,7 @@ Guidelines:
 Be conservative - when in doubt, ESCALATE."
 
         # Get AI decision
-        AI_RESPONSE=$(echo "$DECISION_PROMPT" | AGENTBOX_INVOCATION_DEPTH=1 claude -p --model "$MODEL" 2>/dev/null | head -c 500 || echo "")
+        AI_RESPONSE=$(echo "$DECISION_PROMPT" | BOXCTL_INVOCATION_DEPTH=1 claude -p --model "$MODEL" 2>/dev/null | head -c 500 || echo "")
 
         if [[ -n "$AI_RESPONSE" ]]; then
             # Parse decision
@@ -195,7 +198,7 @@ SHORT: Fixing authentication bug in login
 LONG: The agent is debugging an authentication issue in the login flow, specifically investigating why tokens are not being validated correctly."
 
         debug "Calling $AGENT with model $MODEL..."
-        AI_RESPONSE=$(echo "$SUMMARY_PROMPT" | AGENTBOX_INVOCATION_DEPTH=1 claude -p --model "$MODEL" 2>/dev/null | head -c 500 || echo "")
+        AI_RESPONSE=$(echo "$SUMMARY_PROMPT" | BOXCTL_INVOCATION_DEPTH=1 claude -p --model "$MODEL" 2>/dev/null | head -c 500 || echo "")
 
         if [[ -n "$AI_RESPONSE" ]]; then
             SUMMARY_SHORT=$(echo "$AI_RESPONSE" | grep -oP '^SHORT:\s*\K.+' | head -c 60 || echo "")
@@ -235,7 +238,7 @@ import sys
 # Build structured notification payload
 payload = {
     'action': 'notify',
-    'title': os.environ.get('ENHANCED_TITLE', 'Agentbox'),
+    'title': os.environ.get('ENHANCED_TITLE', 'boxctl'),
     'message': os.environ.get('MESSAGE', 'Notification'),
     'urgency': os.environ.get('URGENCY', 'normal'),
     'metadata': {
@@ -249,10 +252,10 @@ payload = {
 }
 
 # SSH mode: local IPC socket (container_client.py)
-ssh_mode_socket = "/tmp/agentbox-local.sock"
+ssh_mode_socket = "/tmp/boxctl-local.sock"
 
-# Legacy mode: direct connection to host agentboxd socket
-legacy_socket = f"/run/user/{os.getuid()}/agentboxd/agentboxd.sock"
+# Legacy mode: direct connection to host boxctld socket
+legacy_socket = f"/run/user/{os.getuid()}/boxctld/boxctld.sock"
 
 def send_notification(sock_path):
     """Send notification to socket."""
@@ -295,6 +298,6 @@ if os.path.exists(legacy_socket):
         print(f"Failed to send notification: {e}", file=sys.stderr)
         sys.exit(1)
 
-print("No agentbox socket available - notification skipped", file=sys.stderr)
+print("No boxctl socket available - notification skipped", file=sys.stderr)
 sys.exit(0)
 PYTHON_SCRIPT

@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Marc Schütze <scharc@gmail.com>
 # SPDX-License-Identifier: MIT
 
-"""CLI execution helpers for agentbox DinD tests."""
+"""CLI execution helpers for boxctl DinD tests."""
 
 import subprocess
 from pathlib import Path
@@ -17,9 +17,9 @@ def run_abox(
     timeout: int = 120,
     env: Optional[dict] = None,
 ) -> subprocess.CompletedProcess:
-    """Run agentbox CLI command.
+    """Run boxctl CLI command.
 
-    Uses the poetry-installed 'agentbox' command.
+    Uses the poetry-installed 'boxctl' command.
 
     Args:
         *args: Command arguments (e.g., "start", "mcp", "add", "fetch")
@@ -35,7 +35,7 @@ def run_abox(
     """
     import os
 
-    cmd = ["agentbox", *[str(a) for a in args]]
+    cmd = ["boxctl", *[str(a) for a in args]]
 
     # Merge environment
     run_env = os.environ.copy()

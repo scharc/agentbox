@@ -1,10 +1,10 @@
 # Agent Context
 
-You are running in an Agentbox containerized environment.
+You are running in an boxctl containerized environment.
 
-## Understanding Agentbox: Inside vs Outside
+## Understanding boxctl: Inside vs Outside
 
-**You are INSIDE the container right now.** Agentbox has two parts:
+**You are INSIDE the container right now.** boxctl has two parts:
 
 ### INSIDE (Where You Are)
 - **Location:** Docker container
@@ -16,19 +16,19 @@ You are running in an Agentbox containerized environment.
   - Use all dev tools: git, node, python, docker CLI, etc.
 
 **What you CANNOT do:**
-- Run `abox` or `agentbox` commands (those are host-only)
+- Run `abox` or `boxctl` commands (those are host-only)
 - Manage containers or add MCP servers (requires host rebuild)
 - Access host filesystem outside mounted volumes
 
 ### OUTSIDE (Host System)
 The user's laptop that controls containers:
 - `abox` - Quick launcher for agents
-- `agentbox` - Container lifecycle, MCP servers, workspace management
+- `boxctl` - Container lifecycle, MCP servers, workspace management
 - Web proxy service - Notification bridge
 
-## Working on the Agentbox Repository
+## Working on the boxctl Repository
 
-**If you're working on the agentbox repo itself** (not a user project), read the detailed documentation:
+**If you're working on the boxctl repo itself** (not a user project), read the detailed documentation:
 - `docs/agent-architecture-guide.md` - Complete architecture reference
 - `docs/AGENT-QUICK-REF.md` - Quick command reference
 
@@ -45,7 +45,7 @@ These docs explain:
 
 ## Workflow Best Practices
 - Commit changes frequently using git
-- Keep a development log in `.agentbox/LOG.md`
+- Keep a development log in `.boxctl/LOG.md`
 - After completing tasks, update the project-specific notes below to help future agents
 
 ## Available Resources
@@ -53,5 +53,5 @@ Dynamic context about workspace mounts, MCP servers, and skills will be provided
 
 ---
 
-_This file is a static template. Agentbox does not modify it._
+_This file is a static template. boxctl does not modify it._
 _Add your project-specific instructions and notes below this line._

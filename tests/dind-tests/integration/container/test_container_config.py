@@ -14,7 +14,7 @@ from helpers.docker import run_docker, wait_for_container_ready
 
 @pytest.mark.integration
 class TestContainerConfig:
-    """Validate container configuration options from .agentbox.yml."""
+    """Validate container configuration options from .boxctl.yml."""
 
     def test_ports_mapping_configured(self, test_project):
         update_project_config(test_project, {"ports": ["18080:8080"]})
@@ -26,7 +26,7 @@ class TestContainerConfig:
                 pytest.skip("Resource limits not supported in this DinD cgroup mode")
             assert result.returncode == 0, f"Failed to start container: {result.stderr}"
 
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         assert wait_for_container_ready(container_name, timeout=60)
 
         result = run_docker("inspect", container_name)
@@ -49,7 +49,7 @@ class TestContainerConfig:
                 pytest.skip("Resource limits not supported in this DinD cgroup mode")
             assert result.returncode == 0, f"Failed to start container: {result.stderr}"
 
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         assert wait_for_container_ready(container_name, timeout=60)
 
         result = run_docker("inspect", container_name)
@@ -71,7 +71,7 @@ class TestContainerConfig:
         result = run_abox("start", cwd=test_project)
         assert result.returncode == 0, f"Failed to start container: {result.stderr}"
 
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         assert wait_for_container_ready(container_name, timeout=60)
 
         result = run_docker("inspect", container_name)

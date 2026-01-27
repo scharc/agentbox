@@ -24,17 +24,17 @@ class TestConfigPathResolution:
 
     def test_no_config_exists(self, temp_project):
         """exists() returns False when no config file exists."""
-        from agentbox.config import ProjectConfig
+        from boxctl.config import ProjectConfig
 
         config = ProjectConfig(temp_project)
         assert not config.exists()
 
     def test_new_config_found(self, temp_project):
-        """Config loads from new .agentbox/config.yml location."""
-        from agentbox.config import ProjectConfig
+        """Config loads from new .boxctl/config.yml location."""
+        from boxctl.config import ProjectConfig
 
         # Create new config
-        new_dir = temp_project / ".agentbox"
+        new_dir = temp_project / ".boxctl"
         new_dir.mkdir()
         new_path = new_dir / "config.yml"
         new_path.write_text("version: '1.0'\n")
@@ -45,11 +45,11 @@ class TestConfigPathResolution:
         assert config.config_path == new_path
 
     def test_save_writes_to_config_path(self, temp_project):
-        """Save writes to .agentbox/config.yml location."""
-        from agentbox.config import ProjectConfig
+        """Save writes to .boxctl/config.yml location."""
+        from boxctl.config import ProjectConfig
 
         # Create config directory
-        new_dir = temp_project / ".agentbox"
+        new_dir = temp_project / ".boxctl"
         new_dir.mkdir()
         new_path = new_dir / "config.yml"
         new_path.write_text("version: '1.0'\n")
@@ -65,21 +65,21 @@ class TestConfigPathResolution:
         assert data["docker"]["enabled"] is True
 
     def test_create_template_uses_new_location(self, temp_project):
-        """create_template() creates config in new .agentbox/ location."""
-        from agentbox.config import ProjectConfig
+        """create_template() creates config in new .boxctl/ location."""
+        from boxctl.config import ProjectConfig
 
         config = ProjectConfig(temp_project)
         config.create_template()
 
         # Should create in new location
-        new_path = temp_project / ".agentbox" / "config.yml"
-        legacy_path = temp_project / ".agentbox.yml"
+        new_path = temp_project / ".boxctl" / "config.yml"
+        legacy_path = temp_project / ".boxctl.yml"
 
         assert new_path.exists()
         assert not legacy_path.exists()
 
     def test_config_path_constant(self):
         """Verify config path constant is set correctly."""
-        from agentbox.config import ProjectConfig
+        from boxctl.config import ProjectConfig
 
-        assert ProjectConfig.CONFIG_PATH == ".agentbox/config.yml"
+        assert ProjectConfig.CONFIG_PATH == ".boxctl/config.yml"

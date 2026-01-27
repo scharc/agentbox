@@ -45,11 +45,11 @@ def wait_for_port(port: int, host: str = "127.0.0.1", timeout: int = 10) -> bool
     return False
 
 
-def is_agentboxd_running() -> bool:
-    """Check if agentboxd is running."""
+def is_boxctld_running() -> bool:
+    """Check if boxctld is running."""
     try:
         result = subprocess.run(
-            ["systemctl", "--user", "is-active", "agentboxd"],
+            ["systemctl", "--user", "is-active", "boxctld"],
             capture_output=True,
             text=True,
         )
@@ -64,13 +64,13 @@ class TestPortsCommands:
     """Test port CLI commands update configuration correctly."""
 
     def test_expose_updates_config(self, test_project):
-        """expose command should update .agentbox.yml with host port."""
+        """expose command should update .boxctl.yml with host port."""
         result = run_abox("ports", "expose", "3000", cwd=test_project)
         assert result.returncode == 0, f"expose failed: {result.stderr}"
         assert "Exposed" in result.stdout or "already exposed" in result.stdout.lower()
 
         # Verify config was updated
-        config_path = test_project / ".agentbox.yml"
+        config_path = test_project / ".boxctl.yml"
         with open(config_path) as f:
             config = yaml.safe_load(f)
 
@@ -84,7 +84,7 @@ class TestPortsCommands:
         result = run_abox("ports", "expose", "8080:9090", cwd=test_project)
         assert result.returncode == 0, f"expose failed: {result.stderr}"
 
-        config_path = test_project / ".agentbox.yml"
+        config_path = test_project / ".boxctl.yml"
         with open(config_path) as f:
             config = yaml.safe_load(f)
 
@@ -97,7 +97,7 @@ class TestPortsCommands:
         )
 
     def test_unexpose_removes_from_config(self, test_project):
-        """unexpose command should remove port from .agentbox.yml."""
+        """unexpose command should remove port from .boxctl.yml."""
         # First expose
         run_abox("ports", "expose", "4000", cwd=test_project)
 
@@ -106,7 +106,7 @@ class TestPortsCommands:
         assert result.returncode == 0, f"unexpose failed: {result.stderr}"
 
         # Verify config was updated
-        config_path = test_project / ".agentbox.yml"
+        config_path = test_project / ".boxctl.yml"
         with open(config_path) as f:
             config = yaml.safe_load(f)
 
@@ -116,12 +116,12 @@ class TestPortsCommands:
         )
 
     def test_forward_updates_config(self, test_project):
-        """forward command should update .agentbox.yml with container port."""
+        """forward command should update .boxctl.yml with container port."""
         result = run_abox("ports", "forward", "test-fwd", "5000", cwd=test_project)
         assert result.returncode == 0, f"forward failed: {result.stderr}"
 
         # Verify config was updated
-        config_path = test_project / ".agentbox.yml"
+        config_path = test_project / ".boxctl.yml"
         with open(config_path) as f:
             config = yaml.safe_load(f)
 
@@ -145,7 +145,7 @@ class TestPortsCommands:
         assert result.returncode == 0, f"unforward failed: {result.stderr}"
 
         # Verify config was updated
-        config_path = test_project / ".agentbox.yml"
+        config_path = test_project / ".boxctl.yml"
         with open(config_path) as f:
             config = yaml.safe_load(f)
 
@@ -183,13 +183,13 @@ class TestPortsCommands:
 
 @pytest.mark.integration
 @pytest.mark.skipif(
-    not is_agentboxd_running(),
-    reason="agentboxd not running - skipping end-to-end tests"
+    not is_boxctld_running(),
+    reason="boxctld not running - skipping end-to-end tests"
 )
 class TestPortForwardingEndToEnd:
-    """End-to-end tests for port forwarding with agentboxd.
+    """End-to-end tests for port forwarding with boxctld.
 
-    These tests require agentboxd to be running and verify actual
+    These tests require boxctld to be running and verify actual
     network connectivity through the tunnel.
     """
 
@@ -226,7 +226,7 @@ class TestPortForwardingEndToEnd:
         if not wait_for_port(test_port, timeout=10):
             # Cleanup and skip if port not available
             run_abox("ports", "unexpose", str(test_port), cwd=test_project)
-            pytest.skip("Port not available on host - agentboxd may not be configured")
+            pytest.skip("Port not available on host - boxctld may not be configured")
 
         try:
             # Connect and verify data
@@ -301,9 +301,9 @@ class TestPortForwardingEndToEnd:
             if result.returncode == 0 and b"HOST_HELLO" in result.stdout.encode():
                 assert server_data["received"] == b"CONTAINER_HELLO"
             else:
-                # Forward might not be working due to agentboxd config
+                # Forward might not be working due to boxctld config
                 pytest.skip(
-                    f"Forward connection failed - may need agentboxd config. "
+                    f"Forward connection failed - may need boxctld config. "
                     f"stdout: {result.stdout}, stderr: {result.stderr}"
                 )
 

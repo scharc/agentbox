@@ -1,0 +1,8 @@
+{
+  "name": "boxctl-notify",
+  "description": "boxctl host notification MCP server",
+  "config": {
+    "command": "python3",
+    "args": ["/workspace/.boxctl/mcp/boxctl-notify/server.py"]
+  }
+}

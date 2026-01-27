@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# boxctl wrapper script - preserves current working directory
+
+# Capture the user's current working directory (only if not already set)
+export BOXCTL_PROJECT_DIR="${BOXCTL_PROJECT_DIR:-$PWD}"
+
+# Get the real path of this script (resolve symlinks)
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+BOXCTL_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Change to boxctl directory to run poetry
+cd "$BOXCTL_ROOT" || exit 1
+
+# Run poetry with the project dir passed as environment variable
+exec poetry run boxctl "$@"

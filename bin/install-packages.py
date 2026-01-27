@@ -90,8 +90,8 @@ class PackageSpec:
         return cls(pip=pip, npm=npm, post=post)
 
     @classmethod
-    def from_agentbox_yml(cls, config_path: Path):
-        """Extract packages from .agentbox/config.yml."""
+    def from_boxctl_yml(cls, config_path: Path):
+        """Extract packages from .boxctl/config.yml."""
         try:
             import yaml
         except ImportError:
@@ -644,11 +644,11 @@ def main():
     )
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--meta', type=Path, help='Path to mcp-meta.json')
-    group.add_argument('--config', type=Path, help='Path to .agentbox/config.yml')
+    group.add_argument('--config', type=Path, help='Path to .boxctl/config.yml')
     parser.add_argument(
         '--manifest',
         type=Path,
-        default=Path('/workspace/.agentbox/install-manifest.json'),
+        default=Path('/workspace/.boxctl/install-manifest.json'),
         help='Path to installation manifest file'
     )
     parser.add_argument('--log', type=Path, help='Path to log file')
@@ -667,7 +667,7 @@ def main():
             if not args.config.exists():
                 print(f"Error: {args.config} does not exist")
                 sys.exit(2)
-            spec = PackageSpec.from_agentbox_yml(args.config)
+            spec = PackageSpec.from_boxctl_yml(args.config)
             source = str(args.config)
 
         # Check if there's anything to install

@@ -8,7 +8,7 @@ import subprocess
 import pytest
 
 
-# All top-level commands from 'agentbox --help'
+# All top-level commands from 'boxctl --help'
 ALL_COMMANDS = [
     "base",
     "claude",
@@ -61,7 +61,7 @@ class TestCLICommandsExist:
     def test_command_has_help(self, command):
         """Test that command exists and has help text."""
         result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", command, "--help"],
+            ["python3", "-m", "boxctl.cli", command, "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -77,7 +77,7 @@ class TestCLIMainHelp:
     def test_main_help_lists_all_commands(self):
         """Test that main --help lists all expected commands."""
         result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", "--help"],
+            ["python3", "-m", "boxctl.cli", "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -91,7 +91,7 @@ class TestCLIMainHelp:
     def test_version_flag(self):
         """Test --version flag works."""
         result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", "--version"],
+            ["python3", "-m", "boxctl.cli", "--version"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -107,7 +107,7 @@ class TestCLISubcommands:
     def test_project_subcommands(self):
         """Test project command has expected subcommands."""
         result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", "project", "--help"],
+            ["python3", "-m", "boxctl.cli", "project", "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -120,7 +120,7 @@ class TestCLISubcommands:
     def test_mcp_subcommands(self):
         """Test mcp command has expected subcommands."""
         result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", "mcp", "--help"],
+            ["python3", "-m", "boxctl.cli", "mcp", "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -133,7 +133,7 @@ class TestCLISubcommands:
     def test_workspace_subcommands(self):
         """Test workspace command has expected subcommands."""
         result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", "workspace", "--help"],
+            ["python3", "-m", "boxctl.cli", "workspace", "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -146,7 +146,7 @@ class TestCLISubcommands:
     def test_packages_subcommands(self):
         """Test packages command has expected subcommands."""
         result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", "packages", "--help"],
+            ["python3", "-m", "boxctl.cli", "packages", "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -159,7 +159,7 @@ class TestCLISubcommands:
     def test_service_subcommands(self):
         """Test service command has expected subcommands."""
         result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", "service", "--help"],
+            ["python3", "-m", "boxctl.cli", "service", "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -172,7 +172,7 @@ class TestCLISubcommands:
     def test_base_subcommands(self):
         """Test base command has expected subcommands."""
         result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", "base", "--help"],
+            ["python3", "-m", "boxctl.cli", "base", "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -185,7 +185,7 @@ class TestCLISubcommands:
     def test_session_subcommands(self):
         """Test session command has expected subcommands."""
         result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", "session", "--help"],
+            ["python3", "-m", "boxctl.cli", "session", "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -198,7 +198,7 @@ class TestCLISubcommands:
     def test_worktree_subcommands(self):
         """Test worktree command has expected subcommands."""
         result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", "worktree", "--help"],
+            ["python3", "-m", "boxctl.cli", "worktree", "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -211,7 +211,7 @@ class TestCLISubcommands:
     def test_skill_subcommands(self):
         """Test skill command has expected subcommands."""
         result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", "skill", "--help"],
+            ["python3", "-m", "boxctl.cli", "skill", "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -224,7 +224,7 @@ class TestCLISubcommands:
     def test_ports_subcommands(self):
         """Test ports command has expected subcommands."""
         result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", "ports", "--help"],
+            ["python3", "-m", "boxctl.cli", "ports", "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -237,7 +237,7 @@ class TestCLISubcommands:
     def test_config_subcommands(self):
         """Test config command has expected subcommands."""
         result = subprocess.run(
-            ["python3", "-m", "agentbox.cli", "config", "--help"],
+            ["python3", "-m", "boxctl.cli", "config", "--help"],
             capture_output=True,
             text=True,
             timeout=10,

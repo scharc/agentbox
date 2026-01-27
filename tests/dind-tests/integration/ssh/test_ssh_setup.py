@@ -17,7 +17,7 @@ class TestSSHModes:
 
     def test_ssh_mode_disabled(self, test_project):
         """Test disabled SSH mode - no SSH access."""
-        config_file = test_project / ".agentbox.yml"
+        config_file = test_project / ".boxctl.yml"
         config_file.write_text("""version: "1.0"
 ssh:
   enabled: false
@@ -26,7 +26,7 @@ ssh:
         result = run_abox("start", cwd=test_project)
         assert result.returncode == 0, f"start failed: {result.stderr}"
 
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         assert wait_for_container_ready(container_name, timeout=60), "container not ready"
 
         # SSH directory should not exist or be empty
@@ -37,7 +37,7 @@ ssh:
 
     def test_ssh_mode_keys(self, test_project):
         """Test keys SSH mode - isolated writable known_hosts."""
-        config_file = test_project / ".agentbox.yml"
+        config_file = test_project / ".boxctl.yml"
         config_file.write_text("""version: "1.0"
 ssh:
   mode: "keys"
@@ -46,7 +46,7 @@ ssh:
         result = run_abox("start", cwd=test_project)
         assert result.returncode == 0, f"start failed: {result.stderr}"
 
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         assert wait_for_container_ready(container_name, timeout=60), "container not ready"
 
         # Test 1: SSH directory exists
@@ -77,7 +77,7 @@ ssh:
 
     def test_ssh_mode_mount(self, test_project):
         """Test mount SSH mode - bind mount read-write."""
-        config_file = test_project / ".agentbox.yml"
+        config_file = test_project / ".boxctl.yml"
         config_file.write_text("""version: "1.0"
 ssh:
   mode: "mount"
@@ -86,7 +86,7 @@ ssh:
         result = run_abox("start", cwd=test_project)
         assert result.returncode == 0, f"start failed: {result.stderr}"
 
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         assert wait_for_container_ready(container_name, timeout=60), "container not ready"
 
         # Test 1: SSH directory exists
@@ -108,7 +108,7 @@ ssh:
 
     def test_ssh_mode_config(self, test_project):
         """Test config SSH mode - config/known_hosts only, no keys."""
-        config_file = test_project / ".agentbox.yml"
+        config_file = test_project / ".boxctl.yml"
         config_file.write_text("""version: "1.0"
 ssh:
   mode: "config"
@@ -117,7 +117,7 @@ ssh:
         result = run_abox("start", cwd=test_project)
         assert result.returncode == 0, f"start failed: {result.stderr}"
 
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         assert wait_for_container_ready(container_name, timeout=60), "container not ready"
 
         # Test 1: Config and known_hosts exist
@@ -136,7 +136,7 @@ ssh:
 
     def test_ssh_mode_keys_with_forward_agent(self, test_project):
         """Test keys mode combined with agent forwarding."""
-        config_file = test_project / ".agentbox.yml"
+        config_file = test_project / ".boxctl.yml"
         config_file.write_text("""version: "1.0"
 ssh:
   mode: "keys"
@@ -146,7 +146,7 @@ ssh:
         result = run_abox("start", cwd=test_project)
         assert result.returncode == 0, f"start failed: {result.stderr}"
 
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         assert wait_for_container_ready(container_name, timeout=60), "container not ready"
 
         # Test: SSH directory exists with keys (copy mode)
@@ -161,7 +161,7 @@ ssh:
 
     def test_known_hosts_created_if_missing(self, test_project):
         """Test that known_hosts is created if it doesn't exist."""
-        config_file = test_project / ".agentbox.yml"
+        config_file = test_project / ".boxctl.yml"
         config_file.write_text("""version: "1.0"
 ssh:
   mode: "keys"
@@ -170,7 +170,7 @@ ssh:
         result = run_abox("start", cwd=test_project)
         assert result.returncode == 0, f"start failed: {result.stderr}"
 
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         assert wait_for_container_ready(container_name, timeout=60), "container not ready"
 
         # Test: known_hosts should exist even if not in host SSH

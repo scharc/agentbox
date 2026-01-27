@@ -3,12 +3,12 @@
   "description": "LiteLLM MCP - access multiple LLM providers with automatic fallback. Provides completion tools that route through LiteLLM proxy for OpenAI, Anthropic, and other OpenAI-compatible providers.",
   "config": {
     "command": "python3",
-    "args": ["/workspace/.agentbox/mcp/litellm/server.py"]
+    "args": ["/workspace/.boxctl/mcp/litellm/server.py"]
   },
   "install": {
     "pip": ["fastmcp>=2.0.0", "httpx>=0.27.0"]
   },
   "allowed_agents": ["claude", "codex", "gemini"],
   "blocked_agents": [],
-  "notes": "Requires LiteLLM proxy to be running (enabled via litellm.enabled in host config). Configure providers and models in ~/.config/agentbox/config.yml"
+  "notes": "Requires LiteLLM proxy to be running (enabled via litellm.enabled in host config). Configure providers and models in ~/.config/boxctl/config.yml"
 }

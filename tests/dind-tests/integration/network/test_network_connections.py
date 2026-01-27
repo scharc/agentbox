@@ -16,7 +16,7 @@ class TestNetworkConnections:
     """Validate network connections to external containers."""
 
     def test_network_connect_and_disconnect(self, running_container, test_project, nginx_container):
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         result = run_abox("network", "connect", nginx_container, cwd=test_project)
         assert result.returncode == 0, f"network connect failed: {result.stderr}"

@@ -9,8 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agentbox.core.input_detection import InputType
-from agentbox.remote_qa import (
+from boxctl.core.input_detection import InputType
+from boxctl.remote_qa import (
     PendingQuestion,
     RemoteQAConfig,
     RemoteQAManager,

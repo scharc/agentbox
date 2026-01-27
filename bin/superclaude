@@ -4,7 +4,7 @@
 # Injects superagents.md content via --append-system-prompt so the agent
 # knows it's running in autonomous mode with auto-approve permissions.
 
-SUPER_INSTRUCTIONS="/workspace/.agentbox/superagents.md"
+SUPER_INSTRUCTIONS="/workspace/.boxctl/superagents.md"
 
 # Build the append prompt from superagents.md if it exists
 APPEND_PROMPT=""
@@ -13,7 +13,7 @@ if [[ -f "${SUPER_INSTRUCTIONS}" ]]; then
 fi
 
 # Export env var so MCP can also detect super mode
-export AGENTBOX_SUPER_MODE=true
+export BOXCTL_SUPER_MODE=true
 
 exec claude \
     --dangerously-skip-permissions \

@@ -1,4 +1,4 @@
-# Agentbox Roadmap
+# Boxctl Roadmap
 
 ## Current Focus
 
@@ -21,7 +21,7 @@
 - Termius on Android provides excellent tmux access already
 - Full terminal emulation in browser adds complexity
 
-**Proposed Direction:** Simplify web UI to be an "agentbox quick" gateway:
+**Proposed Direction:** Simplify web UI to be an "boxctl quick" gateway:
 - Remove full tmux terminal emulation
 - Keep status page (tunnel monitoring, container status)
 - Add web-based `abox q` menu for quick actions
@@ -56,7 +56,7 @@
 - Quick menu TUI (`abox q`) - full implementation
 - Mobile-friendly status page
 - Session task labeling (`set_session_task`/`clear_session_task`)
-- Custom MCP/skills directory support (`~/.config/agentbox/mcp/`, `~/.config/agentbox/skills/`)
+- Custom MCP/skills directory support (`~/.config/boxctl/mcp/`, `~/.config/boxctl/skills/`)
 - Device passthrough for containers
 - Positional CLI arguments (no more flags)
 - Pydantic config validation

@@ -13,20 +13,20 @@ from tests.conftest import run_abox
 
 
 def test_packages_init_creates_config(test_project):
-    """Test that 'abox packages init' creates packages section in .agentbox.yml."""
-    agentbox_yml = test_project / ".agentbox.yml"
+    """Test that 'abox packages init' creates packages section in .boxctl/config.yml."""
+    config_file = test_project / ".boxctl" / "config.yml"
 
     # Init packages
     result = run_abox("packages", "init", cwd=test_project)
 
     assert result.returncode == 0, "abox packages init should succeed"
-    assert agentbox_yml.exists(), ".agentbox.yml should exist"
+    assert config_file.exists(), ".boxctl/config.yml should exist"
 
     # Check structure
-    with open(agentbox_yml) as f:
+    with open(config_file) as f:
         config = yaml.safe_load(f)
 
-    assert "packages" in config, ".agentbox.yml should have packages section"
+    assert "packages" in config, ".boxctl/config.yml should have packages section"
     packages = config["packages"]
 
     assert "npm" in packages, "packages should have npm key"
@@ -43,7 +43,7 @@ def test_packages_init_creates_config(test_project):
 
 def test_packages_add_npm(test_project):
     """Test that 'abox packages add npm' adds npm package."""
-    agentbox_yml = test_project / ".agentbox.yml"
+    config_file = test_project / ".boxctl" / "config.yml"
 
     # Init first
     run_abox("packages", "init", cwd=test_project)
@@ -54,7 +54,7 @@ def test_packages_add_npm(test_project):
     assert result.returncode == 0, "abox packages add should succeed"
 
     # Check config
-    with open(agentbox_yml) as f:
+    with open(config_file) as f:
         config = yaml.safe_load(f)
 
     assert "cowsay" in config["packages"]["npm"], "cowsay should be in npm packages"
@@ -62,7 +62,7 @@ def test_packages_add_npm(test_project):
 
 def test_packages_add_pip(test_project):
     """Test that 'abox packages add pip' adds pip package."""
-    agentbox_yml = test_project / ".agentbox.yml"
+    config_file = test_project / ".boxctl" / "config.yml"
 
     # Init first
     run_abox("packages", "init", cwd=test_project)
@@ -73,7 +73,7 @@ def test_packages_add_pip(test_project):
     assert result.returncode == 0, "abox packages add should succeed"
 
     # Check config
-    with open(agentbox_yml) as f:
+    with open(config_file) as f:
         config = yaml.safe_load(f)
 
     assert "black" in config["packages"]["pip"], "black should be in pip packages"
@@ -81,7 +81,7 @@ def test_packages_add_pip(test_project):
 
 def test_packages_add_apt(test_project):
     """Test that 'abox packages add apt' adds apt package."""
-    agentbox_yml = test_project / ".agentbox.yml"
+    config_file = test_project / ".boxctl" / "config.yml"
 
     # Init first
     run_abox("packages", "init", cwd=test_project)
@@ -92,7 +92,7 @@ def test_packages_add_apt(test_project):
     assert result.returncode == 0, "abox packages add should succeed"
 
     # Check config
-    with open(agentbox_yml) as f:
+    with open(config_file) as f:
         config = yaml.safe_load(f)
 
     assert "tree" in config["packages"]["apt"], "tree should be in apt packages"
@@ -100,7 +100,7 @@ def test_packages_add_apt(test_project):
 
 def test_packages_add_cargo(test_project):
     """Test that 'abox packages add cargo' adds cargo package."""
-    agentbox_yml = test_project / ".agentbox.yml"
+    config_file = test_project / ".boxctl" / "config.yml"
 
     # Init first
     run_abox("packages", "init", cwd=test_project)
@@ -111,7 +111,7 @@ def test_packages_add_cargo(test_project):
     assert result.returncode == 0, "abox packages add should succeed"
 
     # Check config
-    with open(agentbox_yml) as f:
+    with open(config_file) as f:
         config = yaml.safe_load(f)
 
     assert "bat" in config["packages"]["cargo"], "bat should be in cargo packages"
@@ -119,7 +119,7 @@ def test_packages_add_cargo(test_project):
 
 def test_packages_add_post(test_project):
     """Test that 'abox packages add post' adds post-install command."""
-    agentbox_yml = test_project / ".agentbox.yml"
+    config_file = test_project / ".boxctl" / "config.yml"
 
     # Init first
     run_abox("packages", "init", cwd=test_project)
@@ -130,7 +130,7 @@ def test_packages_add_post(test_project):
     assert result.returncode == 0, "abox packages add should succeed"
 
     # Check config
-    with open(agentbox_yml) as f:
+    with open(config_file) as f:
         config = yaml.safe_load(f)
 
     assert "echo 'Hello'" in config["packages"]["post"], "post command should be added"
@@ -138,14 +138,14 @@ def test_packages_add_post(test_project):
 
 def test_packages_remove(test_project):
     """Test that 'abox packages remove' removes package."""
-    agentbox_yml = test_project / ".agentbox.yml"
+    config_file = test_project / ".boxctl" / "config.yml"
 
     # Init and add package
     run_abox("packages", "init", cwd=test_project)
     run_abox("packages", "add", "npm", "cowsay", cwd=test_project)
 
     # Verify it was added
-    with open(agentbox_yml) as f:
+    with open(config_file) as f:
         config = yaml.safe_load(f)
     assert "cowsay" in config["packages"]["npm"], "cowsay should be added"
 
@@ -155,7 +155,7 @@ def test_packages_remove(test_project):
     assert result.returncode == 0, "abox packages remove should succeed"
 
     # Verify it was removed
-    with open(agentbox_yml) as f:
+    with open(config_file) as f:
         config = yaml.safe_load(f)
 
     assert "cowsay" not in config["packages"]["npm"], "cowsay should be removed"
@@ -164,7 +164,7 @@ def test_packages_remove(test_project):
 def test_packages_list_empty(test_project):
     """Test that 'abox packages list' shows message when no packages."""
     # Force re-init packages to get empty state (previous tests may have added packages)
-    agentbox_yml = test_project / ".agentbox.yml"
+    config_file = test_project / ".boxctl" / "config.yml"
 
     # Create a config with empty packages
     config_content = {
@@ -177,7 +177,7 @@ def test_packages_list_empty(test_project):
             "post": []
         }
     }
-    with open(agentbox_yml, 'w') as f:
+    with open(config_file, 'w') as f:
         yaml.dump(config_content, f)
 
     result = run_abox("packages", "list", cwd=test_project)
@@ -222,7 +222,7 @@ def test_packages_install_in_container(test_project):
     # Start container (this should install packages)
     run_abox("start", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Check if tree command is available
     result = subprocess.run(
@@ -246,7 +246,7 @@ def test_packages_install_pip_in_container(test_project):
     # Start container
     run_abox("start", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Check if httpie is installed
     result = subprocess.run(
@@ -271,7 +271,7 @@ def test_packages_install_npm_in_container(test_project):
     # Rebuild container to trigger package installation (rebuild re-runs container-init.sh)
     run_abox("rebuild", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Wait for container initialization to complete (npm install takes a few seconds)
     # Check for "Container initialization complete!" in logs
@@ -309,7 +309,7 @@ def test_packages_post_command_runs(test_project):
     # Rebuild container to trigger package installation (rebuild re-runs container-init.sh)
     run_abox("rebuild", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Wait for container initialization to complete
     for _ in range(30):  # Max 30 seconds

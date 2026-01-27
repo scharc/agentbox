@@ -14,13 +14,13 @@ from helpers.docker import exec_in_container, wait_for_container_ready
 
 @pytest.mark.integration
 class TestAgentctlList:
-    """Test 'agentctl ls' command."""
+    """Test 'agentctl list' command."""
 
     def test_list_empty_sessions(self, running_container, test_project):
         """Test listing sessions when none exist."""
-        result = exec_in_container(running_container, "agentctl ls")
+        result = exec_in_container(running_container, "agentctl list")
 
-        assert result.returncode == 0, f"agentctl ls failed: {result.stderr}"
+        assert result.returncode == 0, f"agentctl list failed: {result.stderr}"
         assert "No tmux sessions found" in result.stdout, (
             f"Expected empty message, got: {result.stdout}"
         )
@@ -35,9 +35,9 @@ class TestAgentctlList:
         assert result.returncode == 0, f"Failed to create session: {result.stderr}"
 
         # List sessions
-        result = exec_in_container(running_container, "agentctl ls")
+        result = exec_in_container(running_container, "agentctl list")
 
-        assert result.returncode == 0, f"agentctl ls failed: {result.stderr}"
+        assert result.returncode == 0, f"agentctl list failed: {result.stderr}"
         assert "test-session" in result.stdout, (
             f"Session not in list: {result.stdout}"
         )
@@ -54,9 +54,9 @@ class TestAgentctlList:
         )
 
         # Get JSON output
-        result = exec_in_container(running_container, "agentctl ls --json")
+        result = exec_in_container(running_container, "agentctl list --json")
 
-        assert result.returncode == 0, f"agentctl ls --json failed: {result.stderr}"
+        assert result.returncode == 0, f"agentctl list --json failed: {result.stderr}"
 
         # Verify valid JSON
         try:
@@ -88,7 +88,7 @@ class TestAgentctlList:
             assert result.returncode == 0, f"Failed to create {session}"
 
         # List all sessions
-        result = exec_in_container(running_container, "agentctl ls")
+        result = exec_in_container(running_container, "agentctl list")
         assert result.returncode == 0
 
         # Verify all sessions are shown
@@ -300,29 +300,36 @@ class TestAgentctlSSHAgent:
     """Test SSH agent socket preservation in sessions."""
 
     def test_ssh_auth_sock_preserved(self, running_container, test_project):
-        """Test that SSH_AUTH_SOCK is preserved in tmux sessions."""
-        # Set SSH_AUTH_SOCK in tmux environment
+        """Test that SSH_AUTH_SOCK from the environment is preserved in tmux sessions.
+
+        This tests that when SSH_AUTH_SOCK is set in the shell environment,
+        tmux sessions inherit it properly.
+        """
         test_socket = "/tmp/test-ssh-agent.sock"
 
+        # Create a tmux session with SSH_AUTH_SOCK set in the environment
+        # We export it and then create the session, using a script to avoid
+        # shell variable expansion issues
         result = exec_in_container(
             running_container,
-            f"tmux set-environment -g SSH_AUTH_SOCK {test_socket}"
+            f"export SSH_AUTH_SOCK={test_socket} && "
+            "tmux new-session -d -s ssh-test -x 80 -y 24"
         )
-        assert result.returncode == 0
+        assert result.returncode == 0, f"Failed to create session: {result.stderr}"
 
-        # Create a session and check SSH_AUTH_SOCK
+        # Send a command to the session to write SSH_AUTH_SOCK to a file
         result = exec_in_container(
             running_container,
-            "tmux new-session -d -s ssh-test 'echo $SSH_AUTH_SOCK > /tmp/ssh-sock.txt; sleep 5'"
+            "tmux send-keys -t ssh-test 'echo $SSH_AUTH_SOCK > /tmp/ssh-sock.txt' Enter"
         )
-        assert result.returncode == 0
+        assert result.returncode == 0, f"Failed to send keys: {result.stderr}"
 
         # Wait for command to execute
         time.sleep(2)
 
         # Check the recorded SSH_AUTH_SOCK
         result = exec_in_container(running_container, "cat /tmp/ssh-sock.txt")
-        assert result.returncode == 0
+        assert result.returncode == 0, f"Failed to read file: {result.stderr}"
         assert test_socket in result.stdout, (
             f"SSH_AUTH_SOCK not preserved, got: {result.stdout}"
         )
@@ -348,7 +355,7 @@ class TestAgentctlIntegration:
         assert result.returncode == 0
 
         # 2. List and verify it appears
-        result = exec_in_container(running_container, "agentctl ls")
+        result = exec_in_container(running_container, "agentctl list")
         assert result.returncode == 0
         assert session_name in result.stdout
 
@@ -366,7 +373,7 @@ class TestAgentctlIntegration:
         assert result.returncode == 0
 
         # 5. Verify it's gone
-        result = exec_in_container(running_container, "agentctl ls")
+        result = exec_in_container(running_container, "agentctl list")
         assert result.returncode == 0
         assert session_name not in result.stdout or "No tmux sessions" in result.stdout
 
@@ -383,7 +390,7 @@ class TestAgentctlIntegration:
             assert result.returncode == 0
 
         # List all
-        result = exec_in_container(running_container, "agentctl ls")
+        result = exec_in_container(running_container, "agentctl list")
         assert result.returncode == 0
         for session in sessions:
             assert session in result.stdout
@@ -404,6 +411,6 @@ class TestAgentctlIntegration:
             assert result.returncode == 0
 
         # Verify all gone
-        result = exec_in_container(running_container, "agentctl ls")
+        result = exec_in_container(running_container, "agentctl list")
         assert result.returncode == 0
         assert "No tmux sessions found" in result.stdout

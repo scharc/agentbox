@@ -73,7 +73,7 @@ async def complete(
     if not await _check_proxy_available():
         return {
             "success": False,
-            "error": "LiteLLM proxy not running. Enable it in ~/.config/agentbox/config.yml with litellm.enabled: true",
+            "error": "LiteLLM proxy not running. Enable it in ~/.config/boxctl/config.yml with litellm.enabled: true",
             "content": None,
         }
 
@@ -237,7 +237,7 @@ async def get_status() -> dict:
         return {
             "success": False,
             "status": "unavailable",
-            "message": "LiteLLM proxy is not running. Enable it in ~/.config/agentbox/config.yml",
+            "message": "LiteLLM proxy is not running. Enable it in ~/.config/boxctl/config.yml",
         }
 
     try:

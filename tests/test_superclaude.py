@@ -14,7 +14,7 @@ def test_superclaude_available_in_container(test_project):
     # Start container
     run_abox("start", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Check if superclaude command exists
     result = subprocess.run(
@@ -35,7 +35,7 @@ def test_superclaude_finds_config(test_project):
     # Start container
     run_abox("start", cwd=test_project)
 
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Try to run superclaude --version (should work even without API key)
     result = subprocess.run(

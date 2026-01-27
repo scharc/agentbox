@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 pytest.importorskip("fastapi")
 
-from agentbox.web.host_server import app
+from boxctl.web.host_server import app
 
 
 class TestStaleDetection:
@@ -14,7 +14,7 @@ class TestStaleDetection:
     def test_app_exists(self):
         """Test that FastAPI app is properly initialized"""
         assert app is not None
-        assert app.title == "Agentbox Web UI (Host)"
+        assert app.title == "boxctl Web UI (Host)"
 
     def test_stale_threshold_configurable(self):
         """Test that stale threshold can be configured"""
@@ -25,12 +25,12 @@ class TestStaleDetection:
 
     def test_notification_message_format(self):
         """Test notification message formatting"""
-        container = "agentbox-myproject"
+        container = "boxctl-myproject"
         session_name = "claude"
         time_since_change = 45
 
         # Expected format
-        project = container.replace("agentbox-", "")
+        project = container.replace("boxctl-", "")
         title = f"Session {session_name} idle"
         message = f"{project}: No output for {int(time_since_change)}s"
 
@@ -114,7 +114,7 @@ class TestWebSocketIntegration:
         routes = [route.path for route in app.routes]
         assert "/api/sessions" in routes
 
-    @patch('agentbox.web.host_server.get_all_sessions')
+    @patch('boxctl.web.host_server.get_all_sessions')
     def test_get_sessions_endpoint(self, mock_get_sessions):
         """Test the /api/sessions endpoint"""
         pytest.importorskip("httpx")
@@ -122,7 +122,7 @@ class TestWebSocketIntegration:
 
         mock_get_sessions.return_value = [
             {
-                "container": "agentbox-test",
+                "container": "boxctl-test",
                 "name": "claude",
                 "windows": 1,
                 "attached": False,

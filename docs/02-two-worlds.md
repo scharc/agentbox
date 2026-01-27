@@ -1,12 +1,12 @@
 # Architecture: Two Worlds
 
-Agentbox creates a clear separation between your machine and where agents work. Understanding this separation helps you understand why things work the way they do.
+Boxctl creates a clear separation between your machine and where agents work. Understanding this separation helps you understand why things work the way they do.
 
 ## Your World (The Host)
 
 You sit at your laptop. This is your world - the host system.
 
-You `cd` into your project directory and run `agentbox init` once to set things up. Then `agentbox superclaude` to start an agent. Simple commands, no flags to remember.
+You `cd` into your project directory and run `boxctl init` once to set things up. Then `boxctl superclaude` to start an agent. Simple commands, no flags to remember.
 
 From here, you can:
 - Start and stop containers
@@ -15,15 +15,15 @@ From here, you can:
 - Check on running agents
 - Connect to see what an agent is doing
 
-**The commands you run here:** `agentbox init`, `agentbox superclaude`, `agentbox connect`, `agentbox stop`, `agentbox mcp add`, and all the other `agentbox` commands.
+**The commands you run here:** `boxctl init`, `boxctl superclaude`, `boxctl connect`, `boxctl stop`, `boxctl mcp add`, and all the other `boxctl` commands.
 
 ## The Agent's World (The Container)
 
-When you run `agentbox superclaude`, an agent wakes up inside a Docker container.
+When you run `boxctl superclaude`, an agent wakes up inside a Docker container.
 
 It sees `/workspace` - your project code, mounted from your host. It has git, node, python, all the common dev tools. It starts working autonomously, reading files, making changes, running commands.
 
-**Credentials are already there.** On first start, Agentbox sets up your git config and links API tokens (Claude, Codex, Gemini) into the container. The agent can authenticate with APIs and commit with your name - no manual setup required. API tokens stay synced so OAuth refresh works. SSH keys are configurable: copy them, mount them, or use agent forwarding for hardware keys.
+**Credentials are already there.** On first start, Boxctl sets up your git config and links API tokens (Claude, Codex, Gemini) into the container. The agent can authenticate with APIs and commit with your name - no manual setup required. API tokens stay synced so OAuth refresh works. SSH keys are configurable: copy them, mount them, or use agent forwarding for hardware keys.
 
 The container is the agent's sandbox. Everything it does happens in there. If it goes haywire and corrupts something, your host system is safe. The worst case is you throw away the container and start fresh.
 
@@ -46,11 +46,11 @@ And you can't edit files inside the container directly (well, you can via Docker
 
 This isolation is the whole point. It's what makes autonomous agents safe.
 
-## The Bridge: agentboxd
+## The Bridge: boxctld
 
 But sometimes the agent needs to reach out. It finishes a task and wants to notify you. It's running a web server and wants to expose the port. It needs to copy something to your clipboard.
 
-That's where `agentboxd` comes in - a daemon running on your host that bridges the two worlds.
+That's where `boxctld` comes in - a daemon running on your host that bridges the two worlds.
 
 ### How It Works
 
@@ -69,8 +69,8 @@ Each container establishes an SSH tunnel to the daemon. Through this tunnel, the
 The daemon runs as a systemd user service:
 
 ```bash
-agentbox service install          # Install as service
-agentbox service status           # Check it's running
+boxctl service install          # Install as service
+boxctl service status           # Check it's running
 ```
 
 It starts automatically when you log in. Most of the time you don't think about it - it just works in the background.
@@ -81,9 +81,9 @@ It starts automatically when you log in. Most of the time you don't think about 
 ┌─────────────────────────────────────────────────────────────┐
 │ Your Host                                                   │
 │                                                             │
-│   You run: agentbox superclaude                            │
+│   You run: boxctl superclaude                            │
 │                                                             │
-│   agentboxd (daemon)                                       │
+│   boxctld (daemon)                                       │
 │   ├── Receives notifications → Desktop alert               │
 │   ├── Forwards ports → localhost:3000                      │
 │   └── Monitors sessions → Stall detection                  │
@@ -114,7 +114,7 @@ Stall detection came from the same thinking. If you're away from your desk and a
 
 ## What Gets Mounted
 
-When a container starts, Agentbox sets up these mount points:
+When a container starts, Boxctl sets up these mount points:
 
 ### Your Code
 
@@ -146,13 +146,13 @@ Agent configurations are set up at container startup in the home directory:
 | `~/.gemini/` | Gemini CLI settings with MCP |
 | `~/.qwen/` | Qwen Code settings with MCP |
 
-Configs are initialized from library templates, with optional project-level overrides from `.agentbox/config/`.
+Configs are initialized from library templates, with optional project-level overrides from `.boxctl/config/`.
 
 Note: Claude state (history, todos, etc.) is stored in container-local paths. History from one project doesn't leak into another.
 
 ### SSH (Configurable)
 
-Depends on `ssh.mode` in `.agentbox.yml`:
+Depends on `ssh.mode` in `.boxctl.yml`:
 
 | Mode | What's Mounted | Result |
 |------|----------------|--------|
@@ -163,13 +163,13 @@ Depends on `ssh.mode` in `.agentbox.yml`:
 
 With `forward_agent: true`, the SSH agent socket is also mounted for passphrase-protected or hardware keys.
 
-### Agentbox Library
+### Boxctl Library
 
 | Container Path | Host Path | Mode | Purpose |
 |----------------|-----------|------|---------|
-| `/agentbox/library/config` | Agentbox install | ro | Config templates |
-| `/agentbox/library/mcp` | Agentbox install | ro | MCP server library |
-| `/agentbox/library/skills` | Agentbox install | ro | Skills library |
+| `/boxctl/library/config` | Boxctl install | ro | Config templates |
+| `/boxctl/library/mcp` | Boxctl install | ro | MCP server library |
+| `/boxctl/library/skills` | Boxctl install | ro | Skills library |
 
 ### Optional
 
@@ -177,15 +177,15 @@ With `forward_agent: true`, the SSH agent socket is also mounted for passphrase-
 |----------------|-----------|------|------|
 | `/var/run/docker.sock` | Docker socket | rw | `docker.enabled: true` |
 | MCP-specific mounts | Varies | Varies | When MCPs require them |
-| Agentboxd socket | `~/.agentbox/` | ro | Always (for notifications) |
+| Boxctld socket | `~/.boxctl/` | ro | Always (for notifications) |
 
 ### Devices
 
 Pass through host devices to the container for hardware access:
 
 ```bash
-agentbox devices              # Interactive chooser - shows available devices
-agentbox devices add /dev/snd # Add a specific device
+boxctl devices              # Interactive chooser - shows available devices
+boxctl devices add /dev/snd # Add a specific device
 ```
 
 The chooser auto-detects devices by category: audio (`/dev/snd`), GPUs (`/dev/dri/*`, `/dev/nvidia*`), serial ports (`/dev/ttyUSB*`), and cameras (`/dev/video*`).
@@ -200,6 +200,6 @@ The chooser auto-detects devices by category: audio (`/dev/snd`), GPUs (`/dev/dr
 
 ## Technical References
 
-- **[agentboxd](REF-B-daemon.md)** - Daemon configuration and capabilities
+- **[boxctld](REF-B-daemon.md)** - Daemon configuration and capabilities
 - **[agentctl](REF-C-agentctl.md)** - Container-side CLI reference
 - **[Tunnel Protocol](REF-D-tunnel.md)** - Technical details of the SSH tunnel

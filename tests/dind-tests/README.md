@@ -1,10 +1,10 @@
 # Agentbox DinD Test Suite
 
-Comprehensive Docker-in-Docker integration tests for all agentbox commands.
+Comprehensive Docker-in-Docker integration tests for all boxctl commands.
 
 ## Overview
 
-This test suite provides **real flow testing** of all agentbox CLI commands using Docker-in-Docker (DinD). Unlike unit tests that mock Docker, these tests:
+This test suite provides **real flow testing** of all boxctl CLI commands using Docker-in-Docker (DinD). Unlike unit tests that mock Docker, these tests:
 
 - Run in a real Docker environment inside Docker
 - Execute actual `agentbox` commands
@@ -106,17 +106,17 @@ pytest dind-tests/test_full_workflow.py -v -k "test_init"
 
 ```bash
 # Build the DinD test image
-docker build -f tests/dind-tests/Dockerfile.dind -t agentbox-dind-test:latest tests/
+docker build -f tests/dind-tests/Dockerfile.dind -t boxctl-dind-test:latest tests/
 
 # Run tests directly
-docker run --privileged --rm agentbox-dind-test:latest \
+docker run --privileged --rm boxctl-dind-test:latest \
     pytest dind-tests/test_full_workflow.py -v
 
 # Run with auth mounted
 docker run --privileged --rm \
     -v ~/.claude:/home/testuser/.claude:ro \
     -v ~/.codex:/home/testuser/.codex:ro \
-    agentbox-dind-test:latest pytest dind-tests/ -v
+    boxctl-dind-test:latest pytest dind-tests/ -v
 ```
 
 ## Test Architecture
@@ -129,12 +129,12 @@ docker run --privileged --rm \
 │  │              DinD Test Container                       ││
 │  │  - Ubuntu 24.04                                        ││
 │  │  - Docker daemon (dockerd)                             ││
-│  │  - agentbox CLI                                        ││
+│  │  - boxctl CLI                                        ││
 │  │  - pytest                                              ││
 │  │                                                        ││
 │  │  ┌──────────────────────────────────────────────────┐ ││
 │  │  │         Agentbox Container                       │ ││
-│  │  │  - Built from agentbox-base:latest               │ ││
+│  │  │  - Built from boxctl-base:latest               │ ││
 │  │  │  - Real tmux sessions                            │ ││
 │  │  │  - Real MCP configs                              │ ││
 │  │  │  - Real workspace mounts                         │ ││

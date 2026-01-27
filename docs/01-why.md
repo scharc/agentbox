@@ -1,4 +1,4 @@
-# Why Agentbox Exists
+# Why Boxctl Exists
 
 ## The Promise of Autonomous AI Agents
 
@@ -52,9 +52,9 @@ What if we combined the safety of containers with an interface designed for how 
 
 ## A Different Way of Working
 
-I use Agentbox as my daily driver. Here's what that looks like:
+I use Boxctl as my daily driver. Here's what that looks like:
 
-I'm at my desk working on a feature. I run `agentbox superclaude` and give it a task: "refactor the authentication module to use JWT tokens." The agent starts working - reading files, making changes, running tests.
+I'm at my desk working on a feature. I run `boxctl superclaude` and give it a task: "refactor the authentication module to use JWT tokens." The agent starts working - reading files, making changes, running tests.
 
 I need to grab lunch. I pull out my phone, SSH into my laptop via Tailscale, and check on the agent through the quick menu. It's still working. I detach and put my phone away.
 
@@ -62,7 +62,7 @@ Later, I get a notification: task complete. I review the changes from my phone. 
 
 Meanwhile, I had another idea - a bug that's been nagging me. I use the quick menu to start a second agent on a different branch. Now I have two agents working in parallel, each in their own isolated environment, each on their own branch.
 
-This is the workflow Agentbox enables. Safe. Simple. Mobile-friendly. Let the agents work while you live your life.
+This is the workflow Boxctl enables. Safe. Simple. Mobile-friendly. Let the agents work while you live your life.
 
 ## What's Next
 

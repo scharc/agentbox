@@ -44,7 +44,7 @@ Three formats for `-a/--agents`:
 | `type:name` | `-a claude:Alice` | Type with display name |
 | `type:model:name` | `-a claude:claude-sonnet-4-5:Alice` | Type, model, and name |
 
-### Available Agents in Agentbox
+### Available Agents in boxctl
 
 These are installed in the container:
 - `claude` - Anthropic Claude
@@ -165,7 +165,7 @@ agentpipe agents list --json
 
 4. **TUI for interactive** - Use `--tui` when watching live, `--no-tui` for scripts
 
-5. **Combine with agentbox-analyst** - Use agentpipe for brainstorming, analyst MCP for deep dives
+5. **Combine with boxctl-analyst** - Use agentpipe for brainstorming, analyst MCP for deep dives
 
 ---
 
@@ -174,11 +174,11 @@ agentpipe agents list --json
 | Use Case | Tool |
 |----------|------|
 | Multi-perspective discussion | AgentPipe |
-| Deep code analysis | agentbox-analyst |
+| Deep code analysis | boxctl-analyst |
 | Brainstorming approaches | AgentPipe |
-| Code review with report | agentbox-analyst |
+| Code review with report | boxctl-analyst |
 | Comparing viewpoints | AgentPipe |
-| Plan verification | agentbox-analyst |
+| Plan verification | boxctl-analyst |
 
 ---
 

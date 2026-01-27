@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 # See LICENSE file in the project root for full license information.
 
-"""End-to-end workflow tests for agentbox CLI.
+"""End-to-end workflow tests for boxctl CLI.
 
 These tests verify complete feature workflows, not just individual commands.
 Tests are organized by feature area and test real functionality where possible.
@@ -20,7 +20,7 @@ import yaml
 
 def get_config_path(project: Path) -> Path:
     """Get the config file path."""
-    return project / ".agentbox" / "config.yml"
+    return project / ".boxctl" / "config.yml"
 
 
 def load_project_config(project: Path) -> dict:
@@ -39,7 +39,7 @@ def run_abox(*args, cwd: Optional[Path] = None, check: bool = False) -> subproce
     env = os.environ.copy()
     env["PYTHONPATH"] = "/workspace"
     return subprocess.run(
-        ["python3", "-m", "agentbox.cli", *args],
+        ["python3", "-m", "boxctl.cli", *args],
         cwd=cwd,
         capture_output=True,
         text=True,
@@ -88,13 +88,13 @@ class TestInitWorkflow:
         assert result.returncode == 0, f"Init failed: {result.stderr}"
 
         # Check directory structure
-        agentbox_dir = test_project / ".agentbox"
+        agentbox_dir = test_project / ".boxctl"
         assert agentbox_dir.exists()
         assert (agentbox_dir / "mcp").exists()  # MCP server code
         assert (agentbox_dir / "skills").exists()  # Installed skills
         assert (agentbox_dir / "mcp.json").exists()  # MCP config
         assert (agentbox_dir / "agents.md").exists()  # Agent instructions
-        # Note: .agentbox/claude/ is created at container startup, not init
+        # Note: .boxctl/claude/ is created at container startup, not init
 
         # Check config file created
         config_path = get_config_path(test_project)
@@ -363,8 +363,8 @@ class TestConfigWorkflow:
         assert "ports" in config
 
         # Check mcp.json (unified MCP config)
-        # Note: .agentbox/claude/ is created at container startup, not init
-        with open(project / ".agentbox" / "mcp.json") as f:
+        # Note: .boxctl/claude/ is created at container startup, not init
+        with open(project / ".boxctl" / "mcp.json") as f:
             mcp_config = json.load(f)
         assert "mcpServers" in mcp_config
 
@@ -444,8 +444,8 @@ class TestErrorHandling:
             output = result.stdout.lower() + result.stderr.lower()
             assert (
                 "not initialized" in output or
-                "agentbox" in output or
-                ".agentbox" in output or
+                "boxctl" in output or
+                ".boxctl" in output or
                 "error" in output
             )
 

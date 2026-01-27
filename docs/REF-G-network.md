@@ -6,18 +6,18 @@ Your agent needs to talk to a database running in another container. Or a Redis 
 
 ## The Scenario
 
-You're developing an app that talks to PostgreSQL. Instead of running Postgres inside the Agentbox container, you run it separately - maybe it's already running for other projects, or you want to keep concerns separated.
+You're developing an app that talks to PostgreSQL. Instead of running Postgres inside the Boxctl container, you run it separately - maybe it's already running for other projects, or you want to keep concerns separated.
 
-The problem: Docker containers are isolated. By default, your Agentbox container can't reach your Postgres container.
+The problem: Docker containers are isolated. By default, your Boxctl container can't reach your Postgres container.
 
 ## Network Connect
 
-Agentbox can join your container to other Docker networks:
+Boxctl can join your container to other Docker networks:
 
 ```bash
-agentbox network available         # What containers can I connect to?
-agentbox network connect postgres-dev
-agentbox network list              # What am I connected to?
+boxctl network available         # What containers can I connect to?
+boxctl network connect postgres-dev
+boxctl network list              # What am I connected to?
 ```
 
 **After connecting:** The agent can reach `postgres-dev:5432` by hostname. No IP addresses. No port mapping. The containers can talk directly.
@@ -32,10 +32,10 @@ psql -h postgres-dev -U myuser mydatabase
 When you're done:
 
 ```bash
-agentbox network disconnect postgres-dev
+boxctl network disconnect postgres-dev
 ```
 
-The Agentbox container leaves that network. Communication stops.
+The Boxctl container leaves that network. Communication stops.
 
 ## Use Cases
 
@@ -47,7 +47,7 @@ The Agentbox container leaves that network. Communication stops.
 
 **Clean separation:** Keep each service isolated. Only connect what you need. Principle of least privilege.
 
-## Configuring in .agentbox.yml
+## Configuring in .boxctl.yml
 
 For persistent connections that should always be there:
 
@@ -71,5 +71,5 @@ It's for local development where you have multiple containers that need to talk.
 
 ## What's Next
 
-- **[Configuration](08-configuration.md)** - All `.agentbox.yml` options
+- **[Configuration](08-configuration.md)** - All `.boxctl.yml` options
 - **[CLI Reference](REF-A-cli.md)** - Full network command list

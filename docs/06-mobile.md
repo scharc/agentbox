@@ -1,11 +1,11 @@
 # Mobile Workflow
 
-The whole point of Agentbox is to work from anywhere - including your phone in a coffee shop. The quick menu makes that practical.
+The whole point of Boxctl is to work from anywhere - including your phone in a coffee shop. The quick menu makes that practical.
 
 ## The Quick Menu
 
 ```bash
-agentbox q                         # Or: agentbox quick
+boxctl q                         # Or: boxctl quick
 ```
 
 This opens a text UI designed for minimal typing:
@@ -59,7 +59,7 @@ You're out getting coffee. You SSH into your laptop:
 ```bash
 ssh mybox.tailscale.net
 cd ~/myproject
-agentbox q
+boxctl q
 ```
 
 The quick menu shows your running sessions. Press `a` to attach to the first one. See what the agent is doing.
@@ -76,10 +76,10 @@ If you have agents running on different projects:
 
 ```bash
 cd ~/project-one
-agentbox q        # See project-one's sessions
+boxctl q        # See project-one's sessions
 
 cd ~/project-two
-agentbox q        # See project-two's sessions
+boxctl q        # See project-two's sessions
 ```
 
 Each project has its own container, its own sessions, its own world.
@@ -95,7 +95,7 @@ The agent can send notifications that reach your host system:
 notify.sh "Build complete" "All tests passing"
 ```
 
-If you've set up `agentboxd` (the daemon), this appears as a desktop notification. Even if you're SSH'd in from your phone, the notification fires on your laptop. Next time you're at your desk, you see it.
+If you've set up `boxctld` (the daemon), this appears as a desktop notification. Even if you're SSH'd in from your phone, the notification fires on your laptop. Next time you're at your desk, you see it.
 
 For truly mobile notifications, you can configure a webhook to send to Slack, Discord, or a push notification service. The daemon supports custom notification hooks.
 
@@ -120,12 +120,12 @@ This is particularly useful when you're away. You don't want to come back hours 
 ┌─────────────────────┐
 │ Your Laptop         │
 │                     │
-│  agentbox q         │
+│  boxctl q         │
 │  → Quick menu       │
 │  → Sessions view    │
 │  → Attach/detach    │
 │                     │
-│  agentboxd          │
+│  boxctld          │
 │  → Notifications    │
 │  → Stall detection  │
 └─────────────────────┘
@@ -144,11 +144,11 @@ You control things from your phone. The agent works on your laptop. The daemon k
 
 ## Tips for Mobile
 
-**Keep sessions named.** When you create sessions, give them meaningful names: `agentbox session new superclaude auth-refactor`. When you open the quick menu, you see `auth-refactor` instead of `superclaude-3`.
+**Keep sessions named.** When you create sessions, give them meaningful names: `boxctl session new superclaude auth-refactor`. When you open the quick menu, you see `auth-refactor` instead of `superclaude-3`.
 
 **Use the quick menu for navigation.** Even if you know the commands, the quick menu is faster on mobile. Less typing, fewer mistakes.
 
-**Set up notifications.** If you're going to work remotely, configure `agentboxd` first. Then you'll know when agents finish or get stuck.
+**Set up notifications.** If you're going to work remotely, configure `boxctld` first. Then you'll know when agents finish or get stuck.
 
 **Detach, don't quit.** When checking on an agent, use `Ctrl+A, D` to detach. The session stays alive. If you accidentally close the terminal, the agent keeps working.
 

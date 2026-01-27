@@ -1,7 +1,7 @@
 [project]
-name = "agentbox"
-version = "0.3.1"
-description = "Secure, isolated Docker environment for Claude Code with complete development tooling"
+name = "boxctl"
+version = "0.3.2"
+description = "Secure, isolated Docker containers for AI coding agents with complete development tooling"
 readme = "README.md"
 authors = [{name = "Marc Schuetze", email = "marc@schuetze.io"}]
 requires-python = ">=3.10,<4.0"
@@ -21,12 +21,13 @@ dependencies = [
 ]
 
 [project.scripts]
-agentbox = "agentbox.cli:main"
-abox = "agentbox.cli:main"
-agentctl = "agentbox.agentctl:main"
+boxctl = "boxctl.cli:main"
+box = "boxctl.cli:main"
+abox = "boxctl.cli:main"
+agentctl = "boxctl.agentctl:main"
 
 [tool.poetry]
-packages = [{include = "agentbox"}]
+packages = [{include = "boxctl"}]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.3"

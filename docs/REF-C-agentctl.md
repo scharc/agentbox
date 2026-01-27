@@ -11,7 +11,7 @@ Session and worktree management from inside the container.
 - Switch between branches without leaving the container
 
 **Not to be confused with:**
-- `abox` / `agentbox` - runs on **host**, manages containers
+- `abox` / `boxctl` - runs on **host**, manages containers
 - `agentctl` - runs **inside container**, manages sessions/worktrees
 
 ## Quick Reference
@@ -218,7 +218,7 @@ agentctl worktree remove feature-auth
 
 ```
 /workspace/                          # Main project (always exists)
-├── .agentbox/
+├── .boxctl/
 │   └── worktrees.json              # Worktree metadata
 └── ...
 
@@ -231,7 +231,7 @@ agentctl worktree remove feature-auth
 
 ## Metadata
 
-Worktree tracking stored in `/workspace/.agentbox/worktrees.json`:
+Worktree tracking stored in `/workspace/.boxctl/worktrees.json`:
 
 ```json
 {
@@ -276,5 +276,5 @@ Completions installed automatically in container.
 ## See Also
 
 - [CLI Reference](REF-A-cli.md) - Host-side `abox worktree` commands
-- [agentboxd](REF-B-daemon.md) - Host daemon that enables MCP communication
-- [agentbox-analyst](agentbox-analyst.md) - Cross-agent analysis
+- [boxctld](REF-B-daemon.md) - Host daemon that enables MCP communication
+- [boxctl-analyst](boxctl-analyst.md) - Cross-agent analysis

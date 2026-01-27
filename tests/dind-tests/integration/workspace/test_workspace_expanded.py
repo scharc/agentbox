@@ -28,7 +28,7 @@ class TestWorkspaceMountModes:
         assert result.returncode == 0, f"Failed to add readonly mount: {result.stderr}"
 
         # Wait for container to be ready after rebuild
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         wait_for_container_ready(container_name, timeout=30)
 
         # Verify mount exists
@@ -66,7 +66,7 @@ class TestWorkspaceMountModes:
         assert result.returncode == 0, f"Failed to add readwrite mount: {result.stderr}"
 
         # Wait for container to be ready
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         wait_for_container_ready(container_name, timeout=30)
 
         # Write a new file
@@ -91,7 +91,7 @@ class TestWorkspaceMountModes:
         assert result.returncode == 0
 
         # Wait for container
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         wait_for_container_ready(container_name, timeout=30)
 
         # Attempt write should fail (default is ro)
@@ -118,7 +118,7 @@ class TestWorkspaceMountPaths:
         assert result.returncode == 0, f"Failed to add mount with spaces: {result.stderr}"
 
         # Wait and verify
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         wait_for_container_ready(container_name, timeout=30)
 
         result = exec_in_container(
@@ -140,7 +140,7 @@ class TestWorkspaceMountPaths:
         assert result.returncode == 0
 
         # Verify
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         wait_for_container_ready(container_name, timeout=30)
 
         result = exec_in_container(
@@ -162,7 +162,7 @@ class TestWorkspaceMountPaths:
         assert result.returncode == 0
 
         # Verify symlink works in container
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         wait_for_container_ready(container_name, timeout=30)
 
         result = exec_in_container(
@@ -204,7 +204,7 @@ class TestWorkspaceMountConflicts:
         assert result.returncode == 0
 
         # Wait for rebuild
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         wait_for_container_ready(container_name, timeout=30)
 
         # Add second mount with same path but different name
@@ -333,7 +333,7 @@ class TestWorkspaceMountMultiple:
             assert result.returncode == 0, f"Failed to add mount {i}"
 
         # Wait for final rebuild
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         wait_for_container_ready(container_name, timeout=30)
 
         # Verify all three are accessible
@@ -411,7 +411,7 @@ class TestWorkspaceMountPersistence:
         assert result.returncode == 0
 
         # Wait for container
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         wait_for_container_ready(container_name, timeout=30)
 
         # Verify mount still exists and works
@@ -434,7 +434,7 @@ class TestWorkspaceMountPersistence:
         result = run_abox("rebuild", cwd=test_project)
         assert result.returncode == 0
 
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         wait_for_container_ready(container_name, timeout=60)
 
         # Verify mount is still configured
@@ -459,7 +459,7 @@ class TestWorkspaceMountIntegration:
         assert result.returncode == 0
 
         # 2. Verify accessible
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         wait_for_container_ready(container_name, timeout=30)
 
         result = exec_in_container(
@@ -496,7 +496,7 @@ class TestWorkspaceMountIntegration:
         result = run_abox("workspace", "add", str(test_dir), "rw", "sync-mount", cwd=test_project)
         assert result.returncode == 0
 
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         wait_for_container_ready(container_name, timeout=30)
 
         # 1. Write from container
@@ -535,7 +535,7 @@ class TestWorkspaceMountIntegration:
         result = run_abox("workspace", "add", str(test_dir), "ro", "existing-mount", cwd=test_project)
         assert result.returncode == 0
 
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         wait_for_container_ready(container_name, timeout=30)
 
         # Verify all files are accessible

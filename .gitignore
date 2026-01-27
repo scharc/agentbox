@@ -52,3 +52,6 @@ library/skills/web-asset-generator/
 .agentbox/claude/statsig/
 .agentbox/codex/sessions/
 .agentbox/backup-pre-migration/
+
+# DinD test image cache
+.dind-cache/

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Agentbox uses **SSH-based tunneling** for all container-host communication. A single SSH connection provides:
+Boxctl uses **SSH-based tunneling** for all container-host communication. A single SSH connection provides:
 
 - **Control Channel**: Bidirectional JSON messages for notifications, streaming, port management
 - **Port Forwarding**: Native SSH -L/-R forwards for data tunnels
@@ -14,7 +14,7 @@ Agentbox uses **SSH-based tunneling** for all container-host communication. A si
 │ Host                                                            │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │ agentboxd                                                │   │
+│  │ boxctld                                                │   │
 │  │  └── SSHTunnelServer (AsyncSSH on Unix socket)           │   │
 │  │       ├── Control Channel (JSON over SSH session)        │   │
 │  │       │    ├── Notifications                             │   │
@@ -30,7 +30,7 @@ Agentbox uses **SSH-based tunneling** for all container-host communication. A si
 │  └─────────────────────────────────────────────────────────┘   │
 │                              │                                  │
 │                              │ SSH over Unix Socket             │
-│                              │ /run/user/UID/agentboxd/ssh.sock │
+│                              │ /run/user/UID/boxctld/ssh.sock │
 └──────────────────────────────┼──────────────────────────────────┘
                                │
 ┌──────────────────────────────┼──────────────────────────────────┐
@@ -121,7 +121,7 @@ All control messages use **length-prefixed JSON**:
 Access host services from inside containers:
 
 ```yaml
-# .agentbox.yml
+# .boxctl.yml
 ports:
   container:
     - name: playwright
@@ -137,7 +137,7 @@ Container can access `localhost:9100` which tunnels to `host:9100`.
 Expose container services to the host:
 
 ```yaml
-# .agentbox.yml
+# .boxctl.yml
 ports:
   host:
     - "3000"        # Expose container:3000 on host:3000
@@ -176,10 +176,10 @@ Ports can be added/removed at runtime via control channel:
 
 | File | Description |
 |------|-------------|
-| `agentbox/ssh_tunnel.py` | SSH server and client implementation |
-| `agentbox/container_client.py` | Unified container client (streaming + tunnel) |
-| `agentbox/agentboxd.py` | Host daemon with SSH handlers |
-| `agentbox/notifications.py` | Notification client (SSH + legacy fallback) |
+| `boxctl/ssh_tunnel.py` | SSH server and client implementation |
+| `boxctl/container_client.py` | Unified container client (streaming + tunnel) |
+| `boxctl/boxctld.py` | Host daemon with SSH handlers |
+| `boxctl/notifications.py` | Notification client (SSH + legacy fallback) |
 
 ## Benefits of SSH-based Design
 

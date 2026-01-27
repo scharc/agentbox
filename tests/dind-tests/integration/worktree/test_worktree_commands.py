@@ -16,7 +16,7 @@ from helpers.git import init_git_repo
 
 @pytest.mark.integration
 class TestWorktreeList:
-    """Test 'agentbox worktree list' command."""
+    """Test 'boxctl worktree list' command."""
 
     def test_list_in_non_git_repo(self, running_container, test_project):
         """Test listing worktrees in non-git directory fails gracefully."""
@@ -76,11 +76,11 @@ class TestWorktreeList:
 
 @pytest.mark.integration
 class TestWorktreeAdd:
-    """Test 'agentbox worktree add' command."""
+    """Test 'boxctl worktree add' command."""
 
     def test_add_worktree_for_existing_branch(self, running_container, test_project, fake_git_repo):
         """Test creating worktree for existing branch."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Setup git repo
         for item in fake_git_repo.iterdir():
@@ -127,7 +127,7 @@ class TestWorktreeAdd:
 
     def test_add_worktree_creates_new_branch(self, running_container, test_project, fake_git_repo):
         """Test creating worktree with new branch using --create flag."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Setup git repo
         for item in fake_git_repo.iterdir():
@@ -197,7 +197,7 @@ class TestWorktreeAdd:
 
     def test_add_worktree_duplicate_fails(self, running_container, test_project, fake_git_repo):
         """Test adding duplicate worktree fails."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Setup git repo
         for item in fake_git_repo.iterdir():
@@ -227,11 +227,11 @@ class TestWorktreeAdd:
 
 @pytest.mark.integration
 class TestWorktreeRemove:
-    """Test 'agentbox worktree remove' command."""
+    """Test 'boxctl worktree remove' command."""
 
     def test_remove_existing_worktree(self, running_container, test_project, fake_git_repo):
         """Test removing an existing worktree."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Setup git repo
         for item in fake_git_repo.iterdir():
@@ -297,7 +297,7 @@ class TestWorktreeIntegration:
 
     def test_worktree_lifecycle(self, running_container, test_project, fake_git_repo):
         """Test complete worktree lifecycle: add, list, use, remove."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Setup git repo
         for item in fake_git_repo.iterdir():
@@ -327,12 +327,12 @@ class TestWorktreeIntegration:
         )
         assert result.returncode == 0, "Worktree directory should exist"
 
-        # 4. Verify .agentbox is accessible (symlinked or copied)
+        # 4. Verify .boxctl is accessible (symlinked or copied)
         result = exec_in_container(
             container_name,
-            f"test -d /git-worktrees/worktree-{branch}/.agentbox"
+            f"test -d /git-worktrees/worktree-{branch}/.boxctl"
         )
-        assert result.returncode == 0, ".agentbox should be accessible in worktree"
+        assert result.returncode == 0, ".boxctl should be accessible in worktree"
 
         # 5. Create a file in worktree
         result = exec_in_container(
@@ -361,7 +361,7 @@ class TestWorktreeIntegration:
 
     def test_multiple_worktrees(self, running_container, test_project, fake_git_repo):
         """Test managing multiple worktrees simultaneously."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Setup git repo
         for item in fake_git_repo.iterdir():
@@ -395,7 +395,7 @@ class TestWorktreeIntegration:
 
     def test_worktree_isolation(self, running_container, test_project, fake_git_repo):
         """Test that worktrees are properly isolated."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Setup git repo
         for item in fake_git_repo.iterdir():

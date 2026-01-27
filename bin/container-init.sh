@@ -5,10 +5,13 @@
 
 set -euo pipefail
 
-# Agentbox Container Initialization Script
+# Boxctl Container Initialization Script
 # Runs on container startup to set up SSH keys, Git config, and config watcher
 
-echo "Initializing Agentbox container..."
+# Project config directory name (used throughout this script)
+readonly BOXCTL_PROJECT_DIR="/workspace/.boxctl"
+
+echo "Initializing Boxctl container..."
 echo "User: ${USER:-unknown}"
 
 # Status file for host to monitor initialization progress
@@ -85,7 +88,7 @@ fi
 
 ensure_abox_aliases() {
     local bashrc="${ABOX_HOME}/.bashrc"
-    local marker="# Agentbox aliases"
+    local marker="# Boxctl aliases"
     if ! grep -q "${marker}" "${bashrc}" 2>/dev/null; then
         {
             echo ""
@@ -100,20 +103,24 @@ ensure_abox_aliases() {
             echo "# claude alias with settings (superclaude uses /usr/local/bin/superclaude wrapper)"
             echo "alias claude='\${HOME}/.local/bin/claude --settings /home/abox/.claude/settings.json --mcp-config /home/abox/.mcp.json'"
             echo ""
-            echo "# Agentbox CLI tab completion"
-            echo 'eval "$(_AGENTBOX_COMPLETE=bash_source agentbox)"'
+            echo "# Boxctl CLI tab completion"
+            # Single quotes intentional - eval runs at shell startup, not now
+            # shellcheck disable=SC2016
+            echo 'eval "$(_BOXCTL_COMPLETE=bash_source boxctl)"'
         } >>"${bashrc}"
     fi
     chown "${HOST_UID}:${HOST_GID}" "${bashrc}" 2>/dev/null || true
 
     # Also set up zsh completion if zsh is available
     local zshrc="${ABOX_HOME}/.zshrc"
-    local zsh_marker="# Agentbox completion"
+    local zsh_marker="# Boxctl completion"
     if command -v zsh >/dev/null && ! grep -q "${zsh_marker}" "${zshrc}" 2>/dev/null; then
         {
             echo ""
             echo "${zsh_marker}"
-            echo 'eval "$(_AGENTBOX_COMPLETE=zsh_source agentbox)"'
+            # Single quotes intentional - eval runs at shell startup, not now
+            # shellcheck disable=SC2016
+            echo 'eval "$(_BOXCTL_COMPLETE=zsh_source boxctl)"'
         } >>"${zshrc}"
         chown "${HOST_UID}:${HOST_GID}" "${zshrc}" 2>/dev/null || true
     fi
@@ -136,13 +143,13 @@ ensure_abox_env() {
     if ! grep -q "DBUS_SESSION_BUS_ADDRESS" "${bashrc}" 2>/dev/null; then
         {
             echo ""
-            echo "# Agentbox runtime environment"
+            echo "# Boxctl runtime environment"
             echo "${xdg_line}"
             echo "${env_line}"
         } >>"${bashrc}"
     fi
 
-    local profile="/etc/profile.d/agentbox.sh"
+    local profile="/etc/profile.d/boxctl.sh"
     {
         echo "${xdg_line}"
         echo "${env_line}"
@@ -153,9 +160,9 @@ ensure_abox_env() {
 ensure_abox_env
 
 ensure_system_path() {
-    local profile_file="/etc/profile.d/agentbox-path.sh"
+    local profile_file="/etc/profile.d/boxctl-path.sh"
     cat >"${profile_file}" <<'EOF'
-# Agentbox PATH - include common package manager binary locations
+# Boxctl PATH - include common package manager binary locations
 # Order: user npm first, then local, then system
 export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/go/bin:/usr/local/sbin:/usr/local/bin:${PATH}"
 
@@ -190,9 +197,9 @@ EOF
 ensure_system_path
 ensure_package_permissions
 
-# Ensure agentbox runtime dir exists for socket mounts.
-mkdir -p "${ABOX_HOME}/.agentbox"
-chown -R "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.agentbox"
+# Ensure boxctl runtime dir exists for socket mounts.
+mkdir -p "${ABOX_HOME}/.boxctl"
+chown -R "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.boxctl"
 
 # Set up SSH directory based on mode
 setup_ssh() {
@@ -245,10 +252,11 @@ setup_ssh_keys() {
     fi
 
     # Copy all SSH files from host mount
+    local file_basename
     for file in /host-ssh/*; do
         if [[ -e "${file}" ]]; then
-            local basename="$(basename "${file}")"
-            cp -L "${file}" "${ABOX_HOME}/.ssh/${basename}" 2>/dev/null || true
+            file_basename="$(basename "${file}")"
+            cp -L "${file}" "${ABOX_HOME}/.ssh/${file_basename}" 2>/dev/null || true
         fi
     done
 
@@ -333,8 +341,8 @@ fi
 # Must run before credential bootstrapping so credentials go into the right place
 
 setup_agent_home_dirs() {
-    local agentbox_dir="/workspace/.agentbox"
-    local library_config="/agentbox/library/config/default"
+    local boxctl_dir="${BOXCTL_PROJECT_DIR}"
+    local library_config="/boxctl/library/config/default"
 
     echo "Setting up agent home directories..."
 
@@ -345,8 +353,8 @@ setup_agent_home_dirs() {
     done
 
     # Copy config templates to home dirs
-    # Priority: project config (.agentbox/config/) > library defaults
-    local project_config="${agentbox_dir}/config"
+    # Priority: project config (.boxctl/config/) > library defaults
+    local project_config="${boxctl_dir}/config"
 
     # Claude: settings.json (used with --settings flag)
     if [[ -f "${project_config}/claude/settings.json" ]]; then
@@ -380,23 +388,103 @@ setup_agent_home_dirs() {
     chown "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.qwen/settings.json" 2>/dev/null || true
 
     # Symlink project instructions (agents.md) into agent home dirs
-    if [[ -f "${agentbox_dir}/agents.md" ]]; then
-        ln -sf "${agentbox_dir}/agents.md" "${ABOX_HOME}/.claude/CLAUDE.md" 2>/dev/null || true
-        ln -sf "${agentbox_dir}/agents.md" "${ABOX_HOME}/.codex/AGENTS.md" 2>/dev/null || true
-        ln -sf "${agentbox_dir}/agents.md" "${ABOX_HOME}/.gemini/GEMINI.md" 2>/dev/null || true
-        ln -sf "${agentbox_dir}/agents.md" "${ABOX_HOME}/.qwen/QWEN.md" 2>/dev/null || true
+    if [[ -f "${boxctl_dir}/agents.md" ]]; then
+        ln -sf "${boxctl_dir}/agents.md" "${ABOX_HOME}/.claude/CLAUDE.md" 2>/dev/null || true
+        ln -sf "${boxctl_dir}/agents.md" "${ABOX_HOME}/.codex/AGENTS.md" 2>/dev/null || true
+        ln -sf "${boxctl_dir}/agents.md" "${ABOX_HOME}/.gemini/GEMINI.md" 2>/dev/null || true
+        ln -sf "${boxctl_dir}/agents.md" "${ABOX_HOME}/.qwen/QWEN.md" 2>/dev/null || true
         # Also create convenience symlink in home
-        ln -sf "${agentbox_dir}/agents.md" "${ABOX_HOME}/agents.md" 2>/dev/null || true
+        ln -sf "${boxctl_dir}/agents.md" "${ABOX_HOME}/agents.md" 2>/dev/null || true
     fi
 
-    # Symlink skills directory into Claude home (Claude looks for ~/.claude/skills/)
-    if [[ -d "${agentbox_dir}/skills" ]]; then
-        ln -sf "${agentbox_dir}/skills" "${ABOX_HOME}/.claude/skills" 2>/dev/null || true
+    # Set up skills directory - Claude looks for ~/.claude/skills/
+    # Priority: library < user home < project (later overrides earlier)
+    mkdir -p "${ABOX_HOME}/.claude/skills"
+    chown "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.claude/skills" 2>/dev/null || true
+
+    # 1. Library skills (lowest priority)
+    local skill_name
+    if [[ -d "/boxctl/library/skills" ]]; then
+        for skill_dir in /boxctl/library/skills/*/; do
+            if [[ -d "${skill_dir}" ]]; then
+                skill_name=$(basename "${skill_dir}")
+                ln -sf "${skill_dir}" "${ABOX_HOME}/.claude/skills/${skill_name}" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    # 2. User home skills (~/.config/boxctl/skills/)
+    if [[ -d "${ABOX_HOME}/.config/boxctl/skills" ]]; then
+        for skill_dir in "${ABOX_HOME}/.config/boxctl/skills/"*/; do
+            if [[ -d "${skill_dir}" ]]; then
+                skill_name=$(basename "${skill_dir}")
+                ln -sf "${skill_dir}" "${ABOX_HOME}/.claude/skills/${skill_name}" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    # 3. Project skills (highest priority, overrides others)
+    if [[ -d "${boxctl_dir}/skills" ]]; then
+        for skill_dir in "${boxctl_dir}/skills/"*/; do
+            if [[ -d "${skill_dir}" ]]; then
+                skill_name=$(basename "${skill_dir}")
+                ln -sf "${skill_dir}" "${ABOX_HOME}/.claude/skills/${skill_name}" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    # Set up commands directory - Claude looks for ~/.claude/commands/
+    # These are "personal commands" available across all projects in this container
+    # Priority: library < user home < project (later overrides earlier)
+    mkdir -p "${ABOX_HOME}/.claude/commands"
+    chown "${HOST_UID}:${HOST_GID}" "${ABOX_HOME}/.claude/commands" 2>/dev/null || true
+
+    # 1. Library MCP commands (lowest priority)
+    local cmd_name
+    if [[ -d "/boxctl/library/mcp" ]]; then
+        for mcp_dir in /boxctl/library/mcp/*/; do
+            if [[ -d "${mcp_dir}commands" ]]; then
+                for cmd_file in "${mcp_dir}commands/"*.md; do
+                    if [[ -f "${cmd_file}" ]]; then
+                        cmd_name=$(basename "${cmd_file}")
+                        ln -sf "${cmd_file}" "${ABOX_HOME}/.claude/commands/ab-${cmd_name}" 2>/dev/null || true
+                    fi
+                done
+            fi
+        done
+    fi
+
+    # 2. User home MCP commands (~/.config/boxctl/mcp/*/commands/)
+    if [[ -d "${ABOX_HOME}/.config/boxctl/mcp" ]]; then
+        for mcp_dir in "${ABOX_HOME}/.config/boxctl/mcp/"*/; do
+            if [[ -d "${mcp_dir}commands" ]]; then
+                for cmd_file in "${mcp_dir}commands/"*.md; do
+                    if [[ -f "${cmd_file}" ]]; then
+                        cmd_name=$(basename "${cmd_file}")
+                        ln -sf "${cmd_file}" "${ABOX_HOME}/.claude/commands/ab-${cmd_name}" 2>/dev/null || true
+                    fi
+                done
+            fi
+        done
+    fi
+
+    # 3. Project MCP commands (highest priority, overrides others)
+    if [[ -d "${boxctl_dir}/mcp" ]]; then
+        for mcp_dir in "${boxctl_dir}/mcp/"*/; do
+            if [[ -d "${mcp_dir}commands" ]]; then
+                for cmd_file in "${mcp_dir}commands/"*.md; do
+                    if [[ -f "${cmd_file}" ]]; then
+                        cmd_name=$(basename "${cmd_file}")
+                        ln -sf "${cmd_file}" "${ABOX_HOME}/.claude/commands/ab-${cmd_name}" 2>/dev/null || true
+                    fi
+                done
+            fi
+        done
     fi
 
     # Symlink agent history directories to workspace for persistence across rebases
     # This allows session resume and preserves conversation history
-    local history_dir="${agentbox_dir}/history"
+    local history_dir="${boxctl_dir}/history"
     mkdir -p "${history_dir}/claude" "${history_dir}/codex" "${history_dir}/gemini" "${history_dir}/qwen"
     chown -R "${HOST_UID}:${HOST_GID}" "${history_dir}"
 
@@ -557,15 +645,15 @@ load_env_file() {
     fi
 }
 
-load_env_file /workspace/.agentbox/.env
-load_env_file /workspace/.agentbox/.env.local
+load_env_file /workspace/.boxctl/.env
+load_env_file /workspace/.boxctl/.env.local
 # Load agent-specific env files (API keys, etc.)
 load_env_file "${ABOX_HOME}/.qwen/.env"
 
 # Load env files from user's custom MCP directories
-# These provide credentials for MCPs in ~/.config/agentbox/mcp/
-if [[ -d "/home/abox/.config/agentbox/mcp" ]]; then
-    for mcp_env in /home/abox/.config/agentbox/mcp/*/.env; do
+# These provide credentials for MCPs in ~/.config/boxctl/mcp/
+if [[ -d "/home/abox/.config/boxctl/mcp" ]]; then
+    for mcp_env in /home/abox/.config/boxctl/mcp/*/.env; do
         if [[ -f "$mcp_env" ]]; then
             load_env_file "$mcp_env"
         fi
@@ -574,7 +662,7 @@ fi
 
 # Install packages from MCP metadata
 install_mcp_packages() {
-    local meta_file="/workspace/.agentbox/mcp-meta.json"
+    local meta_file="/workspace/.boxctl/mcp-meta.json"
     if [[ ! -f "${meta_file}" ]]; then
         return
     fi
@@ -583,7 +671,7 @@ install_mcp_packages() {
     echo "Installing MCP server dependencies..."
     su -s /bin/bash abox -c "python3 /usr/local/bin/install-packages.py \
         --meta ${meta_file} \
-        --manifest /workspace/.agentbox/install-manifest.json \
+        --manifest /workspace/.boxctl/install-manifest.json \
         --log /tmp/mcp-install.log" || {
         echo "ERROR: MCP package installation failed!"
         echo "Check /tmp/mcp-install.log for details"
@@ -593,9 +681,9 @@ install_mcp_packages() {
 
 install_mcp_packages
 
-# Install packages from project .agentbox/config.yml
+# Install packages from project .boxctl/config.yml
 install_project_packages() {
-    local config_file="/workspace/.agentbox/config.yml"
+    local config_file="/workspace/.boxctl/config.yml"
 
     # Wait for volume mount to be fully available (up to 5 seconds)
     local attempts=0
@@ -609,7 +697,7 @@ install_project_packages() {
     fi
 
     set_status "project_packages" "Installing project packages"
-    echo "Installing project packages from .agentbox/config.yml..."
+    echo "Installing project packages from .boxctl/config.yml..."
 
     # Install apt packages (kept in bash - no quoting issues)
     local apt_packages
@@ -628,6 +716,8 @@ except Exception as e:
     if [[ -n "${apt_packages}" ]]; then
         echo "Installing apt packages: ${apt_packages}"
         apt-get update -qq
+        # Word splitting intentional for package list
+        # shellcheck disable=SC2086
         apt-get install -y ${apt_packages} || {
             echo "Warning: Failed to install some apt packages"
         }
@@ -666,7 +756,7 @@ except Exception as e:
     # Install pip, npm, and run post-install commands using Python installer
     su -s /bin/bash abox -c "python3 /usr/local/bin/install-packages.py \
         --config ${config_file} \
-        --manifest /workspace/.agentbox/install-manifest.json \
+        --manifest /workspace/.boxctl/install-manifest.json \
         --log /tmp/project-install.log" || {
         echo "ERROR: Project package installation failed!"
         echo "Check /tmp/project-install.log for details"
@@ -686,7 +776,7 @@ chown "${HOST_UID}:${HOST_GID}" /git-worktrees
 
 # Start MCP servers with SSE transport for instant connections
 start_mcp_servers() {
-    local meta_file="/workspace/.agentbox/mcp-meta.json"
+    local meta_file="/workspace/.boxctl/mcp-meta.json"
     if [[ ! -f "${meta_file}" ]]; then
         echo "No mcp-meta.json found, skipping MCP server startup"
         return
@@ -694,8 +784,8 @@ start_mcp_servers() {
 
     # Check if start-mcp-servers.py exists
     local mcp_manager=""
-    if [[ -f "/workspace/agentbox/bin/start-mcp-servers.py" ]]; then
-        mcp_manager="/workspace/agentbox/bin/start-mcp-servers.py"
+    if [[ -f "/workspace/boxctl/bin/start-mcp-servers.py" ]]; then
+        mcp_manager="/workspace/boxctl/bin/start-mcp-servers.py"
     elif [[ -f "/usr/local/bin/start-mcp-servers.py" ]]; then
         mcp_manager="/usr/local/bin/start-mcp-servers.py"
     fi
@@ -751,7 +841,7 @@ generate_mcp_config
 start_litellm() {
     # Look for host config in multiple locations
     local config_file=""
-    for path in "/host-config/agentbox/config.yml" "${ABOX_HOME}/.config/agentbox/config.yml"; do
+    for path in "/host-config/boxctl/config.yml" "${ABOX_HOME}/.config/boxctl/config.yml"; do
         if [[ -f "${path}" ]]; then
             config_file="${path}"
             break
@@ -763,7 +853,8 @@ start_litellm() {
     fi
 
     # Check if LiteLLM is enabled
-    local enabled=$(python3 -c "
+    local enabled
+    enabled=$(python3 -c "
 import yaml
 try:
     with open('${config_file}') as f:
@@ -799,10 +890,10 @@ echo "Container initialization complete!"
 # Prefer workspace for development, then installed package
 start_container_client() {
     local container_client=""
-    if [[ -f "/workspace/agentbox/container_client.py" ]]; then
-        container_client="/workspace/agentbox/container_client.py"
-    elif [[ -f "/usr/local/lib/python3.12/dist-packages/agentbox/container_client.py" ]]; then
-        container_client="/usr/local/lib/python3.12/dist-packages/agentbox/container_client.py"
+    if [[ -f "/workspace/boxctl/container_client.py" ]]; then
+        container_client="/workspace/boxctl/container_client.py"
+    elif [[ -f "/usr/local/lib/python3.12/dist-packages/boxctl/container_client.py" ]]; then
+        container_client="/usr/local/lib/python3.12/dist-packages/boxctl/container_client.py"
     fi
 
     if [[ -z "${container_client}" ]]; then

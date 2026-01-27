@@ -16,7 +16,7 @@ def test_start_creates_container(test_project):
     assert result.returncode == 0, "abox start should succeed"
 
     # Get container name
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Verify container exists and is running
     inspect_result = subprocess.run(
@@ -31,7 +31,7 @@ def test_start_creates_container(test_project):
 
 def test_stop_stops_container(test_project):
     """Test that 'abox stop' stops the container."""
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Start container first
     run_abox("start", cwd=test_project)
@@ -62,7 +62,7 @@ def test_stop_stops_container(test_project):
 
 def test_rebuild_recreates_container(test_project):
     """Test that 'abox rebuild' removes and recreates the container."""
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Start container first
     run_abox("start", cwd=test_project)
@@ -93,7 +93,7 @@ def test_rebuild_recreates_container(test_project):
 
 def test_container_has_workspace_mount(test_project):
     """Test that container has /workspace mounted correctly."""
-    container_name = f"agentbox-{test_project.name}"
+    container_name = f"boxctl-{test_project.name}"
 
     # Start container
     run_abox("start", cwd=test_project)

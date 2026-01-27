@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: MIT
 # See LICENSE file in the project root for full license information.
 
-"""Pytest fixtures for Agentbox integration tests.
+"""Pytest fixtures for Boxctl integration tests.
 
 These tests run on the HOST, not inside the container.
-They use subprocess to call the agentbox CLI via python module.
+They use subprocess to call the boxctl CLI via python module.
 """
 
 import os
@@ -18,7 +18,7 @@ from pathlib import Path
 def run_abox(*args, cwd=None, check=True, capture_output=True, text=True):
     """Run abox CLI via python module (tests actual code, not installed version).
 
-    Uses: python -m agentbox.cli instead of 'abox' command.
+    Uses: python -m boxctl.cli instead of 'abox' command.
     This ensures tests run against local code changes, not whatever is installed.
 
     Args:
@@ -34,12 +34,12 @@ def run_abox(*args, cwd=None, check=True, capture_output=True, text=True):
     # Get project root (parent of tests/)
     project_root = Path(__file__).parent.parent
 
-    # Set up environment to find agentbox module
+    # Set up environment to find boxctl module
     env = os.environ.copy()
     env["PYTHONPATH"] = str(project_root)
 
     return subprocess.run(
-        [sys.executable, "-m", "agentbox.cli", *args],
+        [sys.executable, "-m", "boxctl.cli", *args],
         cwd=cwd,
         check=check,
         capture_output=capture_output,
@@ -65,7 +65,7 @@ def test_project(tmp_path_factory, docker_available):
     temp project directory.
 
     Yields:
-        Path: Temporary project directory with .agentbox/ initialized
+        Path: Temporary project directory with .boxctl/ initialized
     """
     project_dir = tmp_path_factory.mktemp("abox-test")
 
@@ -75,7 +75,7 @@ def test_project(tmp_path_factory, docker_available):
     yield project_dir
 
     # Cleanup: stop and remove container
-    container_name = f"agentbox-{project_dir.name}"
+    container_name = f"boxctl-{project_dir.name}"
     subprocess.run(
         ["docker", "rm", "-f", container_name],
         stdout=subprocess.DEVNULL,

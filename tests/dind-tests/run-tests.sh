@@ -1,5 +1,5 @@
 #!/bin/bash
-# Agentbox DinD Test Runner
+# Boxctl DinD Test Runner
 # Copyright (c) 2025 Marc Schütze <scharc@gmail.com>
 # SPDX-License-Identifier: MIT
 #
@@ -158,7 +158,7 @@ run_tests() {
 main() {
     echo ""
     echo "========================================"
-    echo "  Agentbox DinD Test Runner"
+    echo "  Boxctl DinD Test Runner"
     echo "========================================"
     echo ""
 

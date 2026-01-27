@@ -5,7 +5,7 @@
 
 import pytest
 
-from agentbox.config import validate_host_port, parse_port_spec
+from boxctl.config import validate_host_port, parse_port_spec
 
 
 class TestPortValidation:

@@ -6,12 +6,12 @@ import tempfile
 import os
 from pathlib import Path
 
-from agentbox.agentctl.worktree.metadata import WorktreeMetadata
+from boxctl.agentctl.worktree.metadata import WorktreeMetadata
 
 
 @pytest.fixture
 def temp_agentbox_dir():
-    """Create a temporary .agentbox directory for testing"""
+    """Create a temporary .boxctl directory for testing"""
     with tempfile.TemporaryDirectory() as tmpdir:
         yield tmpdir
 

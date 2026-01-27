@@ -23,7 +23,7 @@ class TestSessionManagement:
         )
 
     def test_session_rename_and_remove(self, running_container, test_project):
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         result = exec_in_container(container_name, "tmux new-session -d -s shell-test 'sleep 60'")
         assert result.returncode == 0, f"failed to create tmux session: {result.stderr}"
@@ -79,7 +79,7 @@ class TestSessionCreation:
 
     def test_session_new_with_agent_prefix(self, running_container, test_project):
         """Test session naming follows agent prefix convention."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Create session with agent-style naming
         result = exec_in_container(
@@ -96,7 +96,7 @@ class TestSessionCreation:
 
     def test_multiple_sessions_different_agents(self, running_container, test_project):
         """Test creating multiple sessions for different agents."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         agents = ["claude", "codex", "gemini", "shell"]
 
@@ -126,7 +126,7 @@ class TestSessionRemoval:
 
     def test_remove_session_with_running_process(self, running_container, test_project):
         """Test removing session with active process."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Create session with long-running process
         result = exec_in_container(
@@ -158,7 +158,7 @@ class TestSessionRemoval:
 
     def test_remove_all_sessions(self, running_container, test_project):
         """Test removing multiple sessions."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Create multiple sessions
         sessions = ["session-1", "session-2", "session-3"]
@@ -184,7 +184,7 @@ class TestSessionRename:
 
     def test_rename_basic(self, running_container, test_project):
         """Test basic session rename."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Create session
         exec_in_container(container_name, "tmux new-session -d -s old-name 'sleep 30'")
@@ -206,7 +206,7 @@ class TestSessionRename:
 
     def test_rename_to_existing_name_fails(self, running_container, test_project):
         """Test renaming to existing session name fails."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Create two sessions
         exec_in_container(container_name, "tmux new-session -d -s session-a 'sleep 30'")
@@ -248,7 +248,7 @@ class TestSessionIntegration:
 
     def test_session_full_lifecycle(self, running_container, test_project):
         """Test complete session lifecycle."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         session_name = "lifecycle-test"
 
@@ -280,7 +280,7 @@ class TestSessionIntegration:
 
     def test_multiple_operations_on_same_session(self, running_container, test_project):
         """Test multiple operations on the same session."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Create session
         exec_in_container(container_name, "tmux new-session -d -s multi-op 'sleep 60'")
@@ -308,7 +308,7 @@ class TestSessionIntegration:
 
     def test_sessions_persist_across_docker_exec(self, running_container, test_project):
         """Test that sessions persist across multiple docker exec calls."""
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
 
         # Create session in first exec
         result = exec_in_container(

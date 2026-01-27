@@ -7,7 +7,7 @@
 import json
 import pytest
 from pathlib import Path
-from agentbox.library import LibraryManager
+from boxctl.library import LibraryManager
 
 
 @pytest.fixture
@@ -69,7 +69,7 @@ def test_library_manager_autodiscovery():
     """Test that LibraryManager discovers library path automatically."""
     lm = LibraryManager()
 
-    # Should discover library as sibling to agentbox package
+    # Should discover library as sibling to boxctl package
     assert lm.library_root.exists()
     assert lm.library_root.name == "library"
     assert lm.mcp_dir == lm.library_root / "mcp"
@@ -90,21 +90,30 @@ def test_library_manager_custom_path(mock_library):
 def test_list_mcp_servers_empty():
     """Test listing MCP servers when directory doesn't exist."""
     import tempfile
+    from unittest.mock import patch
     with tempfile.TemporaryDirectory() as tmpdir:
         empty_lib = Path(tmpdir) / "empty_library"
-        lm = LibraryManager(library_root=empty_lib)
-
-        servers = lm.list_mcp_servers()
-        assert servers == []
+        empty_user = Path(tmpdir) / "empty_user"
+        # Patch user directories to avoid picking up real user config
+        with patch('boxctl.library.HostPaths.user_mcp_dir', return_value=empty_user / "mcp"):
+            with patch('boxctl.library.HostPaths.user_skills_dir', return_value=empty_user / "skills"):
+                lm = LibraryManager(library_root=empty_lib)
+                servers = lm.list_mcp_servers()
+                assert servers == []
 
 
 def test_list_mcp_servers(mock_library):
     """Test listing MCP servers."""
-    lm = LibraryManager(library_root=mock_library)
-
-    servers = lm.list_mcp_servers()
-
-    assert len(servers) == 2
+    from unittest.mock import patch
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        empty_user = Path(tmpdir) / "empty_user"
+        # Patch user directories to isolate test
+        with patch('boxctl.library.HostPaths.user_mcp_dir', return_value=empty_user / "mcp"):
+            with patch('boxctl.library.HostPaths.user_skills_dir', return_value=empty_user / "skills"):
+                lm = LibraryManager(library_root=mock_library)
+                servers = lm.list_mcp_servers()
+                assert len(servers) == 2
 
     # Check test-server (has README)
     test_server = next(s for s in servers if s["name"] == "test-server")
@@ -137,21 +146,30 @@ def test_list_mcp_servers_malformed_json(mock_library):
 def test_list_skills_empty():
     """Test listing skills when directory doesn't exist."""
     import tempfile
+    from unittest.mock import patch
     with tempfile.TemporaryDirectory() as tmpdir:
         empty_lib = Path(tmpdir) / "empty_library"
-        lm = LibraryManager(library_root=empty_lib)
-
-        skills = lm.list_skills()
-        assert skills == []
+        empty_user = Path(tmpdir) / "empty_user"
+        # Patch user directories to avoid picking up real user config
+        with patch('boxctl.library.HostPaths.user_mcp_dir', return_value=empty_user / "mcp"):
+            with patch('boxctl.library.HostPaths.user_skills_dir', return_value=empty_user / "skills"):
+                lm = LibraryManager(library_root=empty_lib)
+                skills = lm.list_skills()
+                assert skills == []
 
 
 def test_list_skills(mock_library):
     """Test listing skills."""
-    lm = LibraryManager(library_root=mock_library)
-
-    skills = lm.list_skills()
-
-    assert len(skills) == 1
+    import tempfile
+    from unittest.mock import patch
+    with tempfile.TemporaryDirectory() as tmpdir:
+        empty_user = Path(tmpdir) / "empty_user"
+        # Patch user directories to isolate test
+        with patch('boxctl.library.HostPaths.user_mcp_dir', return_value=empty_user / "mcp"):
+            with patch('boxctl.library.HostPaths.user_skills_dir', return_value=empty_user / "skills"):
+                lm = LibraryManager(library_root=mock_library)
+                skills = lm.list_skills()
+                assert len(skills) == 1
     skill = skills[0]
     assert skill["name"] == "test-skill"
     assert skill["description"] == "A test skill for testing."
@@ -222,12 +240,17 @@ def test_list_configs_without_config_file(mock_library):
 
 def test_print_mcp_table_no_servers(mock_library, capsys):
     """Test printing MCP table when no servers exist."""
+    from unittest.mock import patch
     # Create empty library
     empty_lib = mock_library.parent / "empty"
     empty_lib.mkdir()
 
-    lm = LibraryManager(library_root=empty_lib)
-    lm.print_mcp_table()
+    empty_user = mock_library.parent / "empty_user"
+    # Patch user directories to avoid picking up real user config
+    with patch('boxctl.library.HostPaths.user_mcp_dir', return_value=empty_user / "mcp"):
+        with patch('boxctl.library.HostPaths.user_skills_dir', return_value=empty_user / "skills"):
+            lm = LibraryManager(library_root=empty_lib)
+            lm.print_mcp_table()
 
     captured = capsys.readouterr()
     assert "No MCP servers found" in captured.out
@@ -246,12 +269,17 @@ def test_print_mcp_table_with_servers(mock_library, capsys):
 
 def test_print_skills_table_no_skills(mock_library, capsys):
     """Test printing skills table when no skills exist."""
+    from unittest.mock import patch
     # Create empty library
-    empty_lib = mock_library.parent / "empty"
+    empty_lib = mock_library.parent / "empty_skills"
     empty_lib.mkdir()
 
-    lm = LibraryManager(library_root=empty_lib)
-    lm.print_skills_table()
+    empty_user = mock_library.parent / "empty_user_skills"
+    # Patch user directories to avoid picking up real user config
+    with patch('boxctl.library.HostPaths.user_mcp_dir', return_value=empty_user / "mcp"):
+        with patch('boxctl.library.HostPaths.user_skills_dir', return_value=empty_user / "skills"):
+            lm = LibraryManager(library_root=empty_lib)
+            lm.print_skills_table()
 
     captured = capsys.readouterr()
     assert "No skills found" in captured.out
@@ -354,7 +382,7 @@ def test_mcp_table_shows_added_status(mock_library, tmp_path, capsys):
     # Create a mock project with MCP added
     project_dir = tmp_path / "project"
     project_dir.mkdir()
-    agentbox_dir = project_dir / ".agentbox"
+    agentbox_dir = project_dir / ".boxctl"
     agentbox_dir.mkdir()
     claude_dir = agentbox_dir / "claude"
     claude_dir.mkdir()
@@ -372,8 +400,8 @@ def test_mcp_table_shows_added_status(mock_library, tmp_path, capsys):
 
     # Set environment variable to point to test project
     import os
-    old_env = os.environ.get("AGENTBOX_PROJECT_DIR")
-    os.environ["AGENTBOX_PROJECT_DIR"] = str(project_dir)
+    old_env = os.environ.get("BOXCTL_PROJECT_DIR")
+    os.environ["BOXCTL_PROJECT_DIR"] = str(project_dir)
 
     try:
         lm = LibraryManager(library_root=mock_library)
@@ -387,9 +415,9 @@ def test_mcp_table_shows_added_status(mock_library, tmp_path, capsys):
     finally:
         # Restore environment
         if old_env is None:
-            os.environ.pop("AGENTBOX_PROJECT_DIR", None)
+            os.environ.pop("BOXCTL_PROJECT_DIR", None)
         else:
-            os.environ["AGENTBOX_PROJECT_DIR"] = old_env
+            os.environ["BOXCTL_PROJECT_DIR"] = old_env
 
 
 def test_list_skills_recursive(mock_library):

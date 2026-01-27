@@ -1,13 +1,13 @@
-# Agentbox CLI Reference
+# Boxctl CLI Reference
 
-Complete command reference for `agentbox` (alias: `abox`).
+Complete command reference for `boxctl` (alias: `abox`).
 
 ## Command Philosophy
 
-**No Flags Policy:** Agentbox uses positional arguments only. No `--flag` syntax. Commands read like English.
+**No Flags Policy:** Boxctl uses positional arguments only. No `--flag` syntax. Commands read like English.
 
 ```bash
-# Agentbox style - positional args
+# Boxctl style - positional args
 abox workspace add ~/docs ro reference
 abox session new superclaude feature-auth
 
@@ -56,7 +56,7 @@ abox claude myproject                  # Specific project
 abox claude "fix the login bug"        # With initial prompt
 ```
 
-**What happens:** Creates a tmux session named `superclaude-1`, launches Claude with the system prompt from `.agentbox/agents.md`, and attaches you to the session.
+**What happens:** Creates a tmux session named `superclaude-1`, launches Claude with the system prompt from `.boxctl/agents.md`, and attaches you to the session.
 
 ### abox superclaude [project] [args...]
 
@@ -67,7 +67,7 @@ abox superclaude
 abox superclaude "refactor authentication and add tests"
 ```
 
-**When to use:** When you trust the task and want hands-off execution. Great for well-defined tasks like "add tests for X" or "refactor Y using pattern Z". The agent gets additional instructions from `.agentbox/superagents.md` encouraging autonomous workflow.
+**When to use:** When you trust the task and want hands-off execution. Great for well-defined tasks like "add tests for X" or "refactor Y using pattern Z". The agent gets additional instructions from `.boxctl/superagents.md` encouraging autonomous workflow.
 
 **When NOT to use:** Exploratory work, unfamiliar codebases, or anything touching production.
 
@@ -122,14 +122,14 @@ echo "Exit code: $?"
 
 ### abox init
 
-Initialize `.agentbox/` directory in current project.
+Initialize `.boxctl/` directory in current project.
 
 ```bash
 cd ~/projects/myapp
 abox init
 ```
 
-Creates `.agentbox.yml` and `.agentbox/` directory structure.
+Creates `.boxctl.yml` and `.boxctl/` directory structure.
 
 ### abox setup
 
@@ -158,7 +158,7 @@ abox stop myproject
 
 ### abox list [all]
 
-List agentbox containers.
+List boxctl containers.
 
 ```bash
 abox list                              # Running only
@@ -209,7 +209,7 @@ abox remove myproject force            # Skip confirmation
 
 ### abox cleanup
 
-Remove all stopped agentbox containers.
+Remove all stopped boxctl containers.
 
 ```bash
 abox cleanup
@@ -239,7 +239,7 @@ Interactive reconfiguration of project settings. Walks through common options:
 abox reconfigure
 ```
 
-Changes are saved to `.agentbox/config.yml`. Run `abox rebase` to apply.
+Changes are saved to `.boxctl/config.yml`. Run `abox rebase` to apply.
 
 ---
 
@@ -380,7 +380,7 @@ Add MCP to project. Requires `abox rebase` to activate.
 
 ```bash
 abox mcp add docker
-abox mcp add agentbox-analyst
+abox mcp add boxctl-analyst
 abox rebase
 ```
 
@@ -538,7 +538,7 @@ abox ports list                        # Current project only
 abox ports list all                    # All containers with ports
 ```
 
-The `all` scope shows ports across all agentbox containers with status indicators (● running, ○ stopped) and whether tunnels are active.
+The `all` scope shows ports across all boxctl containers with status indicators (● running, ○ stopped) and whether tunnels are active.
 
 ### abox ports status
 
@@ -770,7 +770,7 @@ Export session to markdown file.
 
 ```bash
 abox logs export                       # List available sessions
-abox logs export superclaude-1         # Export to .agentbox/logs/
+abox logs export superclaude-1         # Export to .boxctl/logs/
 abox logs export superclaude-1 -o ~/session.md  # Custom output path
 ```
 
@@ -782,18 +782,18 @@ Creates a readable markdown document with full conversation history.
 
 ### abox base rebuild
 
-Rebuild the `agentbox-base` Docker image.
+Rebuild the `boxctl-base` Docker image.
 
 ```bash
 abox base rebuild
 abox rebuild                           # Alias
 ```
 
-Run after updating agentbox or Dockerfile.
+Run after updating boxctl or Dockerfile.
 
 ---
 
-## Service (agentboxd)
+## Service (boxctld)
 
 Host daemon for notifications, web UI, and SSH tunnels.
 
@@ -911,7 +911,7 @@ abox fix-terminal
 
 | Full | Alias |
 |------|-------|
-| `agentbox` | `abox` |
+| `boxctl` | `abox` |
 | `abox list` | `abox ps` |
 | `abox quick` | `abox q` |
 | `abox base rebuild` | `abox rebuild` |
@@ -925,5 +925,5 @@ abox fix-terminal
 - [Quick Menu](quick-menu.md) - TUI guide
 - [Configuration](08-configuration.md) - Config file reference
 - [agentctl](REF-C-agentctl.md) - Container-side CLI
-- [agentboxd](REF-B-daemon.md) - Host daemon details
+- [boxctld](REF-B-daemon.md) - Host daemon details
 - [Library](REF-E-library.md) - MCPs and skills

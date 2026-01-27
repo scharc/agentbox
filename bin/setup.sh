@@ -21,7 +21,7 @@ Usage: bin/setup.sh [--shell zsh|bash] [--no-prompt]
 
 Runs onboarding steps:
   - Install Python deps via Poetry
-  - Build the Agentbox base image
+  - Build the boxctl base image
   - Optionally enable shell completion
 EOF
 }
@@ -68,7 +68,7 @@ fi
 if [[ "$no_prompt" != "true" ]]; then
   echo "Setup options (y/n). Default is yes."
   read -r -p "Install Python deps with Poetry? [Y/n] " answer_poetry
-  read -r -p "Build the Agentbox base image? [Y/n] " answer_build
+  read -r -p "Build the boxctl base image? [Y/n] " answer_build
   if [[ -z "$shell" ]]; then
     read -r -p "Enable shell completion (zsh/bash/skip)? [skip] " answer_shell
     shell="${answer_shell:-}"
@@ -93,18 +93,18 @@ fi
 
 if [[ "$do_build" == "true" ]]; then
   echo "Building base image..."
-  docker build -f Dockerfile.base -t agentbox-base:latest .
+  docker build -f Dockerfile.base -t boxctl-base:latest .
 fi
 
 if [[ -n "$shell" && "$shell" != "skip" ]]; then
   case "$shell" in
     zsh)
       rc_file="$HOME/.zshrc"
-      completion_line="source $root_dir/completions/agentbox-completion.zsh"
+      completion_line="source $root_dir/bin/completions/boxctl-completion.zsh"
       ;;
     bash)
       rc_file="$HOME/.bashrc"
-      completion_line="source $root_dir/completions/agentbox-completion.bash"
+      completion_line="source $root_dir/bin/completions/boxctl-completion.bash"
       ;;
     *)
       echo "Unsupported shell: $shell (expected zsh or bash)" >&2
@@ -119,8 +119,23 @@ if [[ -n "$shell" && "$shell" != "skip" ]]; then
     echo "Added shell completion to $rc_file"
   fi
 
-  alias_marker="# Agentbox alias"
-  alias_line='alias abox="agentbox"'
+  # Add bin directory to PATH
+  path_marker="# boxctl PATH"
+  path_line="export PATH=\"$root_dir/bin:\$PATH\""
+  if [[ -f "$rc_file" ]] && grep -Fq "boxctl PATH" "$rc_file"; then
+    echo "PATH already set in $rc_file"
+  else
+    {
+      echo ""
+      echo "$path_marker"
+      echo "$path_line"
+    } >> "$rc_file"
+    echo "Added boxctl bin to PATH in $rc_file"
+  fi
+
+  # Add abox alias
+  alias_marker="# boxctl alias"
+  alias_line='alias abox="boxctl"'
   if [[ -f "$rc_file" ]] && grep -Fqx "$alias_line" "$rc_file"; then
     echo "Alias already set in $rc_file"
   else

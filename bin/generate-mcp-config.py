@@ -27,11 +27,11 @@ logger = logging.getLogger(__name__)
 STDIO_CONFIGS = {
     "agentctl": {
         "command": "python3",
-        "args": ["/workspace/.agentbox/mcp/agentctl/server_fastmcp.py"]
+        "args": ["/workspace/.boxctl/mcp/agentctl/server_fastmcp.py"]
     },
-    "agentbox-notify": {
+    "boxctl-notify": {
         "command": "python3",
-        "args": ["/workspace/.agentbox/mcp/agentbox-notify/server.py"]
+        "args": ["/workspace/.boxctl/mcp/boxctl-notify/server.py"]
     },
     # npm servers
     "ssh": {
@@ -40,7 +40,7 @@ STDIO_CONFIGS = {
     },
     "docker": {
         "command": "bash",
-        "args": ["/workspace/.agentbox/mcp/docker-mcp-wrapper.sh"]
+        "args": ["/workspace/.boxctl/mcp/docker-mcp-wrapper.sh"]
     },
     "playwright": {
         "command": "npx",
@@ -90,9 +90,9 @@ def load_env_files() -> Dict[str, str]:
     """Load environment variables from MCP .env files.
 
     Loads from:
-    - /workspace/.agentbox/.env
-    - /workspace/.agentbox/.env.local
-    - /home/abox/.config/agentbox/mcp/*/.env (custom MCP credentials)
+    - /workspace/.boxctl/.env
+    - /workspace/.boxctl/.env.local
+    - /home/abox/.config/boxctl/mcp/*/.env (custom MCP credentials)
     """
     import os
     from pathlib import Path
@@ -116,11 +116,11 @@ def load_env_files() -> Dict[str, str]:
             logger.debug(f"Could not load {path}: {e}")
 
     # Project env files
-    load_env_file(Path("/workspace/.agentbox/.env"))
-    load_env_file(Path("/workspace/.agentbox/.env.local"))
+    load_env_file(Path("/workspace/.boxctl/.env"))
+    load_env_file(Path("/workspace/.boxctl/.env.local"))
 
     # Custom MCP env files
-    mcp_dir = Path("/home/abox/.config/agentbox/mcp")
+    mcp_dir = Path("/home/abox/.config/boxctl/mcp")
     if mcp_dir.exists():
         for mcp_path in mcp_dir.iterdir():
             if mcp_path.is_dir():
@@ -209,7 +209,7 @@ def main():
     parser.add_argument(
         "--meta",
         type=Path,
-        default=Path("/workspace/.agentbox/mcp-meta.json"),
+        default=Path("/workspace/.boxctl/mcp-meta.json"),
         help="Path to mcp-meta.json"
     )
     parser.add_argument(

@@ -23,7 +23,7 @@ Directories:
 ```
 Location: User's laptop/workstation
 Tools:
-  - agentbox         # Manage containers, MCP servers, config
+  - boxctl         # Manage containers, MCP servers, config
   - abox             # Quick launcher (abox claude, abox shell)
   - Web proxy        # Notification bridge + web UI
 
@@ -51,13 +51,13 @@ python script.py
 ### What USER Runs (Host System)
 ```bash
 # Manage your container
-agentbox start
-agentbox stop
-agentbox rebuild
+boxctl start
+boxctl stop
+boxctl rebuild
 
 # Add resources
-agentbox mcp add agentbox-analyst
-agentbox workspace add /path/to/code ro ref
+boxctl mcp add boxctl-analyst
+boxctl workspace add /path/to/code ro ref
 
 # Launch agents
 abox superclaude
@@ -70,7 +70,7 @@ abox shell
 ┌──────────────────┐
 │   Host System    │
 │                  │
-│  agentbox CLI    │──┐
+│  boxctl CLI    │──┐
 │  abox launcher   │  │ Creates/manages
 │  Web proxy       │  │
 └──────────────────┘  │
@@ -89,22 +89,22 @@ abox shell
 
 ## Coding Style (IMPORTANT)
 
-When adding features to agentbox or agentctl:
+When adding features to boxctl or agentctl:
 
 ### NO FLAGS - Use Positional Args Only
 ```bash
 # ✅ CORRECT - positional arguments
-agentbox workspace add /path/to/dir ro mydir
-agentbox mcp add agentbox-analyst
+boxctl workspace add /path/to/dir ro mydir
+boxctl mcp add boxctl-analyst
 agentctl worktree add feature-branch
 
 # ❌ WRONG - do not use flags
-agentbox workspace add /path/to/dir --mode ro --name mydir
-agentbox mcp add agentbox-analyst force
+boxctl workspace add /path/to/dir --mode ro --name mydir
+boxctl mcp add boxctl-analyst force
 agentctl worktree add feature-branch create
 ```
 
-**Rule:** All agentbox/agentctl commands use positional arguments in the correct order. No flags, no options. Follow existing command patterns.
+**Rule:** All boxctl/agentctl commands use positional arguments in the correct order. No flags, no options. Follow existing command patterns.
 
 ## Important Files
 
@@ -113,27 +113,27 @@ agentctl worktree add feature-branch create
 bin/container-init.sh       # Container startup script
 bin/agentctl               # Worktree management CLI
 bin/notify.sh              # Notification bridge
-agentbox/agentctl/         # Agentctl Python package
+boxctl/agentctl/         # Agentctl Python package
 ```
 
 ### Host-side (edit but test from host)
 ```
-agentbox/container.py      # Container lifecycle
-agentbox/proxy.py          # Notification proxy + web UI
-agentbox/cli.py           # Main CLI
+boxctl/container.py      # Container lifecycle
+boxctl/proxy.py          # Notification proxy + web UI
+boxctl/cli.py           # Main CLI
 Dockerfile.base           # Base image definition
 pyproject.toml            # Poetry dependencies (DO NOT use pip)
 ```
 
 ### Templates (copied to user projects)
 ```
-.agentbox/agents.md        # Agent instructions
-.agentbox/superagents.md   # Super agent instructions
-.agentbox/config.yml       # Project config
+.boxctl/agents.md        # Agent instructions
+.boxctl/superagents.md   # Super agent instructions
+.boxctl/config.yml       # Project config
 ```
 
 ### Python Dependencies (Poetry Project)
-**Agentbox uses Poetry** for dependency management:
+**Boxctl uses Poetry** for dependency management:
 ```bash
 # Add dependency - edit pyproject.toml:
 [project.dependencies]
@@ -147,7 +147,7 @@ pytest-mock = "^3.12.0"
 poetry install
 ```
 
-**Important:** Don't use `pip install` for agentbox dependencies - use Poetry.
+**Important:** Don't use `pip install` for boxctl dependencies - use Poetry.
 
 ## Testing Your Changes
 
@@ -202,20 +202,20 @@ notify.sh "Task Complete" "Awesome feature implemented" "normal"
 
 ## Quick Troubleshooting
 
-### "Command not found: agentbox"
-You're inside the container. `agentbox` runs on the host only.
-Use `agentctl` instead, or ask the user to run `agentbox` commands.
+### "Command not found: boxctl"
+You're inside the container. `boxctl` runs on the host only.
+Use `agentctl` instead, or ask the user to run `boxctl` commands.
 
 ### "Notification didn't appear"
 Check if web proxy is running on host:
 ```bash
-ls -la /home/abox/.agentbox/notify.sock
+ls -la /home/abox/.boxctl/notify.sock
 ```
-If missing, user needs to run: `agentbox proxy install --enable`
+If missing, user needs to run: `boxctl proxy install --enable`
 
 ### "Can't modify container config"
 You can't add MCP servers or workspaces from inside.
-User must run on host: `agentbox mcp add <name>` or `agentbox rebuild`
+User must run on host: `boxctl mcp add <name>` or `boxctl rebuild`
 
 ## Remember
 
@@ -227,7 +227,7 @@ User must run on host: `agentbox mcp add <name>` or `agentbox rebuild`
 - Run tests with pytest
 
 ❌ You CANNOT:
-- Run agentbox/abox commands (host-only)
+- Run boxctl/abox commands (host-only)
 - Add MCP servers (requires host rebuild)
 - Mount new directories (requires host config)
 - Access host filesystem outside mounts
@@ -237,14 +237,14 @@ User must run on host: `agentbox mcp add <name>` or `agentbox rebuild`
 2. Write tests for new features
 3. Run `pytest tests/` to ensure tests pass
 4. Commit changes (code + tests together)
-5. **After completing work:** Update `.agentbox/agents.md` or `.agentbox/superagents.md` with learnings to help future agents
+5. **After completing work:** Update `.boxctl/agents.md` or `.boxctl/superagents.md` with learnings to help future agents
 6. Notify when done!
 
 ## Self-Improvement
 
 After completing tasks, update the agent instructions to help future sessions:
 
-**Add project-specific notes to `.agentbox/agents.md` or `.agentbox/superagents.md`:**
+**Add project-specific notes to `.boxctl/agents.md` or `.boxctl/superagents.md`:**
 - Architecture details (key directories, files, patterns)
 - Common workflows or commands
 - Testing procedures

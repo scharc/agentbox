@@ -9,9 +9,9 @@
 #   OPENAI_BASE_URL - Base URL for OpenAI-compatible provider (optional)
 #   QWEN_MODEL - Model to use (optional, defaults to qwen3-coder)
 
-AGENTS_MD="/workspace/.agentbox/agents.md"
-SUPER_MD="/workspace/.agentbox/superagents.md"
-COMBINED="/tmp/agentbox-super-instructions.md"
+AGENTS_MD="/workspace/.boxctl/agents.md"
+SUPER_MD="/workspace/.boxctl/superagents.md"
+COMBINED="/tmp/boxctl-super-instructions.md"
 QWEN_MD="${HOME}/.qwen/QWEN.md"
 
 # Create combined instructions file
@@ -22,16 +22,17 @@ if [[ -f "${AGENTS_MD}" ]] && [[ -f "${SUPER_MD}" ]]; then
 fi
 
 # Export env var so MCP can also detect super mode
-export AGENTBOX_SUPER_MODE=true
+export BOXCTL_SUPER_MODE=true
 
 # Load .env files if they exist
-for envfile in ~/.env .env /workspace/.agentbox/.env; do
+for envfile in ~/.env .env /workspace/.boxctl/.env; do
+    # shellcheck source=/dev/null
     [[ -f "$envfile" ]] && source "$envfile"
 done
 
 if [[ -z "$OPENAI_API_KEY" ]]; then
     echo "Error: OPENAI_API_KEY not set" >&2
-    echo "Add to ~/.env, .env, or /workspace/.agentbox/.env" >&2
+    echo "Add to ~/.env, .env, or /workspace/.boxctl/.env" >&2
     exit 1
 fi
 

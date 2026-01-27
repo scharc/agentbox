@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: MIT
 # See LICENSE file in the project root for full license information.
 
-# Agentbox Base Image
+# boxctl Base Image
 # Rich development environment with all common tools
 
 FROM ubuntu:24.04
 
-# Track the Agentbox build version in the image metadata.
-ARG AGENTBOX_VERSION=dev
-LABEL io.agentbox.version=$AGENTBOX_VERSION
+# Track the boxctl build version in the image metadata.
+ARG BOXCTL_VERSION=dev
+LABEL io.boxctl.version=$BOXCTL_VERSION
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -207,21 +207,21 @@ RUN pip3 install --no-cache-dir --break-system-packages --ignore-installed \
     httpx \
     fastmcp
 
-# Copy and install agentbox package (needed for agentctl)
-COPY agentbox /tmp/agentbox-build/agentbox
-COPY pyproject.toml /tmp/agentbox-build/pyproject.toml
-COPY README.md /tmp/agentbox-build/README.md
+# Copy and install boxctl package (needed for agentctl)
+COPY boxctl /tmp/boxctl-build/boxctl
+COPY pyproject.toml /tmp/boxctl-build/pyproject.toml
+COPY README.md /tmp/boxctl-build/README.md
 RUN pip3 install --no-cache-dir --break-system-packages poetry-core \
-    && pip3 install --no-cache-dir --break-system-packages /tmp/agentbox-build \
-    && rm -rf /tmp/agentbox-build \
-    && rm -f /usr/local/bin/abox /usr/local/bin/agentbox  # Host-only CLIs
+    && pip3 install --no-cache-dir --break-system-packages /tmp/boxctl-build \
+    && rm -rf /tmp/boxctl-build \
+    && rm -f /usr/local/bin/abox /usr/local/bin/box /usr/local/bin/boxctl  # Host-only CLIs
 
 # Create directory structure
 RUN mkdir -p /workspace \
-    /agentbox/library/config \
-    /agentbox/library/mcp \
-    /agentbox/library/tools \
-    /agentbox/library/skills \
+    /boxctl/library/config \
+    /boxctl/library/mcp \
+    /boxctl/library/tools \
+    /boxctl/library/skills \
     /context
 
 # Copy container scripts
@@ -246,7 +246,7 @@ RUN chmod 755 /usr/local/bin/container-init.sh /usr/local/bin/install-packages.p
     /usr/local/bin/supercodex /usr/local/bin/supergemini /usr/local/bin/superqwen \
     /usr/local/bin/agentctl /usr/local/bin/abox-clipboard /usr/local/bin/start-litellm.py
 
-# Install bash completions for agentbox and bundled CLIs
+# Install bash completions for boxctl and bundled CLIs
 COPY bin/completions/*.bash /etc/bash_completion.d/
 
 # Install zsh completions

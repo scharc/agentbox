@@ -1,6 +1,6 @@
 # Parallel Work
 
-One of the most powerful things about Agentbox is running multiple agents simultaneously. One agent fixing a bug, another building a feature, a third writing tests. Each working independently, not stepping on each other.
+One of the most powerful things about Boxctl is running multiple agents simultaneously. One agent fixing a bug, another building a feature, a third writing tests. Each working independently, not stepping on each other.
 
 ## The Problem with Branches
 
@@ -19,9 +19,9 @@ Think of it like having multiple copies of your project, but they share the git 
 From the host:
 
 ```bash
-agentbox worktree add feature-auth     # Create worktree for this branch
-agentbox worktree add bugfix-123       # Another one
-agentbox worktree list                 # See all worktrees
+boxctl worktree add feature-auth     # Create worktree for this branch
+boxctl worktree add bugfix-123       # Another one
+boxctl worktree list                 # See all worktrees
 ```
 
 Inside the container, agents can create them too:
@@ -39,7 +39,7 @@ Worktrees appear at `/git-worktrees/worktree-<branch>/` inside the container.
 From the host:
 
 ```bash
-agentbox worktree new superclaude feature-auth    # Create worktree + start agent
+boxctl worktree new superclaude feature-auth    # Create worktree + start agent
 ```
 
 From inside the container, agents switch themselves:
@@ -55,13 +55,13 @@ When an agent switches worktrees, it sends a warning to any existing session ("I
 Sessions are tmux windows inside the container. Each agent runs in its own session. You can have multiple agents working simultaneously.
 
 ```bash
-agentbox session new superclaude              # Creates superclaude-1
-agentbox session new superclaude feature      # Creates superclaude-feature
-agentbox session new shell debug              # Shell session for debugging
+boxctl session new superclaude              # Creates superclaude-1
+boxctl session new superclaude feature      # Creates superclaude-feature
+boxctl session new shell debug              # Shell session for debugging
 
-agentbox session list                         # See all sessions
-agentbox session attach superclaude-1         # Jump to that session
-agentbox session remove superclaude-1         # Kill a session
+boxctl session list                         # See all sessions
+boxctl session attach superclaude-1         # Jump to that session
+boxctl session remove superclaude-1         # Kill a session
 ```
 
 ## The Picture
@@ -81,7 +81,7 @@ You're working on main, and an idea strikes - a refactoring that would make ever
 
 ```bash
 # Create a worktree and start an agent there
-agentbox worktree new superclaude refactor-cleanup
+boxctl worktree new superclaude refactor-cleanup
 ```
 
 Now you have two agents: one continuing your current work on main, one exploring the refactoring on a separate branch. They don't interfere.
@@ -93,8 +93,8 @@ When the refactoring is done, you merge it normally through git. The worktree is
 When you're done with a branch:
 
 ```bash
-agentbox worktree remove feature-auth    # Delete the worktree
-agentbox worktree prune                  # Clean up stale metadata
+boxctl worktree remove feature-auth    # Delete the worktree
+boxctl worktree prune                  # Clean up stale metadata
 ```
 
 From inside the container:
@@ -111,7 +111,7 @@ You can't remove the main `/workspace` - that's your primary checkout.
 Don't want to remember commands? Use the quick menu:
 
 ```bash
-agentbox q
+boxctl q
 ```
 
 This shows all sessions and worktrees visually. Press a letter to jump to one. See [Mobile Workflow](06-mobile.md) for more on the quick menu.

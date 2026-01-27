@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Marc Schütze <scharc@gmail.com>
 # SPDX-License-Identifier: MIT
 
-"""Integration tests for workspace mounts from .agentbox.yml."""
+"""Integration tests for workspace mounts from .boxctl.yml."""
 
 import pytest
 
@@ -27,7 +27,7 @@ class TestWorkspaceConfigMounts:
         result = run_abox("start", cwd=test_project)
         assert result.returncode == 0, f"Failed to start container: {result.stderr}"
 
-        container_name = f"agentbox-{test_project.name}"
+        container_name = f"boxctl-{test_project.name}"
         assert wait_for_container_ready(container_name, timeout=60)
 
         result = exec_in_container(

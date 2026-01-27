@@ -1,7 +1,7 @@
 """Tests for worktree utilities"""
 
 import pytest
-from agentbox.agentctl.worktree.utils import (
+from boxctl.agentctl.worktree.utils import (
     sanitize_branch_name,
     get_worktree_path,
 )

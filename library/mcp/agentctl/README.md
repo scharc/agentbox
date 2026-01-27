@@ -1,8 +1,8 @@
 # AgentCtl MCP Server
 
-**Control agentbox sessions and git worktrees from AI agents**
+**Control boxctl sessions and git worktrees from AI agents**
 
-This MCP server exposes agentbox's worktree and session management capabilities to AI agents, enabling them to autonomously switch between git branches, manage tmux sessions, and work on multiple features in parallel.
+This MCP server exposes boxctl's worktree and session management capabilities to AI agents, enabling them to autonomously switch between git branches, manage tmux sessions, and work on multiple features in parallel.
 
 ## Overview
 
@@ -29,14 +29,14 @@ This server uses the FastMCP framework, which provides:
 
 ## Installation
 
-The AgentCtl MCP is included in agentbox. It's automatically available when you start an agent session.
+The AgentCtl MCP is included in boxctl. It's automatically available when you start an agent session.
 
 Configuration file: `library/mcp/agentctl/config.json`
 
 ```json
 {
   "name": "agentctl",
-  "description": "Control agentbox sessions and git worktrees",
+  "description": "Control boxctl sessions and git worktrees",
   "config": {
     "command": "python3",
     "args": ["server_fastmcp.py"],
@@ -365,14 +365,14 @@ library/mcp/agentctl/
 └── README.md                # This file
 ```
 
-### Integration with Agentbox
+### Integration with boxctl
 
-The MCP integrates with existing agentbox infrastructure:
+The MCP integrates with existing boxctl infrastructure:
 
-1. **Worktree Management**: Uses `agentbox.agentctl.worktree` commands
+1. **Worktree Management**: Uses `boxctl.agentctl.worktree` commands
    - `agentctl worktree add` - Create worktrees
    - `agentctl worktree list` - List worktrees
-   - Metadata tracking in `.agentbox/worktrees.json`
+   - Metadata tracking in `.boxctl/worktrees.json`
 
 2. **Session Management**: Uses `agentctl` CLI commands
    - `agentctl a <agent>` - Spawn sessions (now with dynamic working directories)
@@ -380,7 +380,7 @@ The MCP integrates with existing agentbox infrastructure:
    - `agentctl d` - Detach client
 
 3. **Dynamic Working Directories**:
-   - Modified `agentbox/agentctl/cli.py` to detect worktree directories
+   - Modified `boxctl/agentctl/cli.py` to detect worktree directories
    - Sessions spawned in worktrees use worktree path
    - Sessions in /workspace use /workspace
 
@@ -447,7 +447,7 @@ pytest tests/test_mcp_agentctl/test_mcp_server.py -v
 ### Tool returns "Not in a tmux session"
 
 Some tools (`switch_session`, `detach_and_continue`) require being in a tmux session.
-- Make sure you're running the agent inside agentbox: `abox claude`
+- Make sure you're running the agent inside boxctl: `abox claude`
 
 ### "Branch not found" error
 
@@ -494,9 +494,9 @@ Potential additions (not in current MVP):
 
 - [Git Worktrees Quick Start](/workspace/WORKTREE_QUICKSTART.md)
 - [Worktree Implementation Roadmap](/workspace/WORKTREE_IMPLEMENTATION_ROADMAP.md)
-- [AgentCtl CLI Documentation](/workspace/agentbox/agentctl/)
+- [AgentCtl CLI Documentation](/workspace/boxctl/agentctl/)
 - [MCP Specification](https://modelcontextprotocol.io/)
 
 ## License
 
-Part of the agentbox project.
+Part of the boxctl project.

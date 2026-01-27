@@ -2,7 +2,7 @@
 """Agentctl entry point script"""
 
 import sys
-from agentbox.agentctl.cli import cli
+from boxctl.agentctl.cli import cli
 
 if __name__ == "__main__":
     sys.exit(cli())
