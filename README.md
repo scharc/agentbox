@@ -341,7 +341,7 @@ The `boxctl migrate` command will also warn about any legacy containers or envir
 
 - **Docker** - Container runtime
 - **Python 3.12+** - For the CLI
-- **Poetry** - Python dependency management
+- **Poetry 2+** - Python dependency management ([install via pipx](https://python-poetry.org/docs/#installation))
 - **Agent CLI** - At least one: [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex, Gemini, or Qwen
 
 ## Documentation

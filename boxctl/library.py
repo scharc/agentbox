@@ -29,8 +29,10 @@ def auto_detect_mcp_config(mcp_path: Path) -> Optional[Dict[str, Any]]:
 
     Examines pyproject.toml to extract:
     - Entry point command from [project.scripts]
-    - Dependencies from [project.dependencies]
     - Name and description from [project]
+
+    No hardcoded paths are generated. Path resolution happens at runtime
+    via generate-mcp-config.py using source_type/source_name metadata.
 
     Args:
         mcp_path: Path to MCP directory
@@ -55,38 +57,20 @@ def auto_detect_mcp_config(mcp_path: Path) -> Optional[Dict[str, Any]]:
     # Find entry point from [project.scripts]
     scripts = project.get("scripts", {})
     command = None
-    command_name = None
 
     if scripts:
         # Use first script as the command
-        command_name, entry_point = next(iter(scripts.items()))
-        command = command_name
-
-    # Get dependencies
-    dependencies = project.get("dependencies", [])
-    # Filter out version specifiers for cleaner install
-    pip_deps = []
-    for dep in dependencies:
-        # Extract package name (before any version specifier)
-        pkg_name = re.split(r'[<>=!~\[]', dep)[0].strip()
-        if pkg_name:
-            pip_deps.append(pkg_name)
-
-    # Determine how to run the server
-    # Container path for user MCP directory
-    container_mcp_path = f"{ContainerPaths.user_mcp_dir()}/{mcp_path.name}"
+        command, _ = next(iter(scripts.items()))
 
     if command:
-        # Has entry point script - install package and use command
+        # Has entry point script - just specify the command name
+        # Path resolution (uv --directory) happens at runtime
         config = {
             "name": name,
             "description": description,
             "config": {
                 "command": command,
                 "env": {}
-            },
-            "install": {
-                "pip": [f"-e {container_mcp_path}"]
             },
             "auto_detected": True
         }
@@ -98,18 +82,14 @@ def auto_detect_mcp_config(mcp_path: Path) -> Optional[Dict[str, Any]]:
             for pkg_dir in src_dir.iterdir():
                 if pkg_dir.is_dir() and not pkg_dir.name.startswith((".", "_")):
                     module_name = pkg_dir.name
+                    # Use relative module path - resolution happens at runtime
                     config = {
                         "name": name,
                         "description": description,
                         "config": {
                             "command": "python3",
                             "args": ["-m", f"{module_name}.server"],
-                            "env": {
-                                "PYTHONPATH": f"{container_mcp_path}/src"
-                            }
-                        },
-                        "install": {
-                            "pip": pip_deps if pip_deps else []
+                            "env": {}
                         },
                         "auto_detected": True
                     }
@@ -212,6 +192,26 @@ class LibraryManager:
             return library_path
 
         return None
+
+    def get_mcp_source_type(self, mcp_path: Path) -> str:
+        """Determine the source type of an MCP based on its path.
+
+        Args:
+            mcp_path: Path to the MCP directory
+
+        Returns:
+            Source type: "library", "custom", or "project"
+        """
+        mcp_path_str = str(mcp_path.resolve())
+        user_mcp_str = str(self.user_mcp_dir.resolve())
+        library_mcp_str = str(self.mcp_dir.resolve())
+
+        if mcp_path_str.startswith(user_mcp_str):
+            return "custom"
+        elif mcp_path_str.startswith(library_mcp_str):
+            return "library"
+        else:
+            return "project"
 
     def get_skill_path(self, name: str) -> Optional[Path]:
         """Get path to skill SKILL.md, checking custom first then library.

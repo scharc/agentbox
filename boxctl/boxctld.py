@@ -61,6 +61,39 @@ def _ssh_socket_path() -> Path:
     return get_config().socket_dir / "ssh.sock"
 
 
+def _check_docker_port_binding(port: int) -> Optional[str]:
+    """Check if a port is bound by a Docker container.
+
+    Returns the container name if found, None otherwise.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}\t{{.Ports}}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+
+        port_str = f":{port}->"
+        port_str_alt = f"0.0.0.0:{port}->"
+        port_str_ipv6 = f"[::]:{port}->"
+
+        for line in result.stdout.strip().split("\n"):
+            if not line:
+                continue
+            parts = line.split("\t", 1)
+            if len(parts) < 2:
+                continue
+            container_name, ports = parts
+            if port_str in ports or port_str_alt in ports or port_str_ipv6 in ports:
+                return container_name
+        return None
+    except Exception:
+        return None
+
+
 class boxctld:
     def __init__(self, socket_path: Path) -> None:
         self.socket_path = socket_path
@@ -334,6 +367,14 @@ class boxctld:
 
         if not container or not host_port:
             return {"ok": False, "error": "missing required fields: container, host_port"}
+
+        # Check if port is already bound by Docker
+        docker_container = _check_docker_port_binding(host_port)
+        if docker_container:
+            return {
+                "ok": False,
+                "error": f"Port {host_port} is already bound by Docker container '{docker_container}'"
+            }
 
         # Send request to container to set up remote forward via SSH
         with self.ssh_tunnel_server.connections_lock:

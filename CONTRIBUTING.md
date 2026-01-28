@@ -85,7 +85,7 @@ Boxctl is a daily-driver work-in-progress. Some areas work great, others need lo
 
 - **Python 3.10+** - Language runtime
 - **Docker 24+** - Container platform
-- **Poetry** - Python dependency management (recommended)
+- **Poetry 2+** - Python dependency management (required)
 - **Git** - Version control
 - **Linux or macOS** - Primary development platforms
 
@@ -99,10 +99,11 @@ cd boxctl
 
 **2. Install dependencies:**
 
-**With Poetry (recommended):**
+**With Poetry (required):**
 ```bash
-# Install Poetry if needed
-curl -sSL https://install.python-poetry.org | python3 -
+# Install Poetry 2+ if needed (choose one):
+pipx install poetry              # If you have pipx (recommended)
+# OR visit https://python-poetry.org/docs/#installation
 
 # Install dependencies
 poetry install

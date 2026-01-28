@@ -102,8 +102,15 @@ def _add_mcp(name: str, lib_manager: LibraryManager, pctx) -> tuple[bool, bool]:
 
     # Store MCP metadata (including config for generate-mcp-config.py)
     meta = _load_mcp_meta(pctx.boxctl_dir)
+
+    # Determine source type and name for smart path resolution at runtime
+    source_type = lib_manager.get_mcp_source_type(mcp_path)
+    source_name = mcp_path.name  # Directory name
+
     server_meta = {
-        "config": mcp_config  # Store full config for config generation
+        "config": mcp_config,  # Store full config for config generation
+        "source_type": source_type,  # "library", "custom", or "project"
+        "source_name": source_name,  # Directory name for path resolution
     }
     if "install" in template:
         server_meta["install"] = template["install"]

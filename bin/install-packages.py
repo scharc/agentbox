@@ -54,9 +54,54 @@ class PackageSpec:
     npm: List[str] = field(default_factory=list)
     post: List[str] = field(default_factory=list)
 
+    # Path resolution for different source types
+    MCP_SOURCE_PATHS = {
+        "library": "/boxctl/library/mcp",
+        "custom": "/home/abox/.config/boxctl/mcp",
+        "project": "/workspace/.boxctl/mcp",
+    }
+
+    @classmethod
+    def _resolve_mcp_path(cls, pkg: str, source_type: str, source_name: str) -> str:
+        """Resolve MCP package path based on source metadata.
+
+        Handles:
+        - "." → full path to MCP directory
+        - "-e ." → "-e /full/path/to/mcp"
+        - Absolute paths → returned as-is
+        """
+        base_path = cls.MCP_SOURCE_PATHS.get(source_type)
+        if not base_path:
+            return pkg
+
+        mcp_dir = f"{base_path}/{source_name}"
+
+        if pkg == ".":
+            return mcp_dir
+        elif pkg == "-e .":
+            return f"-e {mcp_dir}"
+        elif pkg.startswith("-e ") and pkg.endswith(" ."):
+            # Handle "-e ." with flags
+            return pkg.replace(" .", f" {mcp_dir}")
+        else:
+            return pkg
+
+    @classmethod
+    def _get_mcp_dir(cls, source_type: str, source_name: str) -> Optional[Path]:
+        """Get the MCP directory path based on source metadata."""
+        base_path = cls.MCP_SOURCE_PATHS.get(source_type)
+        if not base_path or not source_name:
+            return None
+        return Path(base_path) / source_name
+
     @classmethod
     def from_mcp_meta(cls, meta_path: Path):
-        """Extract packages from mcp-meta.json."""
+        """Extract packages from mcp-meta.json with smart path resolution.
+
+        Auto-detects install requirements if not explicitly specified:
+        - pyproject.toml → pip install the directory
+        - package.json → npm install the directory
+        """
         with open(meta_path) as f:
             data = json.load(f)
 
@@ -64,17 +109,38 @@ class PackageSpec:
         for server_name, server_config in data.get('servers', {}).items():
             install = server_config.get('install', {})
 
-            # Handle pip packages
+            # Get source metadata for path resolution
+            source_type = server_config.get('source_type', '')
+            source_name = server_config.get('source_name', '')
+
+            # Auto-detect install requirements if not specified
+            if not install and source_type and source_name:
+                mcp_dir = cls._get_mcp_dir(source_type, source_name)
+                if mcp_dir and mcp_dir.exists():
+                    if (mcp_dir / "pyproject.toml").exists():
+                        # Python package - pip install it
+                        pip.append(str(mcp_dir))
+                        log_info(f"Auto-detected Python package: {server_name}")
+                    elif (mcp_dir / "package.json").exists():
+                        # Node.js package - npm install it
+                        npm.append(str(mcp_dir))
+                        log_info(f"Auto-detected Node.js package: {server_name}")
+
+            # Handle pip packages with path resolution
             pip_pkgs = install.get('pip', [])
             if isinstance(pip_pkgs, str):
                 pip_pkgs = [pip_pkgs]
-            pip.extend(pip_pkgs)
+            for pkg in pip_pkgs:
+                resolved = cls._resolve_mcp_path(pkg, source_type, source_name)
+                pip.append(resolved)
 
-            # Handle npm packages
+            # Handle npm packages with path resolution
             npm_pkgs = install.get('npm', [])
             if isinstance(npm_pkgs, str):
                 npm_pkgs = [npm_pkgs]
-            npm.extend(npm_pkgs)
+            for pkg in npm_pkgs:
+                resolved = cls._resolve_mcp_path(pkg, source_type, source_name)
+                npm.append(resolved)
 
             # Handle post commands
             post_cmds = install.get('post', [])

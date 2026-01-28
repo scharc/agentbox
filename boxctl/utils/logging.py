@@ -56,15 +56,9 @@ def _get_log_dir() -> Path:
     if env_log_file:
         return Path(env_log_file).parent
 
-    # Default to .boxctl/logs in workspace or home
+    # Use .boxctl/logs in workspace (boxctl requires .boxctl to exist)
     workspace = Path(os.environ.get("BOXCTL_PROJECT_DIR", Path.cwd()))
-    boxctl_dir = workspace / ".boxctl"
-
-    # Fall back to home directory if workspace doesn't have .boxctl
-    if not boxctl_dir.exists():
-        boxctl_dir = Path.home() / ".boxctl"
-
-    log_dir = boxctl_dir / "logs"
+    log_dir = workspace / ".boxctl" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir
 

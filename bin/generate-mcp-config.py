@@ -4,6 +4,11 @@
 Reads mcp-meta.json and port mapping to generate .mcp.json in project root
 with SSE URLs for pre-started servers and STDIO for others.
 
+Smart config resolution:
+- Detects pyproject.toml → wraps command with `uv --directory <path> run`
+- Detects package.json → wraps command with `npx --prefix <path>`
+- Resolves relative .py paths in args to absolute paths
+
 Usage:
     generate-mcp-config.py [--meta PATH] [--ports PATH] [--output PATH]
 """
@@ -12,7 +17,7 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 # Configure logging
 logging.basicConfig(
@@ -20,6 +25,99 @@ logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+# Path resolution for different source types
+MCP_SOURCE_PATHS = {
+    "library": "/boxctl/library/mcp",
+    "custom": "/home/abox/.config/boxctl/mcp",
+    "project": "/workspace/.boxctl/mcp",
+}
+
+
+def get_mcp_dir(source_type: str, source_name: str) -> Optional[Path]:
+    """Get the container path to an MCP directory based on source metadata.
+
+    Args:
+        source_type: "library", "custom", or "project"
+        source_name: Directory name of the MCP
+
+    Returns:
+        Path to MCP directory, or None if source_type is unknown
+    """
+    base_path = MCP_SOURCE_PATHS.get(source_type)
+    if not base_path:
+        return None
+    return Path(base_path) / source_name
+
+
+def _is_writable(path: Path) -> bool:
+    """Check if a directory is writable."""
+    import os
+    return os.access(path, os.W_OK)
+
+
+def resolve_mcp_config(config: Dict[str, Any], mcp_dir: Path) -> Dict[str, Any]:
+    """Resolve MCP config with smart detection of project type.
+
+    Detects:
+    - pyproject.toml (writable) → wrap with `uv --directory <path> run`
+    - pyproject.toml (read-only) → use command directly (pip-installed)
+    - package.json (writable) → wrap with `npx --prefix <path>`
+    - package.json (read-only) → use command directly (npm-installed)
+    - Neither → resolve relative .py paths in args
+
+    Args:
+        config: Original config from mcp-meta.json
+        mcp_dir: Path to the MCP directory
+
+    Returns:
+        Resolved config with proper command/args
+    """
+    resolved = config.copy()
+    command = config.get("command", "")
+    args = config.get("args", [])
+
+    has_pyproject = (mcp_dir / "pyproject.toml").exists()
+    has_package_json = (mcp_dir / "package.json").exists()
+    is_writable = _is_writable(mcp_dir)
+
+    if has_pyproject:
+        if is_writable:
+            # Writable Python package - wrap with uv --directory
+            resolved["command"] = "uv"
+            resolved["args"] = ["--directory", str(mcp_dir), "run", command] + list(args)
+            logger.debug(f"Wrapped Python package with uv: {mcp_dir}")
+        else:
+            # Read-only Python package - assume pip-installed, use command directly
+            # Keep original command and args
+            logger.debug(f"Read-only Python package, using pip-installed command: {command}")
+
+    elif has_package_json:
+        if is_writable:
+            # Writable Node.js package - wrap with npx --prefix
+            resolved["command"] = "npx"
+            resolved["args"] = ["--prefix", str(mcp_dir), command] + list(args)
+            logger.debug(f"Wrapped Node.js package with npx: {mcp_dir}")
+        else:
+            # Read-only Node.js package - assume npm-installed, use command directly
+            logger.debug(f"Read-only Node.js package, using npm-installed command: {command}")
+
+    else:
+        # Raw script - resolve relative paths in args
+        resolved_args = []
+        for arg in args:
+            if isinstance(arg, str) and not arg.startswith("/") and (
+                arg.endswith(".py") or arg.endswith(".js") or arg.endswith(".sh")
+            ):
+                # Relative script path - resolve to absolute
+                resolved_args.append(str(mcp_dir / arg))
+            else:
+                resolved_args.append(arg)
+        resolved["args"] = resolved_args
+        logger.debug(f"Resolved relative paths for raw script: {mcp_dir}")
+
+    return resolved
 
 
 # Library configs for STDIO servers (command + args)
@@ -167,7 +265,13 @@ def generate_mcp_config(
     existing_config: Dict[str, Any],
     loaded_env: Dict[str, str]
 ) -> Dict[str, Any]:
-    """Generate MCP config with SSE for available servers, STDIO for others."""
+    """Generate MCP config with SSE for available servers, STDIO for others.
+
+    Uses smart config resolution:
+    - Detects pyproject.toml → wraps with uv --directory
+    - Detects package.json → wraps with npx --prefix
+    - Resolves relative script paths to absolute
+    """
 
     mcp_servers = {}
 
@@ -181,18 +285,34 @@ def generate_mcp_config(
             }
             logger.info(f"Configured '{name}' with SSE: {port_info['url']}")
         elif "config" in server_meta:
-            # Use stored config from mcp-meta.json
+            # Use stored config from mcp-meta.json with smart resolution
             config = server_meta["config"].copy()
+
+            # Get MCP directory for smart resolution
+            source_type = server_meta.get("source_type")
+            source_name = server_meta.get("source_name")
+
+            if source_type and source_name:
+                mcp_dir = get_mcp_dir(source_type, source_name)
+                if mcp_dir and mcp_dir.exists():
+                    # Smart resolution based on project type
+                    config = resolve_mcp_config(config, mcp_dir)
+                    logger.info(f"Configured '{name}' with smart resolution ({source_type})")
+                else:
+                    logger.warning(f"MCP dir not found for '{name}': {mcp_dir}")
+            else:
+                logger.info(f"Configured '{name}' from stored config (no source metadata)")
+
             # Resolve ${VAR} references in env using loaded env files
             if "env" in config and isinstance(config["env"], dict):
                 config["env"] = resolve_env_vars(config["env"], loaded_env)
+
             mcp_servers[name] = config
-            logger.info(f"Configured '{name}' from stored config")
         elif name in STDIO_CONFIGS:
-            # Fallback to hardcoded STDIO config
+            # Fallback to hardcoded STDIO config (legacy support)
             config = STDIO_CONFIGS[name].copy()
             mcp_servers[name] = config
-            logger.info(f"Configured '{name}' with STDIO fallback")
+            logger.info(f"Configured '{name}' with STDIO fallback (legacy)")
         else:
             # Last resort - check existing config
             if name in existing_config.get("mcpServers", {}):

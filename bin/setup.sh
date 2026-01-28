@@ -54,8 +54,49 @@ cd "$root_dir"
 
 print_banner
 
-if ! command -v poetry >/dev/null 2>&1; then
-  echo "poetry not found. Install Poetry first: https://python-poetry.org/" >&2
+# Check for Poetry 2+
+check_poetry() {
+  if ! command -v poetry >/dev/null 2>&1; then
+    echo "Poetry not found." >&2
+    return 1
+  fi
+
+  # Get Poetry version (output: "Poetry (version X.Y.Z)")
+  local version_output
+  version_output=$(poetry --version 2>/dev/null)
+  local major_version
+  major_version=$(echo "$version_output" | sed -n 's/.*version \([0-9]*\).*/\1/p')
+
+  if [[ -z "$major_version" ]]; then
+    echo "Could not determine Poetry version." >&2
+    return 1
+  fi
+
+  if [[ "$major_version" -lt 2 ]]; then
+    echo "Poetry version $major_version.x found, but version 2+ is required." >&2
+    return 1
+  fi
+
+  return 0
+}
+
+show_poetry_install_instructions() {
+  echo "" >&2
+  echo "To install Poetry 2+:" >&2
+  if command -v pipx >/dev/null 2>&1; then
+    echo "  pipx install poetry" >&2
+    echo "" >&2
+    echo "Or upgrade if already installed:" >&2
+    echo "  pipx upgrade poetry" >&2
+  else
+    echo "  Option 1: Install pipx first, then use 'pipx install poetry'" >&2
+    echo "  Option 2: https://python-poetry.org/docs/#installation" >&2
+  fi
+  echo "" >&2
+}
+
+if ! check_poetry; then
+  show_poetry_install_instructions
   exit 1
 fi
 
@@ -111,11 +152,14 @@ if [[ -n "$shell" && "$shell" != "skip" ]]; then
       ;;
   esac
 
+  rc_modified="false"
+
   if [[ -f "$rc_file" ]] && grep -Fqx "$completion_line" "$rc_file"; then
     echo "Shell completion already enabled in $rc_file"
   else
     echo "$completion_line" >> "$rc_file"
     echo "Added shell completion to $rc_file"
+    rc_modified="true"
   fi
 
   # Add bin directory to PATH
@@ -130,6 +174,7 @@ if [[ -n "$shell" && "$shell" != "skip" ]]; then
       echo "$path_line"
     } >> "$rc_file"
     echo "Added boxctl bin to PATH in $rc_file"
+    rc_modified="true"
   fi
 
   # Add abox alias
@@ -144,6 +189,14 @@ if [[ -n "$shell" && "$shell" != "skip" ]]; then
       echo "$alias_line"
     } >> "$rc_file"
     echo "Added abox alias to $rc_file"
+    rc_modified="true"
+  fi
+
+  # Hint to source the file if changes were made
+  if [[ "$rc_modified" == "true" ]]; then
+    echo ""
+    echo "To use abox now, run:"
+    echo "  source $rc_file"
   fi
 fi
 

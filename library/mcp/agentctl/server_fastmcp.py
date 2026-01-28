@@ -6,6 +6,7 @@ This provides worktree management, session switching, and autonomous agent opera
 """
 
 import os
+import shlex
 import socket
 import subprocess
 import json
@@ -1578,15 +1579,95 @@ def _ensure_packages_section(config: dict) -> None:
             config["packages"][manager] = []
 
 
+def _run_install_command(package: str, manager: PackageManager) -> tuple[bool, str]:
+    """Run the install command for a package.
+
+    Returns:
+        (success, output_or_error)
+    """
+    commands = {
+        "npm": ["npm", "install", "-g", package],
+        "pip": ["pip", "install", package],
+        "apt": ["sudo", "bash", "-c", f"apt-get update && apt-get install -y {shlex.quote(package)}"],
+        "cargo": ["cargo", "install", package],
+        "post": ["bash", "-c", package],  # post runs the package as a shell command
+    }
+
+    cmd = commands.get(manager)
+    if not cmd:
+        return False, f"Unknown manager: {manager}"
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout
+        )
+        if result.returncode == 0:
+            return True, result.stdout
+        else:
+            return False, result.stderr or result.stdout or "Install failed"
+    except subprocess.TimeoutExpired:
+        return False, "Installation timed out after 5 minutes"
+    except Exception as e:
+        return False, str(e)
+
+
+def _run_uninstall_command(package: str, manager: PackageManager) -> tuple[bool, str]:
+    """Run the uninstall command for a package.
+
+    Returns:
+        (success, output_or_error)
+    """
+    # Post commands are shell scripts - there's no standard uninstall
+    if manager == "post":
+        return False, "Cannot uninstall 'post' entries - they are shell commands, not packages"
+
+    commands = {
+        "npm": ["npm", "uninstall", "-g", package],
+        "pip": ["pip", "uninstall", "-y", package],
+        "apt": ["sudo", "apt-get", "remove", "-y", package],
+        "cargo": ["cargo", "uninstall", package],
+    }
+
+    cmd = commands.get(manager)
+    if not cmd:
+        return False, f"Unknown manager: {manager}"
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout
+        )
+        if result.returncode == 0:
+            return True, result.stdout
+        else:
+            return False, result.stderr or result.stdout or "Uninstall failed"
+    except subprocess.TimeoutExpired:
+        return False, "Uninstall timed out after 5 minutes"
+    except Exception as e:
+        return False, str(e)
+
+
 @mcp.tool()
 def add_dependency(
     package: str,
     manager: PackageManager,
+    install_now: bool = False,
 ) -> dict:
     """Add a project dependency to the boxctl config file.
 
     Adds a package to the specified package manager's list in the project config.
     These dependencies will be installed when the container is built or rebased.
+
+    IMPORTANT: If you install a package directly (e.g., `npm install -g cowsay`),
+    it will NOT survive a container rebase. Always use this tool to make installed
+    packages permanent. You can either:
+    1. Install first, then call this tool to persist it
+    2. Call this tool with install_now=True to do both at once
 
     Syntax examples for each manager:
     - npm: "lodash", "typescript@^5.0.0", "express@latest"
@@ -1603,6 +1684,8 @@ def add_dependency(
     Args:
         package: Package name with optional version specifier (syntax depends on manager)
         manager: Package manager - one of: npm, pip, apt, cargo, post
+        install_now: If True, also installs the package immediately (default: False).
+                    Use this when adding a new dependency you need right now.
 
     Returns:
         Dict with success status and updated dependency list.
@@ -1615,40 +1698,65 @@ def add_dependency(
 
     packages_list = config["packages"][manager]
 
-    # Check if already present
-    if package in packages_list:
-        return {
-            "success": True,
-            "already_present": True,
-            "manager": manager,
-            "package": package,
-            "packages": packages_list,
-            "message": f"Package '{package}' already in {manager} dependencies"
+    # Check if already present in config
+    already_in_config = package in packages_list
+
+    # Install immediately if requested
+    install_result = None
+    if install_now:
+        success, output = _run_install_command(package, manager)
+        install_result = {
+            "installed": success,
+            "output": output[:500] if len(output) > 500 else output,  # Truncate long output
         }
+        if not success:
+            # Installation failed - still add to config but warn
+            install_result["warning"] = "Installation failed, but package added to config for next rebase"
 
-    # Add the package
-    packages_list.append(package)
+    # Add to config if not already present
+    if not already_in_config:
+        packages_list.append(package)
+        error = _save_config(config)
+        if error:
+            return {"success": False, "error": error}
 
-    # Save config
-    error = _save_config(config)
-    if error:
-        return {"success": False, "error": error}
-
-    return {
+    # Build response
+    result = {
         "success": True,
-        "added": True,
         "manager": manager,
         "package": package,
         "packages": packages_list,
-        "message": f"Added '{package}' to {manager} dependencies. "
-                  f"Run 'abox rebase' on the host to install."
     }
+
+    if already_in_config:
+        result["already_present"] = True
+        if install_now and install_result:
+            result["install_result"] = install_result
+            if install_result.get("installed"):
+                result["message"] = f"Package '{package}' already in config, installed successfully"
+            else:
+                result["message"] = f"Package '{package}' already in config, installation failed: {install_result.get('output', 'unknown error')}"
+        else:
+            result["message"] = f"Package '{package}' already in {manager} dependencies"
+    else:
+        result["added"] = True
+        if install_now and install_result:
+            result["install_result"] = install_result
+            if install_result.get("installed"):
+                result["message"] = f"Added '{package}' to {manager} dependencies and installed successfully"
+            else:
+                result["message"] = f"Added '{package}' to config (will install on rebase). Immediate install failed: {install_result.get('output', 'unknown error')}"
+        else:
+            result["message"] = f"Added '{package}' to {manager} dependencies. Run 'abox rebase' on the host to install."
+
+    return result
 
 
 @mcp.tool()
 def remove_dependency(
     package: str,
     manager: PackageManager,
+    uninstall_now: bool = False,
 ) -> dict:
     """Remove a project dependency from the boxctl config file.
 
@@ -1662,6 +1770,8 @@ def remove_dependency(
     Args:
         package: Package name to remove (must match exactly as it was added)
         manager: Package manager - one of: npm, pip, apt, cargo, post
+        uninstall_now: If True, also uninstalls the package immediately (default: False).
+                      Note: 'post' entries cannot be uninstalled as they are shell commands.
 
     Returns:
         Dict with success status and updated dependency list.
@@ -1674,34 +1784,56 @@ def remove_dependency(
 
     packages_list = config["packages"][manager]
 
-    # Check if present
-    if package not in packages_list:
-        return {
-            "success": True,
-            "not_found": True,
-            "manager": manager,
-            "package": package,
-            "packages": packages_list,
-            "message": f"Package '{package}' not found in {manager} dependencies"
+    # Check if present in config
+    was_in_config = package in packages_list
+
+    # Uninstall immediately if requested
+    uninstall_result = None
+    if uninstall_now:
+        success, output = _run_uninstall_command(package, manager)
+        uninstall_result = {
+            "uninstalled": success,
+            "output": output[:500] if len(output) > 500 else output,  # Truncate long output
         }
 
-    # Remove the package
-    packages_list.remove(package)
+    # Remove from config if present
+    if was_in_config:
+        packages_list.remove(package)
+        error = _save_config(config)
+        if error:
+            return {"success": False, "error": error}
 
-    # Save config
-    error = _save_config(config)
-    if error:
-        return {"success": False, "error": error}
-
-    return {
+    # Build response
+    result = {
         "success": True,
-        "removed": True,
         "manager": manager,
         "package": package,
         "packages": packages_list,
-        "message": f"Removed '{package}' from {manager} dependencies. "
-                  f"Note: Already-installed packages remain until container rebuild."
     }
+
+    if not was_in_config:
+        result["not_found"] = True
+        if uninstall_now and uninstall_result:
+            result["uninstall_result"] = uninstall_result
+            if uninstall_result.get("uninstalled"):
+                result["message"] = f"Package '{package}' not in config, but uninstalled successfully"
+            else:
+                result["message"] = f"Package '{package}' not in config, uninstall failed: {uninstall_result.get('output', 'unknown error')}"
+        else:
+            result["message"] = f"Package '{package}' not found in {manager} dependencies"
+    else:
+        result["removed"] = True
+        if uninstall_now and uninstall_result:
+            result["uninstall_result"] = uninstall_result
+            if uninstall_result.get("uninstalled"):
+                result["message"] = f"Removed '{package}' from {manager} dependencies and uninstalled successfully"
+            else:
+                result["message"] = f"Removed '{package}' from config. Uninstall failed: {uninstall_result.get('output', 'unknown error')}"
+        else:
+            result["message"] = f"Removed '{package}' from {manager} dependencies. " \
+                              f"Note: Already-installed packages remain until container rebuild."
+
+    return result
 
 
 @mcp.tool()
